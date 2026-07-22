@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>포트폴리오 리밸런싱</title>
+<link rel="manifest" href="manifest.json" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="theme-color" content="#12151b" />
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.7/babel.min.js"></script>
+<style>
+  html, body { margin:0; padding:0; background:#12151b; }
+  * { box-sizing: border-box; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo, useCallback } = React;
+
+// ---------- helpers ----------
+const num = (v) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
+const sum = (arr) => arr.reduce((a, b) => a + (b || 0), 0);
+const fmt = (n) => (n === null || n === undefined || isNaN(n)) ? "-" : Math.round(n).toLocaleString("ko-KR");
+const fmtPct = (n) => (n === null || n === undefined || isNaN(n)) ? "-" : (n * 100).toFixed(1) + "%";
+
+const toDisplay = (v) => {
+  if (v === "" || v === undefined || v === null) return "";
+  const cleaned = String(v).replace(/[^0-9.-]/g, "");
+  if (cleaned === "" || cleaned === "-") return cleaned;
+  const n = Number(cleaned);
+  if (isNaN(n)) return "";
+  return n.toLocaleString("ko-KR", { maximumFractionDigits: 4 });
+};
+const fromDisplay = (v) => v.replace(/,/g, "");
+
+function rankDesc(arr) {
+  const valid = arr.map((v, i) => ({ v, i })).filter((x) => x.v !== null && x.v !== undefined && !isNaN(x.v));
+  const sorted = [...valid].sort((a, b) => b.v - a.v);
+  const ranks = new Array(arr.length).fill(null);
+  sorted.forEach((item, idx) => {
+    if (idx > 0 && sorted[idx].v === sorted[idx - 1].v) ranks[item.i] = ranks[sorted[idx - 1].i];
+    else ranks[item.i] = idx + 1;
+  });
+  return ranks;
+}
+
+let __idCounter = 0;
+const genId = () => `id-${Date.now()}-${__idCounter++}-${Math.random().toString(36).slice(2, 8)}`;
+
+const emptyStock = () => ({ id: genId(), name: "", code: "", qty: "", buyPrice: "", curPrice: "", virtualSell: "" });
+const emptyCash = () => ({ id: genId(), name: "", cash: "", pledged: "", used: "" });
+
+const seedStocks = [
+  { name: "LG화학(우)", code: "051915", qty: "52", buyPrice: "110965", curPrice: "113600" },
+  { name: "에코프로비엠", code: "247540", qty: "31", buyPrice: "191116", curPrice: "106100" },
+  { name: "삼성SDI", code: "006400", qty: "11", buyPrice: "169373", curPrice: "410000" },
+  { name: "피엔티", code: "137400", qty: "62", buyPrice: "40480", curPrice: "28150" },
+  { name: "포스코퓨쳐엠", code: "003670", qty: "9", buyPrice: "245547", curPrice: "138200" },
+  { name: "서연이화", code: "200880", qty: "67", buyPrice: "13581", curPrice: "10600" },
+  { name: "우신시스템", code: "017370", qty: "80", buyPrice: "7044", curPrice: "4080" },
+  { name: "시프트업", code: "462870", qty: "30", buyPrice: "33160", curPrice: "31700" },
+].map((s) => ({ id: genId(), virtualSell: "", ...s }));
+
+const seedCash = [
+  { name: "미래에셋통장(NAVER)", cash: "3979767", pledged: "", used: "100000" },
+  { name: "머니하나통장(NAVER)", cash: "0", pledged: "", used: "" },
+  { name: "토스통장", cash: "0", pledged: "", used: "" },
+  { name: "중개형ISA(키움)", cash: "0", pledged: "", used: "" },
+  { name: "현금", cash: "0", pledged: "1000000", used: "" },
+  { name: "외화통장(토스)", cash: "0", pledged: "", used: "" },
+  { name: "생일선물통장(카뱅&KB)", cash: "120589", pledged: "", used: "" },
+  { name: "건강통장(KB)", cash: "105114", pledged: "950000", used: "" },
+  { name: "부모님동생(KB)", cash: "437878", pledged: "900000", used: "" },
+  { name: "문화생활(KB)", cash: "94935", pledged: "1000000", used: "" },
+  { name: "적금", cash: "300000", pledged: "", used: "" },
+].map((c) => ({ id: genId(), ...c }));
+
+const STORAGE_KEY = "portfolio-data-v1";
+
+function PortfolioApp() {
+  const [stocks, setStocks] = useState(seedStocks);
+  const [cashAccounts, setCashAccounts] = useState(seedCash);
+  const [targetCashRatio, setTargetCashRatio] = useState(0.2);
+  const [proxyUrl, setProxyUrl] = useState("");
+  const [loaded, setLoaded] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showAnalysis, setShowAnalysis] = useState(false);
+  const [expandedStock, setExpandedStock] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshMsg, setRefreshMsg] = useState("");
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed.stocks) setStocks(parsed.stocks);
+        if (parsed.cashAccounts) setCashAccounts(parsed.cashAccounts);
+        if (parsed.targetCashRatio !== undefined) setTargetCashRatio(parsed.targetCashRatio);
+        if (parsed.proxyUrl) setProxyUrl(parsed.proxyUrl);
+      }
+    } catch (e) {}
+    setLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!loaded) return;
+    const t = setTimeout(() => {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ stocks, cashAccounts, targetCashRatio, proxyUrl }));
+      } catch (e) {}
+    }, 500);
+    return () => clearTimeout(t);
+  }, [stocks, cashAccounts, targetCashRatio, proxyUrl, loaded]);
+
+  const stockCalc = useMemo(() => {
+    const base = stocks.map((s) => {
+      const qty = num(s.qty), buy = num(s.buyPrice), cur = num(s.curPrice), vsell = num(s.virtualSell);
+      const hasName = s.name && s.name.trim() !== "";
+      const effQty = qty + vsell;
+      const investAmt = hasName ? buy * effQty : 0;
+      const valAmt = hasName ? cur * effQty : 0;
+      const pnl = hasName ? (cur - buy) * effQty : 0;
+      const returnRate = hasName && buy * qty !== 0 ? pnl / (buy * qty) : null;
+      return { ...s, hasName, qty, buy, cur, vsell, effQty, investAmt, valAmt, pnl, returnRate };
+    });
+    const totalInvest = sum(base.map((r) => r.investAmt));
+    const totalVal = sum(base.map((r) => r.valAmt));
+    const withWeights = base.map((r) => {
+      const profitWeight = r.hasName && totalVal + totalInvest !== 0 ? (r.valAmt + r.investAmt) / (totalVal + totalInvest) : null;
+      const purchaseWeight = r.hasName && totalInvest !== 0 ? r.investAmt / totalInvest : null;
+      return { ...r, profitWeight, purchaseWeight };
+    });
+    const profitRanks = rankDesc(withWeights.map((r) => r.profitWeight));
+    const purchaseRanks = rankDesc(withWeights.map((r) => r.purchaseWeight));
+    const withRanks = withWeights.map((r, i) => ({ ...r, profitRank: profitRanks[i], purchaseRank: purchaseRanks[i] }));
+    const withAvg = withRanks.map((r) => {
+      const avgWeight = r.profitWeight !== null && r.purchaseWeight !== null ? (r.profitWeight + r.purchaseWeight) / 2 : null;
+      const diffWeight = r.profitWeight !== null && r.purchaseWeight !== null ? r.profitWeight - r.purchaseWeight : null;
+      return { ...r, avgWeight, diffWeight };
+    });
+    const avgRanks = rankDesc(withAvg.map((r) => r.avgWeight));
+    const rows = withAvg.map((r, i) => ({ ...r, avgRank: avgRanks[i] }));
+    const top4Profit = sum(rows.filter((r) => r.profitRank && r.profitRank <= 4).map((r) => r.profitWeight || 0));
+    const top4Purchase = sum(rows.filter((r) => r.purchaseRank && r.purchaseRank <= 4).map((r) => r.purchaseWeight || 0));
+    const maxWeight = Math.max(0, ...rows.map((r) => r.purchaseWeight || 0));
+    return { rows, totalInvest, totalVal, top4Profit, top4Purchase, maxWeight };
+  }, [stocks]);
+
+  const cashCalc = useMemo(() => {
+    const rows = cashAccounts.map((a) => {
+      const cash = num(a.cash), pledged = num(a.pledged), used = num(a.used);
+      return { ...a, cash, pledged, used, total: cash + pledged - used };
+    });
+    return {
+      rows,
+      totalCash: sum(rows.map((r) => r.cash)),
+      totalPledged: sum(rows.map((r) => r.pledged)),
+      totalUsed: sum(rows.map((r) => r.used)),
+      totalAccountValue: sum(rows.map((r) => r.total)),
+    };
+  }, [cashAccounts]);
+
+  const S2 = sum(stocks.map((s) => num(s.curPrice) * num(s.virtualSell)));
+  const realAvailableCash = cashCalc.totalCash - S2;
+  const totalPortfolioValue = stockCalc.totalVal + realAvailableCash;
+  const cashRatio = totalPortfolioValue !== 0 ? realAvailableCash / totalPortfolioValue : 0;
+  const investableCash = totalPortfolioValue * (cashRatio - targetCashRatio);
+  const investmentPrincipal = stockCalc.totalInvest + cashCalc.totalCash;
+  const totalReturnAmt = totalPortfolioValue - investmentPrincipal;
+  const totalReturnRate = investmentPrincipal !== 0 ? totalReturnAmt / investmentPrincipal : null;
+
+  const updateStock = (id, field, value) => setStocks((prev) => prev.map((s) => (s.id === id ? { ...s, [field]: value } : s)));
+  const addStock = () => setStocks((prev) => [...prev, emptyStock()]);
+  const removeStock = (id) => setStocks((prev) => prev.filter((s) => s.id !== id));
+  const updateCash = (id, field, value) => setCashAccounts((prev) => prev.map((a) => (a.id === id ? { ...a, [field]: value } : a)));
+  const addCash = () => setCashAccounts((prev) => [...prev, emptyCash()]);
+  const removeCash = (id) => setCashAccounts((prev) => prev.filter((a) => a.id !== id));
+
+  const refreshPrices = useCallback(async () => {
+    if (!proxyUrl) { setRefreshMsg("먼저 설정에서 프록시 서버 주소를 입력하세요."); return; }
+    setRefreshing(true); setRefreshMsg("");
+    let okCount = 0, failCount = 0;
+    const updated = [...stocks];
+    for (let i = 0; i < updated.length; i++) {
+      const s = updated[i];
+      if (!s.code || !s.name) continue;
+      try {
+        const res = await fetch(`${proxyUrl.replace(/\/$/, "")}/price/${s.code}`);
+        if (!res.ok) throw new Error("bad response");
+        const data = await res.json();
+        if (data && data.price) { updated[i] = { ...s, curPrice: String(data.price) }; okCount++; }
+        else failCount++;
+      } catch (e) { failCount++; }
+    }
+    setStocks(updated); setRefreshing(false);
+    setRefreshMsg(`완료: ${okCount}개 갱신${failCount ? `, ${failCount}개 실패` : ""}`);
+  }, [proxyUrl, stocks]);
+
+  const cashRatioPct = Math.max(0, Math.min(100, cashRatio * 100));
+
+  return (
+    <div style={{ background: "#12151b", minHeight: "100vh", color: "#e7eaf0", fontFamily: "'Pretendard','Apple SD Gothic Neo',sans-serif", paddingBottom: 40 }}>
+      <style>{`
+        .tnum { font-variant-numeric: tabular-nums; }
+        .card { background:#1a1f28; border:1px solid #262c37; border-radius:14px; }
+        .field { background:#12151b; border:1px solid #2a303c; border-radius:8px; color:#e7eaf0; padding:6px 8px; font-size:13px; width:100%; }
+        .field:focus { outline:none; border-color:#c9974a; }
+        .lbl { color:#8993a6; font-size:11px; }
+        .iconbtn { background:none; border:none; cursor:pointer; }
+        @keyframes spin { from { transform:rotate(0deg);} to { transform:rotate(360deg);} }
+        .spinning { display:inline-block; animation: spin 1s linear infinite; }
+      `}</style>
+
+      <div style={{ padding: "18px 16px 10px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <div style={{ fontSize: 11, letterSpacing: 1, color: "#c9974a", fontWeight: 600 }}>PORTFOLIO</div>
+            <div style={{ fontSize: 20, fontWeight: 700 }}>포트폴리오 리밸런싱</div>
+          </div>
+          <button className="iconbtn" onClick={() => setShowSettings((v) => !v)} style={{ background: "#1a1f28", border: "1px solid #262c37", borderRadius: 10, padding: "8px 12px", color:"#8993a6", fontSize:16 }}>
+            ⚙
+          </button>
+        </div>
+      </div>
+
+      {showSettings && (
+        <div className="card" style={{ margin: "0 16px 14px", padding: 14 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>설정</div>
+          <div className="lbl" style={{ marginBottom: 4 }}>프록시 서버 주소 (실시간 시세 연동용)</div>
+          <input className="field" placeholder="https://your-proxy.onrender.com" value={proxyUrl} onChange={(e) => setProxyUrl(e.target.value)} style={{ marginBottom: 10 }} />
+          <div className="lbl" style={{ marginBottom: 4 }}>목표 현금비중: {(targetCashRatio * 100).toFixed(0)}%</div>
+          <input type="range" min="0" max="0.5" step="0.01" value={targetCashRatio} onChange={(e) => setTargetCashRatio(parseFloat(e.target.value))} style={{ width: "100%" }} />
+          <div style={{ display: "flex", gap: 8, marginTop: 6, color: "#8993a6", fontSize: 11 }}>
+            <span>0%</span><span style={{ marginLeft: "auto" }}>50%</span>
+          </div>
+          <button onClick={refreshPrices} disabled={refreshing}
+            style={{ marginTop: 12, width: "100%", background: "#c9974a", color: "#12151b", fontWeight: 700, border: "none", borderRadius: 10, padding: "10px 0", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+            <span className={refreshing ? "spinning" : ""}>↻</span>
+            {refreshing ? "시세 갱신 중..." : "실시간 시세 새로고침"}
+          </button>
+          {refreshMsg && <div style={{ marginTop: 8, fontSize: 12, color: "#8993a6" }}>{refreshMsg}</div>}
+        </div>
+      )}
+
+      <div className="card tnum" style={{ margin: "0 16px 14px", padding: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
+          <div>
+            <div className="lbl">평가 총금액</div>
+            <div style={{ fontSize: 22, fontWeight: 700 }}>{fmt(totalPortfolioValue)}원</div>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <div className="lbl">투자가능현금</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: investableCash >= 0 ? "#e8544b" : "#4c8dff" }}>
+              {investableCash >= 0 ? "+" : ""}{fmt(investableCash)}원
+            </div>
+          </div>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10, paddingTop: 10, borderTop: "1px solid #262c37" }}>
+          <div>
+            <div className="lbl">투자원금 (매입원가+보유현금)</div>
+            <div style={{ fontSize: 15, fontWeight: 700 }}>{fmt(investmentPrincipal)}원</div>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <div className="lbl">총수익 (원금 대비)</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: totalReturnAmt > 0 ? "#e8544b" : totalReturnAmt < 0 ? "#4c8dff" : "#e7eaf0" }}>
+              {totalReturnAmt >= 0 ? "+" : ""}{fmt(totalReturnAmt)}원 ({totalReturnRate !== null ? (totalReturnRate >= 0 ? "+" : "") + (totalReturnRate * 100).toFixed(1) + "%" : "-"})
+            </div>
+          </div>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#8993a6", marginBottom: 4 }}>
+          <span>주식 {fmtPct(1 - cashRatio)}</span>
+          <span>현금 {fmtPct(cashRatio)} (목표 {(targetCashRatio * 100).toFixed(0)}%)</span>
+        </div>
+        <div style={{ height: 8, background: "#12151b", borderRadius: 6, overflow: "hidden", position: "relative" }}>
+          <div style={{ width: `${100 - cashRatioPct}%`, background: "#c9974a", height: "100%", display: "inline-block" }} />
+          <div style={{ width: `${cashRatioPct}%`, background: "#4c8dff", height: "100%", display: "inline-block" }} />
+          <div style={{ position: "absolute", left: `${100 - targetCashRatio * 100}%`, top: -2, width: 2, height: 12, background: "#e7eaf0" }} />
+        </div>
+      </div>
+
+      <div style={{ padding: "0 16px", marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#c9974a" }}>보유 종목</div>
+          <div className="tnum" style={{ fontSize: 12, color: "#8993a6" }}>
+            전체주식투자평가금액 <span style={{ color: "#e7eaf0", fontWeight: 700 }}>{fmt(stockCalc.totalVal)}원</span>
+          </div>
+        </div>
+        <button className="iconbtn" onClick={() => setShowAnalysis((v) => !v)} style={{ fontSize: 11, color: "#8993a6", display: "flex", alignItems: "center", gap: 3 }}>
+          ◔ 비중 분석 {showAnalysis ? "▴" : "▾"}
+        </button>
+      </div>
+
+      {showAnalysis && (
+        <div className="card tnum" style={{ margin: "0 16px 12px", padding: 12, fontSize: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+            <span className="lbl">상위 4종목 (수익기준 비중)</span>
+            <span style={{ fontWeight: 700, color: stockCalc.top4Profit > 0.8 ? "#e8544b" : "#e7eaf0" }}>{fmtPct(stockCalc.top4Profit)}</span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+            <span className="lbl">상위 4종목 (매입기준 비중)</span>
+            <span style={{ fontWeight: 700, color: stockCalc.top4Purchase > 0.8 ? "#e8544b" : "#e7eaf0" }}>{fmtPct(stockCalc.top4Purchase)}</span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <span className="lbl">최대 단일종목 비중 (40% 룰)</span>
+            <span style={{ fontWeight: 700, color: stockCalc.maxWeight > 0.4 ? "#e8544b" : "#e7eaf0" }}>{fmtPct(stockCalc.maxWeight)}</span>
+          </div>
+        </div>
+      )}
+
+      <div style={{ padding: "0 16px", display: "flex", flexDirection: "column", gap: 10 }}>
+        {stockCalc.rows.map((r) => {
+          const isUp = r.pnl > 0, isDown = r.pnl < 0;
+          const expanded = expandedStock === r.id;
+          return (
+            <div key={r.id} className="card tnum" style={{ padding: 12 }}>
+              <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                <input className="field" placeholder="종목명" value={r.name} onChange={(e) => updateStock(r.id, "name", e.target.value)} style={{ flex: 2, fontWeight: 600 }} />
+                <input className="field" placeholder="종목코드" value={r.code} onChange={(e) => updateStock(r.id, "code", e.target.value)} style={{ flex: 1 }} />
+                <button className="iconbtn" onClick={() => removeStock(r.id)} style={{ padding: 4, color:"#5a6274", fontSize:16 }}>🗑</button>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 8 }}>
+                <div><div className="lbl">주식수</div>
+                  <input className="field" type="text" inputMode="numeric" value={toDisplay(r.qty)} onChange={(e) => updateStock(r.id, "qty", fromDisplay(e.target.value))} />
+                </div>
+                <div><div className="lbl">매입가</div>
+                  <input className="field" type="text" inputMode="numeric" value={toDisplay(r.buy)} onChange={(e) => updateStock(r.id, "buyPrice", fromDisplay(e.target.value))} />
+                </div>
+                <div><div className="lbl">현재가</div>
+                  <input className="field" type="text" inputMode="numeric" value={toDisplay(r.cur)} onChange={(e) => updateStock(r.id, "curPrice", fromDisplay(e.target.value))} />
+                </div>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div><div className="lbl">평가금액</div><div style={{ fontWeight: 700 }}>{fmt(r.valAmt)}원</div></div>
+                <div style={{ textAlign: "right" }}>
+                  <div className="lbl">평가손익 · 수익률</div>
+                  <div style={{ fontWeight: 700, color: isUp ? "#e8544b" : isDown ? "#4c8dff" : "#e7eaf0" }}>
+                    {isUp ? "▲ " : isDown ? "▼ " : ""}{fmt(r.pnl)}원 ({r.returnRate !== null ? (r.returnRate * 100).toFixed(1) + "%" : "-"})
+                  </div>
+                </div>
+              </div>
+              <button className="iconbtn" onClick={() => setExpandedStock(expanded ? null : r.id)} style={{ marginTop: 8, fontSize: 11, color: "#8993a6" }}>
+                상세 비중 {expanded ? "▴" : "▾"}
+              </button>
+              {expanded && (
+                <div style={{ marginTop: 6, fontSize: 11, color: "#c3c9d4", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                  <div>수익기준 비중: {fmtPct(r.profitWeight)} (랭킹 {r.profitRank ?? "-"})</div>
+                  <div>매입기준 비중: {fmtPct(r.purchaseWeight)} (랭킹 {r.purchaseRank ?? "-"})</div>
+                  <div>비중 평균: {fmtPct(r.avgWeight)} (랭킹 {r.avgRank ?? "-"})</div>
+                  <div>비중 차이: {fmtPct(r.diffWeight)}</div>
+                  <div style={{ gridColumn: "1 / span 2" }}>
+                    <div className="lbl">가상 매도수량 (현금화 시나리오, 음수로 입력)</div>
+                    <input className="field" type="text" inputMode="numeric" value={toDisplay(r.vsell)} onChange={(e) => updateStock(r.id, "virtualSell", fromDisplay(e.target.value))} />
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+        <button className="iconbtn" onClick={addStock} style={{ border: "1px dashed #3a4150", color: "#8993a6", borderRadius: 10, padding: "10px 0", fontSize: 13 }}>+ 종목 추가</button>
+      </div>
+
+      <div style={{ padding: "18px 16px 8px", fontSize: 13, fontWeight: 700, color: "#c9974a" }}>현금 계좌</div>
+      <div style={{ padding: "0 16px", display: "flex", flexDirection: "column", gap: 8 }}>
+        {cashCalc.rows.map((a) => (
+          <div key={a.id} className="card tnum" style={{ padding: 10 }}>
+            <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+              <input className="field" placeholder="계좌명" value={a.name} onChange={(e) => updateCash(a.id, "name", e.target.value)} style={{ flex: 2, fontWeight: 600 }} />
+              <button className="iconbtn" onClick={() => removeCash(a.id)} style={{ padding: 4, color:"#5a6274", fontSize:14 }}>🗑</button>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+              <div><div className="lbl">현금</div><input className="field" type="text" inputMode="numeric" value={toDisplay(a.cash)} onChange={(e) => updateCash(a.id, "cash", fromDisplay(e.target.value))} /></div>
+              <div><div className="lbl">맡긴돈</div><input className="field" type="text" inputMode="numeric" value={toDisplay(a.pledged)} onChange={(e) => updateCash(a.id, "pledged", fromDisplay(e.target.value))} /></div>
+              <div><div className="lbl">쓴돈</div><input className="field" type="text" inputMode="numeric" value={toDisplay(a.used)} onChange={(e) => updateCash(a.id, "used", fromDisplay(e.target.value))} /></div>
+            </div>
+            <div style={{ textAlign: "right", marginTop: 6, fontSize: 12, color: "#8993a6" }}>합계 <span style={{ color: "#e7eaf0", fontWeight: 700 }}>{fmt(a.total)}원</span></div>
+          </div>
+        ))}
+        <button className="iconbtn" onClick={addCash} style={{ border: "1px dashed #3a4150", color: "#8993a6", borderRadius: 10, padding: "10px 0", fontSize: 13, marginBottom: 20 }}>+ 계좌 추가</button>
+      </div>
+
+      <div className="card tnum" style={{ margin: "0 16px 30px", padding: 14, display: "flex", justifyContent: "space-between" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, color: "#8993a6", fontSize: 12 }}>💰 실제 보유현금 합계</div>
+        <div style={{ fontWeight: 700 }}>{fmt(cashCalc.totalCash)}원</div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<PortfolioApp />);
+</script>
+</body>
+</html>

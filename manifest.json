@@ -1,0 +1,9 @@
+{
+  "name": "포트폴리오 리밸런싱",
+  "short_name": "포트폴리오",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#12151b",
+  "theme_color": "#12151b",
+  "icons": []
+}
