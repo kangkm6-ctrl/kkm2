@@ -889,10 +889,10 @@ function PortfolioApp() {
         <div>
           <div style={{ fontSize: 13, fontWeight: 700, color: "#c9974a" }}>보유 종목</div>
           <div className="tnum" style={{ fontSize: 18, color: "#8993a6", marginTop: 4 }}>
-            주식투자평가전금액 <span style={{ fontSize: 18, color: "#e7eaf0", fontWeight: 700 }}>{fmt(stockCalc.totalInvest)}원</span>
+            평가전금액 <span style={{ fontSize: 18, color: "#e7eaf0", fontWeight: 700 }}>{fmt(stockCalc.totalInvest)}원</span>
           </div>
           <div className="tnum" style={{ fontSize: 18, color: "#8993a6", marginTop: 2 }}>
-            주식투자평가후금액 <span style={{ fontSize: 18, color: "#e7eaf0", fontWeight: 700 }}>{fmt(stockCalc.totalVal)}원</span>
+            평가후금액 <span style={{ fontSize: 18, color: "#e7eaf0", fontWeight: 700 }}>{fmt(stockCalc.totalVal)}원</span>
           </div>
           <div className="tnum" style={{ fontSize: 18, marginTop: 4, fontWeight: 700, color: stockCalc.totalVal - stockCalc.totalInvest > 0 ? "#e8544b" : stockCalc.totalVal - stockCalc.totalInvest < 0 ? "#4c8dff" : "#e7eaf0" }}>
             총수익 {stockCalc.totalVal - stockCalc.totalInvest > 0 ? "▲ " : stockCalc.totalVal - stockCalc.totalInvest < 0 ? "▼ " : ""}
