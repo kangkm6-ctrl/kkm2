@@ -670,14 +670,14 @@ function PortfolioApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded, proxyUrl]);
 
-  // 앱이 실행되어 있는 동안 5분마다 자동으로 실시간 시세 새로고침
+  // 앱이 실행되어 있는 동안 2분마다 자동으로 실시간 시세 새로고침
   const refreshPricesRef = useRef(refreshPrices);
   useEffect(() => { refreshPricesRef.current = refreshPrices; }, [refreshPrices]);
   useEffect(() => {
     if (!loaded || !proxyUrl) return;
     const intervalId = setInterval(() => {
       refreshPricesRef.current();
-    }, 5 * 60 * 1000);
+    }, 2 * 60 * 1000);
     return () => clearInterval(intervalId);
   }, [loaded, proxyUrl]);
 
