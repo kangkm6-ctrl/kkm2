@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>여유 – 아이폰 저장공간 정리</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
+<style>
+  :root{
+    --bg: #F6F8F7;
+    --ink: #16231F;
+    --ink-soft: #4B5A55;
+    --teal: #2F6F62;
+    --teal-deep: #1F4E44;
+    --amber: #C98A3E;
+    --line: #DCE3E0;
+    --card: #FFFFFF;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font-family:'Pretendard', -apple-system, BlinkMacSystemFont, sans-serif;
+    -webkit-font-smoothing:antialiased;
+    padding-bottom:60px;
+  }
+  .wrap{max-width:520px;margin:0 auto;padding:28px 20px 0;}
+
+  .eyebrow{
+    font-size:12px;
+    letter-spacing:0.14em;
+    color:var(--teal);
+    font-weight:600;
+    text-transform:uppercase;
+  }
+  h1{
+    font-size:26px;
+    font-weight:800;
+    margin:6px 0 4px;
+    letter-spacing:-0.02em;
+  }
+  .sub{
+    color:var(--ink-soft);
+    font-size:14px;
+    line-height:1.55;
+    margin:0 0 22px;
+  }
+
+  /* 여유 게이지 - signature element */
+  .gauge-card{
+    background:var(--card);
+    border:1px solid var(--line);
+    border-radius:20px;
+    padding:22px 20px;
+    display:flex;
+    align-items:center;
+    gap:18px;
+    margin-bottom:26px;
+    position:relative;
+    overflow:hidden;
+  }
+  .jar{
+    width:74px;
+    height:96px;
+    flex-shrink:0;
+    position:relative;
+  }
+  .jar svg{width:100%;height:100%;display:block;}
+  .jar-fill{
+    transition: transform 0.7s cubic-bezier(.22,1,.36,1);
+  }
+  .gauge-text{flex:1;}
+  .gauge-num{
+    font-size:30px;
+    font-weight:800;
+    color:var(--teal-deep);
+    line-height:1;
+  }
+  .gauge-label{
+    font-size:13px;
+    color:var(--ink-soft);
+    margin-top:6px;
+    line-height:1.5;
+  }
+
+  .category{
+    margin-bottom:16px;
+    border:1px solid var(--line);
+    border-radius:16px;
+    background:var(--card);
+    overflow:hidden;
+  }
+  .cat-head{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:16px 18px;
+    cursor:pointer;
+    user-select:none;
+  }
+  .cat-title{
+    font-weight:700;
+    font-size:15px;
+    display:flex;
+    align-items:center;
+    gap:8px;
+  }
+  .cat-impact{
+    font-size:11px;
+    font-weight:600;
+    padding:3px 8px;
+    border-radius:999px;
+    background:#EAF2EF;
+    color:var(--teal-deep);
+    white-space:nowrap;
+  }
+  .cat-impact.high{background:#FBECD9;color:#8A5A1E;}
+  .cat-progress{
+    font-size:12px;
+    color:var(--ink-soft);
+  }
+  .chevron{
+    width:9px;height:9px;
+    border-right:2px solid var(--ink-soft);
+    border-bottom:2px solid var(--ink-soft);
+    transform:rotate(45deg);
+    transition:transform 0.25s ease;
+    margin-left:6px;
+  }
+  .category.open .chevron{transform:rotate(-135deg);}
+
+  .cat-body{
+    max-height:0;
+    overflow:hidden;
+    transition:max-height 0.35s ease;
+    border-top:1px solid var(--line);
+  }
+  .category.open .cat-body{border-top:1px solid var(--line);}
+
+  .item{
+    display:flex;
+    gap:12px;
+    padding:14px 18px;
+    border-bottom:1px solid #EFF2F1;
+    align-items:flex-start;
+  }
+  .item:last-child{border-bottom:none;}
+  .check{
+    width:20px;height:20px;
+    border-radius:6px;
+    border:2px solid #C7D2CE;
+    flex-shrink:0;
+    margin-top:1px;
+    display:flex;align-items:center;justify-content:center;
+    cursor:pointer;
+    transition:all 0.15s ease;
+  }
+  .check.checked{
+    background:var(--teal);
+    border-color:var(--teal);
+  }
+  .check.checked::after{
+    content:'';
+    width:5px;height:9px;
+    border-right:2px solid white;
+    border-bottom:2px solid white;
+    transform:rotate(45deg) translate(-1px,-1px);
+  }
+  .item-body{flex:1;}
+  .item-title{
+    font-size:14px;
+    font-weight:600;
+    cursor:pointer;
+  }
+  .item.done .item-title{
+    color:var(--ink-soft);
+    text-decoration:line-through;
+    text-decoration-color:#C7D2CE;
+  }
+  .item-desc{
+    font-size:12.5px;
+    color:var(--ink-soft);
+    margin-top:4px;
+    line-height:1.55;
+  }
+  .item-path{
+    display:inline-block;
+    margin-top:6px;
+    font-size:11.5px;
+    background:#F1F5F3;
+    color:var(--teal-deep);
+    padding:3px 8px;
+    border-radius:6px;
+    font-weight:600;
+  }
+
+  .reset-row{
+    text-align:center;
+    margin-top:24px;
+  }
+  .reset-btn{
+    background:none;
+    border:1px solid var(--line);
+    color:var(--ink-soft);
+    font-size:12.5px;
+    padding:8px 16px;
+    border-radius:999px;
+    cursor:pointer;
+  }
+  .reset-btn:active{background:#EFF2F1;}
+
+  .foot{
+    text-align:center;
+    font-size:11.5px;
+    color:#9AA6A1;
+    margin-top:18px;
+    line-height:1.6;
+  }
+
+  .loading{
+    text-align:center;
+    padding:40px 0;
+    color:var(--ink-soft);
+    font-size:13px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="eyebrow">STORAGE · 저장공간</div>
+  <h1>여유, 되찾기</h1>
+  <p class="sub">iOS는 앱이 다른 앱의 파일을 직접 스캔하거나 지울 수 없어요. 대신 아이폰 안에 이미 있는 정리 기능들을 순서대로 짚어드릴게요. 체크할수록 아래 항아리가 채워집니다.</p>
+
+  <div class="gauge-card">
+    <div class="jar">
+      <svg viewBox="0 0 74 96">
+        <defs>
+          <clipPath id="jarClip">
+            <path d="M18 8 H56 V20 C56 24 60 26 62 32 C66 42 66 78 62 84 C58 90 16 90 12 84 C8 78 8 42 12 32 C14 26 18 24 18 20 Z"/>
+          </clipPath>
+        </defs>
+        <path d="M18 8 H56 V20 C56 24 60 26 62 32 C66 42 66 78 62 84 C58 90 16 90 12 84 C8 78 8 42 12 32 C14 26 18 24 18 20 Z"
+          fill="#EFF3F1" stroke="#C7D2CE" stroke-width="2"/>
+        <rect id="jarWater" class="jar-fill" x="0" y="90" width="74" height="90" fill="#2F6F62" clip-path="url(#jarClip)" style="transform: translateY(0px);"/>
+        <rect x="16" y="4" width="42" height="6" rx="3" fill="#C7D2CE"/>
+      </svg>
+    </div>
+    <div class="gauge-text">
+      <div class="gauge-num" id="gaugeNum">0 / 0</div>
+      <div class="gauge-label" id="gaugeLabel">아직 시작 전이에요. 아래에서 하나씩 체크해보세요.</div>
+    </div>
+  </div>
+
+  <div id="categories" class="loading">불러오는 중…</div>
+
+  <div class="reset-row">
+    <button class="reset-btn" onclick="resetAll()">전체 체크 초기화</button>
+  </div>
+
+  <div class="foot">체크 상태는 이 브라우저에 안전하게 저장되며,<br>실제 파일 삭제는 항상 아이폰 설정 화면에서 직접 진행하게 됩니다.</div>
+</div>
+
+<script>
+const DATA = [
+  {
+    id: 'photos',
+    title: '사진 · 최근 삭제 항목',
+    impact: 'high',
+    impactLabel: '용량 큼',
+    items: [
+      { id:'p1', title:'최근 삭제된 항목 즉시 비우기', desc:'삭제한 사진은 30일간 남아있어 용량을 그대로 차지해요.', path:'설정 > 사진 > 최근 삭제된 항목 > 모두 삭제' },
+      { id:'p2', title:'iCloud 사진 "기기 저장공간 최적화" 켜기', desc:'원본은 iCloud에 두고 아이폰엔 저해상도 버전만 보관해요.', path:'설정 > [내 이름] > iCloud > 사진' },
+      { id:'p3', title:'중복/스크린샷 대량 삭제', desc:'사진 앱의 "중복 항목" 앨범과 스크린샷 앨범을 확인해보세요.', path:'사진 앱 > 앨범 > 중복 항목 / 스크린샷' },
+    ]
+  },
+  {
+    id: 'apps',
+    title: '앱 정리',
+    impact: 'high',
+    impactLabel: '용량 큼',
+    items: [
+      { id:'a1', title:'아이폰 저장공간 현황 확인', desc:'각 앱이 실제로 차지하는 용량을 크기순으로 볼 수 있어요.', path:'설정 > 일반 > iPhone 저장공간' },
+      { id:'a2', title:'안 쓰는 앱 오프로드 또는 삭제', desc:'오프로드하면 문서·데이터는 남기고 앱만 지워져요.', path:'설정 > 일반 > iPhone 저장공간 > 앱 선택 > 앱 오프로드' },
+      { id:'a3', title:'"사용하지 않는 앱 자동 오프로드" 켜기', desc:'앞으로 저절로 정리되도록 설정해두면 편해요.', path:'설정 > App Store > 사용하지 않는 앱' },
+    ]
+  },
+  {
+    id: 'messages',
+    title: '메시지 · 첨부파일',
+    impact: 'normal',
+    impactLabel: '보통',
+    items: [
+      { id:'m1', title:'오래된 대화 자동 삭제 기간 설정', desc:'1년 또는 30일 지나면 자동으로 정리되도록 바꿀 수 있어요.', path:'설정 > 메시지 > 메시지 보관 기간' },
+      { id:'m2', title:'용량 큰 첨부파일 찾아 지우기', desc:'대화별 정보에서 사진/동영상만 모아 볼 수 있어요.', path:'대화방 > 이름 탭 > 정보 > 사진 모두 보기' },
+      { id:'m3', title:'카카오톡 캐시 데이터 비우기', desc:'채팅 미디어 캐시가 알게 모르게 몇 GB씩 쌓여요.', path:'카카오톡 > 설정 > 앱 관리 > 저장공간 관리' },
+    ]
+  },
+  {
+    id: 'browser',
+    title: '브라우저 · 파일 앱',
+    impact: 'normal',
+    impactLabel: '보통',
+    items: [
+      { id:'b1', title:'Safari 방문 기록 및 웹사이트 데이터 지우기', desc:'캐시가 쌓이면 저장공간을 꽤 차지해요.', path:'설정 > Safari > 방문 기록 및 웹사이트 데이터 지우기' },
+      { id:'b2', title:'파일 앱 다운로드 폴더 정리', desc:'다운로드한 PDF, 압축파일 등이 방치되기 쉬워요.', path:'파일 앱 > 다운로드' },
+      { id:'b3', title:'이메일 첨부파일 큰 순으로 정리', desc:'메일 앱 저장공간도 iPhone 저장공간에 포함돼요.', path:'설정 > 일반 > iPhone 저장공간 > Mail' },
+    ]
+  },
+  {
+    id: 'media',
+    title: '오프라인 미디어',
+    impact: 'normal',
+    impactLabel: '보통',
+    items: [
+      { id:'d1', title:'다운로드한 팟캐스트 · 음악 정리', desc:'오프라인 재생용으로 받아둔 파일이 의외로 큽니다.', path:'팟캐스트/뮤직 앱 > 다운로드 항목 관리' },
+      { id:'d2', title:'지도 앱 오프라인 지역 삭제', desc:'다운로드해둔 오프라인 지도는 지역당 수백 MB에 달해요.', path:'지도 앱 > 오프라인 지도 > 관리' },
+      { id:'d3', title:'넷플릭스 등 OTT 다운로드 영상 삭제', desc:'시청 완료한 다운로드 영상을 확인해보세요.', path:'각 OTT 앱 > 다운로드 탭' },
+    ]
+  },
+];
+
+const KEY = 'iphone-cleanup-v1';
+let state = {};
+
+function totalCount(){
+  return DATA.reduce((s,c)=>s+c.items.length,0);
+}
+function checkedCount(){
+  return Object.values(state).filter(Boolean).length;
+}
+
+async function loadState(){
+  try{
+    const raw = localStorage.getItem(KEY);
+    state = raw ? JSON.parse(raw) : {};
+  }catch(e){
+    state = {};
+  }
+  render();
+}
+
+async function saveState(){
+  try{
+    localStorage.setItem(KEY, JSON.stringify(state));
+  }catch(e){
+    console.error('저장 실패', e);
+  }
+}
+
+function toggle(itemId){
+  state[itemId] = !state[itemId];
+  saveState();
+  render();
+}
+
+function resetAll(){
+  state = {};
+  saveState();
+  render();
+}
+
+function render(){
+  const total = totalCount();
+  const done = checkedCount();
+  const pct = total ? done/total : 0;
+
+  document.getElementById('gaugeNum').textContent = `${done} / ${total}`;
+  const labels = [
+    '아직 시작 전이에요. 아래에서 하나씩 체크해보세요.',
+    '좋은 시작이에요. 큰 항목부터 계속 가볼까요.',
+    '눈에 띄게 여유가 생기고 있어요.',
+    '거의 다 왔어요. 마지막 항목들만 남았네요.',
+    '전부 확인했어요. 저장공간이 한결 가벼워졌을 거예요.'
+  ];
+  const idx = Math.min(4, Math.floor(pct*4.999));
+  document.getElementById('gaugeLabel').textContent = labels[idx];
+
+  const water = document.getElementById('jarWater');
+  const maxRise = 78;
+  const offset = maxRise * (1-pct);
+  water.style.transform = `translateY(${offset}px)`;
+
+  const container = document.getElementById('categories');
+  container.className = '';
+  container.innerHTML = '';
+
+  DATA.forEach(cat=>{
+    const catDone = cat.items.filter(i=>state[i.id]).length;
+    const isOpen = catDone < cat.items.length || document.querySelector(`.category[data-id="${cat.id}"].open`);
+
+    const el = document.createElement('div');
+    el.className = 'category' + (isOpen ? ' open':'');
+    el.dataset.id = cat.id;
+
+    el.innerHTML = `
+      <div class="cat-head" onclick="toggleCat('${cat.id}')">
+        <div>
+          <div class="cat-title">${cat.title} <span class="cat-impact ${cat.impact}">${cat.impactLabel}</span></div>
+          <div class="cat-progress">${catDone}/${cat.items.length}개 확인함</div>
+        </div>
+        <span class="chevron"></span>
+      </div>
+      <div class="cat-body" style="max-height:${isOpen ? '1000px':'0'}">
+        ${cat.items.map(item => `
+          <div class="item ${state[item.id] ? 'done':''}">
+            <div class="check ${state[item.id] ? 'checked':''}" onclick="toggle('${item.id}')"></div>
+            <div class="item-body">
+              <div class="item-title" onclick="toggle('${item.id}')">${item.title}</div>
+              <div class="item-desc">${item.desc}</div>
+              <span class="item-path">${item.path}</span>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+    container.appendChild(el);
+  });
+}
+
+function toggleCat(catId){
+  const el = document.querySelector(`.category[data-id="${catId}"]`);
+  const body = el.querySelector('.cat-body');
+  const willOpen = !el.classList.contains('open');
+  el.classList.toggle('open');
+  body.style.maxHeight = willOpen ? '1000px' : '0';
+}
+
+loadState();
+</script>
+</body>
+</html>
