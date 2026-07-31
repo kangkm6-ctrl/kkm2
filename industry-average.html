@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>업종평균 비교</title>
+<style>
+  :root{
+    --bg:#0f1115;
+    --panel:#171a21;
+    --panel-2:#1e222b;
+    --line:#2a2f3a;
+    --ink:#e8eaf0;
+    --sub:#8891a3;
+    --accent:#3d8bfd;
+    --good:#4fd1a5;
+    --bad:#ff6b7a;
+    --mono: 'SF Mono', 'Menlo', 'Consolas', monospace;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,'Pretendard','Apple SD Gothic Neo',sans-serif;
+    padding-bottom:env(safe-area-inset-bottom);
+    min-height:100vh;
+  }
+  header{
+    padding:20px 20px 14px; position:sticky; top:0; z-index:5;
+    background:linear-gradient(var(--bg) 70%, transparent);
+  }
+  h1{font-size:19px; font-weight:700; margin:0 0 2px; letter-spacing:-0.2px;}
+  .sub{font-size:12.5px; color:var(--sub);}
+
+  .search{
+    margin:0 20px 16px; display:flex; gap:8px;
+  }
+  .search input{
+    flex:1; background:var(--panel); border:1px solid var(--line); color:var(--ink);
+    border-radius:12px; padding:13px 14px; font-size:15px; outline:none;
+  }
+  .search input:focus{border-color:var(--accent);}
+  .search button{
+    background:var(--accent); color:#fff; border:none; border-radius:12px;
+    padding:0 20px; font-size:15px; font-weight:600;
+  }
+  .search button:disabled{opacity:.5;}
+
+  .chips{display:flex; gap:6px; margin:0 20px 18px; flex-wrap:wrap;}
+  .chip{
+    font-size:12px; color:var(--sub); background:var(--panel); border:1px solid var(--line);
+    padding:6px 10px; border-radius:999px;
+  }
+
+  .status{margin:0 20px 16px; font-size:13px; color:var(--sub);}
+  .status.err{color:var(--bad);}
+
+  .meta{
+    margin:0 20px 16px; padding:14px 16px; background:var(--panel);
+    border:1px solid var(--line); border-radius:14px;
+  }
+  .meta .name{font-size:17px; font-weight:700;}
+  .meta .industry{font-size:13px; color:var(--sub); margin-top:2px;}
+
+  table{width:calc(100% - 40px); margin:0 20px; border-collapse:collapse;}
+  thead th{
+    font-size:11px; color:var(--sub); text-align:right; font-weight:600;
+    padding:8px 10px; border-bottom:1px solid var(--line);
+  }
+  thead th:first-child{text-align:left;}
+  tbody td{
+    font-size:14px; text-align:right; padding:12px 10px; border-bottom:1px solid var(--line);
+    font-family:var(--mono);
+  }
+  tbody td:first-child{
+    text-align:left; font-family:-apple-system,sans-serif; font-size:13.5px; color:var(--ink);
+  }
+  tbody tr:last-child td{border-bottom:none;}
+  .na{color:var(--sub); font-style:italic;}
+  .diff-up{color:var(--good);}
+  .diff-down{color:var(--bad);}
+
+  .manual-note{
+    margin:16px 20px 8px; font-size:12px; color:var(--sub); line-height:1.6;
+  }
+  .manual-row input{
+    width:82px; background:var(--panel-2); border:1px solid var(--line); color:var(--ink);
+    border-radius:8px; padding:6px 8px; font-size:13px; text-align:right; font-family:var(--mono);
+  }
+  footer{padding:24px 20px 40px; font-size:11px; color:#555c6b; line-height:1.6;}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>업종평균 비교</h1>
+  <div class="sub">종목코드를 입력하면 14개 지표를 업종평균과 나란히 보여줍니다</div>
+</header>
+
+<div class="search">
+  <input id="codeInput" inputmode="numeric" maxlength="6" placeholder="종목코드 6자리 (예: 005930)">
+  <button id="searchBtn" onclick="run()">조회</button>
+</div>
+
+<div class="chips">
+  <span class="chip">삼성전자 005930</span>
+  <span class="chip">에코프로 086520</span>
+  <span class="chip">시프트업 462870</span>
+  <span class="chip">리노공업 058470</span>
+</div>
+
+<div id="status" class="status"></div>
+<div id="meta" style="display:none" class="meta">
+  <div class="name" id="metaName"></div>
+  <div class="industry" id="metaIndustry"></div>
+</div>
+
+<table id="resultTable" style="display:none">
+  <thead>
+    <tr><th>지표</th><th>종목</th><th>업종평균</th><th>차이</th></tr>
+  </thead>
+  <tbody id="resultBody"></tbody>
+</table>
+
+<div id="manualNote" class="manual-note" style="display:none">
+  ※ 표시 안 된 업종평균 항목은 자동 수집이 아직 불안정합니다. 값을 알고 계시면 아래에 직접 입력해 함께 저장할 수 있어요.
+</div>
+
+<footer>
+  데이터 출처: 네이버증권 (자동 수집) · 프록시 서버: Render.com<br>
+  일부 항목(매출액성장률, 영업이익률, 순이익률, ROE, 부채비율, 당좌비율, EPS성장률, PSR, 영업활동현금흐름의 업종평균)은
+  네이버 동일업종비교 탭이 동적 로딩 방식이라 서버 쪽 매핑 보완이 필요합니다.
+  proxy.js의 /api/industry-average 응답을 브라우저 개발자도구로 확인하며 필드를 채워 넣어주세요.
+</footer>
+
+<script>
+  // ⚠️ 여기를 본인의 Render 프록시 서버 주소로 바꿔주세요.
+  const PROXY_BASE_URL = "https://your-proxy-server.onrender.com";
+
+  const FIELDS = [
+    { key: "매출액", label: "매출액", unit: "억원" },
+    { key: "매출액성장률", label: "매출액성장률", unit: "%" },
+    { key: "영업이익률", label: "영업이익률", unit: "%" },
+    { key: "순이익률", label: "순이익률", unit: "%" },
+    { key: "ROE", label: "ROE", unit: "%" },
+    { key: "부채비율", label: "부채비율", unit: "%" },
+    { key: "당좌비율", label: "당좌비율", unit: "%" },
+    { key: "EPS", label: "EPS", unit: "원" },
+    { key: "EPS성장률", label: "EPS성장률", unit: "%" },
+    { key: "BPS", label: "BPS", unit: "원" },
+    { key: "PER", label: "PER", unit: "배" },
+    { key: "PSR", label: "PSR", unit: "배" },
+    { key: "PBR", label: "PBR", unit: "배" },
+    { key: "영업활동현금흐름", label: "영업활동현금흐름", unit: "억원" },
+  ];
+
+  function toNumber(v) {
+    if (v === null || v === undefined) return null;
+    const n = parseFloat(String(v).replace(/[^0-9.\-]/g, ""));
+    return isNaN(n) ? null : n;
+  }
+
+  function renderRow(field, stockVal, industryVal) {
+    const sNum = toNumber(stockVal);
+    const iNum = toNumber(industryVal);
+    let diffHtml = '<span class="na">-</span>';
+    if (sNum !== null && iNum !== null) {
+      const diff = sNum - iNum;
+      const cls = diff > 0 ? "diff-up" : diff < 0 ? "diff-down" : "";
+      const sign = diff > 0 ? "+" : "";
+      diffHtml = `<span class="${cls}">${sign}${diff.toFixed(2)}</span>`;
+    }
+    return `
+      <tr>
+        <td>${field.label} <span style="color:var(--sub);font-size:11px">(${field.unit})</span></td>
+        <td>${stockVal !== null && stockVal !== undefined ? stockVal : '<span class="na">-</span>'}</td>
+        <td>${industryVal !== null && industryVal !== undefined ? industryVal : '<span class="na">직접입력 필요</span>'}</td>
+        <td>${diffHtml}</td>
+      </tr>`;
+  }
+
+  async function run() {
+    const code = document.getElementById("codeInput").value.trim();
+    const statusEl = document.getElementById("status");
+    const btn = document.getElementById("searchBtn");
+    const metaEl = document.getElementById("meta");
+    const table = document.getElementById("resultTable");
+    const manualNote = document.getElementById("manualNote");
+
+    if (!/^\d{6}$/.test(code)) {
+      statusEl.textContent = "종목코드 6자리를 정확히 입력해주세요.";
+      statusEl.className = "status err";
+      return;
+    }
+
+    btn.disabled = true;
+    statusEl.className = "status";
+    statusEl.textContent = "조회 중...";
+    table.style.display = "none";
+    metaEl.style.display = "none";
+    manualNote.style.display = "none";
+
+    try {
+      const res = await fetch(`${PROXY_BASE_URL}/api/industry-average?code=${code}`);
+      if (!res.ok) throw new Error(`서버 응답 오류 (${res.status})`);
+      const data = await res.json();
+
+      document.getElementById("metaName").textContent = `${data.name || code} (${code})`;
+      document.getElementById("metaIndustry").textContent = data.industryName
+        ? `업종: ${data.industryName}` : "업종 정보 없음";
+      metaEl.style.display = "block";
+
+      const rows = FIELDS.map(f => renderRow(f, data.stock?.[f.key], data.industryAverage?.[f.key]));
+      document.getElementById("resultBody").innerHTML = rows.join("");
+      table.style.display = "table";
+      manualNote.style.display = "block";
+
+      statusEl.textContent = data.note ? data.note : "조회 완료";
+    } catch (err) {
+      statusEl.className = "status err";
+      statusEl.textContent = `오류: ${err.message}. PROXY_BASE_URL 설정과 서버 상태를 확인해주세요.`;
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  document.getElementById("codeInput").addEventListener("keydown", e => {
+    if (e.key === "Enter") run();
+  });
+</script>
+
+</body>
+</html>
