@@ -1,0 +1,2038 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>포트폴리오 리밸런싱</title>
+<link rel="manifest" href="manifest.json" />
+<link rel="apple-touch-icon" href="apple-touch-icon.png" />
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="포트폴리오" />
+<meta name="theme-color" content="#12151b" />
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.7/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  html, body { margin:0; padding:0; background:#12151b; }
+  * { box-sizing: border-box; }
+</style>
+</head>
+<body>
+<div id="privacy-shield" style="position:fixed;inset:0;background:#12151b;z-index:999999;display:none;flex-direction:column;align-items:center;justify-content:center;color:#e7eaf0;font-family:'Pretendard','Apple SD Gothic Neo',sans-serif;">
+  <div style="font-size:40px;">🔒</div>
+  <div style="font-size:14px;color:#8993a6;margin-top:10px;">포트폴리오 리밸런싱</div>
+</div>
+<script>
+(function () {
+  function isLockOn() {
+    try { return !!localStorage.getItem('portfolio-lock-credential-v1'); } catch (e) { return false; }
+  }
+  function show() {
+    if (!isLockOn()) return;
+    var el = document.getElementById('privacy-shield');
+    if (el) el.style.display = 'flex';
+  }
+  function hide() {
+    var el = document.getElementById('privacy-shield');
+    if (el) el.style.display = 'none';
+  }
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) show(); else hide();
+  });
+  window.addEventListener('pagehide', show);
+  window.addEventListener('blur', show);
+  window.addEventListener('focus', hide);
+})();
+</script>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo, useCallback, useRef } = React;
+
+// ---------- helpers ----------
+const num = (v) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
+const sum = (arr) => arr.reduce((a, b) => a + (b || 0), 0);
+const fmt = (n) => (n === null || n === undefined || isNaN(n)) ? "-" : Math.round(n).toLocaleString("ko-KR");
+const fmtPct = (n) => (n === null || n === undefined || isNaN(n)) ? "-" : (n * 100).toFixed(1) + "%";
+
+const toDisplay = (v) => {
+  if (v === "" || v === undefined || v === null) return "";
+  const cleaned = String(v).replace(/[^0-9.-]/g, "");
+  if (cleaned === "" || cleaned === "-") return cleaned;
+  const n = Number(cleaned);
+  if (isNaN(n)) return "";
+  return n.toLocaleString("ko-KR", { maximumFractionDigits: 4 });
+};
+const fromDisplay = (v) => v.replace(/,/g, "");
+
+function bufToBase64url(buf) {
+  const bytes = new Uint8Array(buf);
+  let str = "";
+  for (let i = 0; i < bytes.length; i++) str += String.fromCharCode(bytes[i]);
+  return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function base64urlToBuf(b64url) {
+  const b64 = b64url.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((b64url.length + 3) % 4);
+  const str = atob(b64);
+  const bytes = new Uint8Array(str.length);
+  for (let i = 0; i < str.length; i++) bytes[i] = str.charCodeAt(i);
+  return bytes.buffer;
+}
+function randomBytes(len) {
+  const arr = new Uint8Array(len);
+  crypto.getRandomValues(arr);
+  return arr;
+}
+
+function rankDesc(arr) {
+  const valid = arr.map((v, i) => ({ v, i })).filter((x) => x.v !== null && x.v !== undefined && !isNaN(x.v));
+  const sorted = [...valid].sort((a, b) => b.v - a.v);
+  const ranks = new Array(arr.length).fill(null);
+  sorted.forEach((item, idx) => {
+    if (idx > 0 && sorted[idx].v === sorted[idx - 1].v) ranks[item.i] = ranks[sorted[idx - 1].i];
+    else ranks[item.i] = idx + 1;
+  });
+  return ranks;
+}
+
+let __idCounter = 0;
+const genId = () => `id-${Date.now()}-${__idCounter++}-${Math.random().toString(36).slice(2, 8)}`;
+
+// 주요 종목 이름 -> 코드 사전 (자동완성용, 전체 상장종목은 아니고 자주 쓰이는 종목 위주)
+const STOCK_CODE_MAP = {
+  "삼성전자":"005930","삼성전자우":"005935","SK하이닉스":"000660","LG에너지솔루션":"373220",
+  "삼성바이오로직스":"207940","현대차":"005380","현대차우":"005385","기아":"000270","셀트리온":"068270",
+  "삼성SDI":"006400","LG화학":"051910","LG화학우":"051915","POSCO홀딩스":"005490","포스코홀딩스":"005490",
+  "포스코퓨쳐엠":"003670","NAVER":"035420","네이버":"035420","카카오":"035720","카카오뱅크":"323410",
+  "삼성물산":"028260","현대모비스":"012330","KB금융":"105560","신한지주":"055550","하나금융지주":"086790",
+  "우리금융지주":"316140","삼성생명":"032830","삼성화재":"000810","SK이노베이션":"096770","SK":"034730",
+  "LG전자":"066570","LG":"003550","한화솔루션":"009830","한화에어로스페이스":"012450","두산에너빌리티":"034020",
+  "두산밥캣":"241560","HD한국조선해양":"009540","삼성엔지니어링":"028050","현대건설":"000720","GS건설":"006360",
+  "에코프로":"086520","에코프로비엠":"247540","엘앤에프":"066970","포스코엠텍":"009520","고려아연":"010130",
+  "SK이노베이션":"096770","SK아이이테크놀로지":"361610","SKC":"011790","솔브레인":"357780",
+  "삼성전기":"009150","LG디스플레이":"034220","LG이노텍":"011070","삼성중공업":"010140","한국조선해양":"009540",
+  "HMM":"011200","팬오션":"028670","대한항공":"003490","아시아나항공":"020560","제주항공":"089590",
+  "롯데케미칼":"011170","금호석유":"011780","한솔케미칼":"014680","OCI홀딩스":"010060",
+  "SK바이오사이언스":"302440","셀트리온헬스케어":"091990","한미약품":"128940","유한양행":"000100",
+  "종근당":"185750","녹십자":"006280","씨젠":"096530","알테오젠":"196170","레고켐바이오":"141080",
+  "크래프톤":"259960","엔씨소프트":"036570","넷마블":"251270","시프트업":"462870","펄어비스":"263750",
+  "카카오게임즈":"293490","위메이드":"112040","컴투스":"078340","더블유게임즈":"192080",
+  "하이브":"352820","JYP Ent.":"035900","JYP엔터":"035900","에스엠":"041510","와이지엔터테인먼트":"122870",
+  "CJ ENM":"035760","CJ제일제당":"097950","오리온":"271560","농심":"004370","롯데칠성":"005300",
+  "아모레퍼시픽":"090430","LG생활건강":"051900","한국콜마":"161890","코스맥스":"192820",
+  "삼성카드":"029780","삼성증권":"016360","미래에셋증권":"006800","키움증권":"039490","NH투자증권":"005940",
+  "한국투자금융지주":"071050","메리츠금융지주":"138040","DB손해보험":"005830",
+  "포스코인터내셔널":"047050","포스코스틸리온":"058430","현대제철":"004020","동국제강":"460850",
+  "한온시스템":"018880","만도":"204320","현대위아":"011210","현대오토에버":"307950",
+  "서연이화":"200880","우신시스템":"017370","피엔티":"137400","엠씨넥스":"097520","비에이치":"090460",
+  "삼성에스디에스":"018260","더존비즈온":"012510","한글과컴퓨터":"030520","안랩":"053800",
+  "카카오페이":"377300","비바리퍼블리카":"", "쿠팡":"", "두나무":"",
+  "한전KPS":"051600","한국전력":"015760","한국가스공사":"036460","한국항공우주":"047810","LIG넥스원":"079550",
+  "현대로템":"064350","한화시스템":"272210","풍산":"103140","현대엘리베이":"017800",
+  "이마트":"139480","GS리테일":"007070","BGF리테일":"282330","호텔신라":"008770","신세계":"004170",
+  "롯데쇼핑":"023530","현대백화점":"069960","코웨이":"021240","한샘":"009240",
+  "일진머티리얼즈":"020150","동화기업":"025900","후성":"093370","천보":"278280",
+  "덕산네오룩스":"213420","솔브레인홀딩스":"036830","원익IPS":"240810","테스":"095610",
+  "리노공업":"058470","한미반도체":"042700","이오테크닉스":"039030","주성엔지니어링":"036930",
+  "DB하이텍":"000990","SFA반도체":"036540","네패스":"033640",
+};
+
+const findExactCode = (name) => {
+  const n = (name || "").trim();
+  if (!n) return null;
+  const code = STOCK_CODE_MAP[n];
+  return code ? code : null;
+};
+const findSuggestions = (name) => {
+  const n = (name || "").trim();
+  if (!n) return [];
+  return Object.entries(STOCK_CODE_MAP)
+    .filter(([k, v]) => v && k.includes(n))
+    .slice(0, 6);
+};
+
+const emptyStock = () => ({ id: genId(), name: "", code: "", qty: "", buyPrice: "", curPrice: "", prevClose: "", virtualSellQty: "", virtualBuyQty: "" });
+const emptyCash = () => ({ id: genId(), name: "", cash: "", pledged: "", used: "" });
+
+// 참고: 실제 계좌명/보유종목/잔액은 코드에 넣지 않습니다.
+// 앱을 처음 열면 빈 상태로 시작하고, 입력한 값은 이 기기의 브라우저(localStorage)에만 저장됩니다.
+const seedStocks = [emptyStock(), emptyStock()];
+
+const seedCash = [emptyCash(), emptyCash()];
+
+const STORAGE_KEY = "portfolio-data-v1";
+const LOCK_CRED_KEY = "portfolio-lock-credential-v1";
+const LOCK_PW_HASH_KEY = "portfolio-lock-pw-hash-v1";
+const WEEKLY_SIGNAL_STORE_KEY = "portfolio-weekly-signal-v1";
+const STOCK_WEEKLY_SIGNAL_STORE_KEY = "portfolio-stock-weekly-signal-v1";
+const PRINCIPAL_BASELINE_KEY = "portfolio-principal-baseline-v1";
+const INVESTMENT_PRINCIPAL_KEY = "portfolio-investment-principal-standalone-v1";
+const PRINCIPAL_BASELINE_RESET_ONCE_KEY = "portfolio-principal-baseline-reset-once-v1";
+const CASH_BASELINE_KEY = "portfolio-cash-baseline-v1";
+const PRINCIPAL_REDUCTION_LOG_KEY = "portfolio-principal-reduction-log-v1";
+const CASH_SETTLE_LOG_KEY = "portfolio-cash-settle-log-v1";
+async function sha256Hex(text) {
+  const enc = new TextEncoder().encode(text);
+  const digest = await crypto.subtle.digest("SHA-256", enc);
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+const SNAPSHOTS_KEY = "portfolio-snapshots-v1";
+const REBALANCE_LOG_KEY = "portfolio-rebalance-log-v1";
+const LAUNCH_BACKUP_KEY = "portfolio-launch-backups-v1";
+const AUTOSAVE_KEY = "portfolio-autosave-date-v1";
+// 대한민국 법정 공휴일 (2026년 기준, 대체공휴일 포함). 해가 바뀌면 갱신이 필요합니다.
+const KR_HOLIDAYS_2026 = [
+  "2026-01-01", // 신정
+  "2026-02-16", "2026-02-17", "2026-02-18", // 설날 연휴
+  "2026-03-01", "2026-03-02", // 삼일절 (대체공휴일)
+  "2026-05-05", // 어린이날
+  "2026-05-24", "2026-05-25", // 부처님오신날 (대체공휴일)
+  "2026-06-06", // 현충일
+  "2026-08-15", "2026-08-17", // 광복절 (대체공휴일)
+  "2026-09-24", "2026-09-25", "2026-09-26", // 추석 연휴
+  "2026-10-03", "2026-10-05", // 개천절 (대체공휴일)
+  "2026-10-09", // 한글날
+  "2026-12-25", // 크리스마스
+];
+
+function PortfolioApp() {
+  const [stocks, setStocks] = useState(seedStocks);
+  const [cashAccounts, setCashAccounts] = useState(seedCash);
+  const [stockInvestBaseline, setStockInvestBaseline] = useState(0);
+  const [cashBaseline, setCashBaseline] = useState(0);
+  const [investmentPrincipalBase, setInvestmentPrincipalBase] = useState(0); // "투자원금" — 주식/현금 합계 공식과 무관한 독립 값. 오직 사용한돈 정산 또는 직접입력으로만 바뀜
+  const [principalReductionLog, setPrincipalReductionLog] = useState([]); // [{id, date, name, qtyBefore, qtyAfter, reducedAmount}]
+  const [cashSettleLog, setCashSettleLog] = useState([]); // [{id, date, accountName, amount}]
+  const [targetCashRatio, setTargetCashRatio] = useState(0.2);
+  const [proxyUrl, setProxyUrl] = useState("");
+  const [appSecret, setAppSecret] = useState("");
+  const [loaded, setLoaded] = useState(false);
+  const [lockEnabled, setLockEnabled] = useState(() => {
+    try { return !!localStorage.getItem(LOCK_CRED_KEY); } catch (e) { return false; }
+  });
+  const [isLocked, setIsLocked] = useState(() => {
+    try { return !!localStorage.getItem(LOCK_CRED_KEY); } catch (e) { return false; }
+  });
+  const [isObscured, setIsObscured] = useState(false);
+  const hiddenAtRef = useRef(null);
+  const [lockMsg, setLockMsg] = useState("");
+  const [hasLockPassword, setHasLockPassword] = useState(false);
+  const [pwInput, setPwInput] = useState("");
+  const [newPwInput, setNewPwInput] = useState("");
+  const [faceIdAttempting, setFaceIdAttempting] = useState(false);
+  const lockSupported = typeof window !== "undefined" && !!window.PublicKeyCredential;
+  const [showSettings, setShowSettings] = useState(false);
+  const [showImportExport, setShowImportExport] = useState(false);
+  const [importText, setImportText] = useState("");
+  const [importMsg, setImportMsg] = useState("");
+  const [showAnalysis, setShowAnalysis] = useState(false);
+  const [mainView, setMainView] = useState("home"); // 'home' | 'stocks' | 'cash'
+  const [showRebalanceLog, setShowRebalanceLog] = useState(false);
+  const [expandedStock, setExpandedStock] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [marketIndices, setMarketIndices] = useState({ kospi: null, kosdaq: null });
+  const [weeklySignal, setWeeklySignal] = useState({ kospi: null, kosdaq: null }); // { ma5Now, ma20Now, state: 'golden'|'dead'|null }
+  const [stockWeeklySignal, setStockWeeklySignal] = useState({}); // { [code]: { state } }
+  const [refreshMsg, setRefreshMsg] = useState("");
+  const [lastRefreshedAt, setLastRefreshedAt] = useState(null);
+  const [priceRefreshTick, setPriceRefreshTick] = useState(0);
+  const [suggestFor, setSuggestFor] = useState(null);
+  const [toast, setToast] = useState(null);
+  const [snapshots, setSnapshots] = useState([]);
+  const [rebalanceLog, setRebalanceLog] = useState([]);
+  const [showSnapshotList, setShowSnapshotList] = useState(false);
+  const [snapshotMsg, setSnapshotMsg] = useState("");
+  const [isPreviewing, setIsPreviewing] = useState(false);
+  const [previewBackup, setPreviewBackup] = useState(null);
+  const [launchBackups, setLaunchBackups] = useState([]);
+  const [showBackupList, setShowBackupList] = useState(false);
+  const [showPrincipalLog, setShowPrincipalLog] = useState(false);
+  const [principalOverrideInput, setPrincipalOverrideInput] = useState("");
+  const [showCashSettleLog, setShowCashSettleLog] = useState(false);
+
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(LOCK_PW_HASH_KEY)) setHasLockPassword(true);
+    } catch (e) {}
+  }, []);
+
+  const unlockWithBiometrics = async () => {
+    setLockMsg("");
+    setFaceIdAttempting(true);
+    try {
+      const storedCred = localStorage.getItem(LOCK_CRED_KEY);
+      if (!storedCred) { setIsLocked(false); setFaceIdAttempting(false); return; }
+      await navigator.credentials.get({
+        publicKey: {
+          challenge: randomBytes(32),
+          allowCredentials: [{ id: base64urlToBuf(storedCred), type: "public-key" }],
+          userVerification: "required",
+          timeout: 60000,
+        },
+      });
+      setIsLocked(false);
+      setFaceIdAttempting(false);
+    } catch (e) {
+      setFaceIdAttempting(false);
+      setLockMsg(hasLockPassword ? "❌ Face ID 인증 실패. 아래에 비밀번호를 입력해주세요." : "❌ 인증에 실패했어요. 다시 시도해주세요.");
+    }
+  };
+
+  const enableLock = async () => {
+    setLockMsg("");
+    try {
+      const cred = await navigator.credentials.create({
+        publicKey: {
+          challenge: randomBytes(32),
+          rp: { name: "포트폴리오 리밸런싱" },
+          user: { id: randomBytes(16), name: "portfolio-user", displayName: "포트폴리오" },
+          pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }],
+          authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required" },
+          timeout: 60000,
+          attestation: "none",
+        },
+      });
+      localStorage.setItem(LOCK_CRED_KEY, bufToBase64url(cred.rawId));
+      setLockEnabled(true);
+      setLockMsg("✅ Face ID 잠금이 설정됐어요. 아래에서 비밀번호(예비 수단)도 설정해두세요.");
+      setTimeout(() => setLockMsg(""), 4000);
+    } catch (e) {
+      setLockMsg("❌ 설정 실패: " + String(e.message || e));
+    }
+  };
+
+  const disableLock = () => {
+    if (!window.confirm("앱 잠금을 해제할까요? Face ID와 비밀번호 설정이 모두 삭제돼요.")) return;
+    try {
+      localStorage.removeItem(LOCK_CRED_KEY);
+      localStorage.removeItem(LOCK_PW_HASH_KEY);
+    } catch (e) {}
+    setLockEnabled(false);
+    setHasLockPassword(false);
+    setLockMsg("🔓 앱 잠금을 껐어요.");
+    setTimeout(() => setLockMsg(""), 3000);
+  };
+
+  const setLockPassword = async () => {
+    if (!newPwInput || newPwInput.length < 4) {
+      setLockMsg("❌ 비밀번호는 4자리 이상으로 입력해주세요.");
+      return;
+    }
+    const hash = await sha256Hex(newPwInput);
+    localStorage.setItem(LOCK_PW_HASH_KEY, hash);
+    setHasLockPassword(true);
+    setNewPwInput("");
+    setLockMsg("✅ 예비 비밀번호가 저장됐어요.");
+    setTimeout(() => setLockMsg(""), 3000);
+  };
+
+  const unlockWithPassword = async () => {
+    try {
+      const storedHash = localStorage.getItem(LOCK_PW_HASH_KEY);
+      if (!storedHash) return;
+      const inputHash = await sha256Hex(pwInput);
+      if (inputHash === storedHash) {
+        setIsLocked(false);
+        setPwInput("");
+        setLockMsg("");
+      } else {
+        setLockMsg("❌ 비밀번호가 틀렸어요.");
+      }
+    } catch (e) {
+      setLockMsg("❌ 오류가 발생했어요.");
+    }
+  };
+
+  // 잠긴 상태가 되면(=앱 시작 시) 자동으로 Face ID 인증을 바로 시도
+  useEffect(() => {
+    if (isLocked && lockEnabled) {
+      unlockWithBiometrics();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLocked, lockEnabled]);
+
+  // 다른 앱으로 전환(백그라운드)되면 화면만 가리고, 재인증 강제는 하지 않음 (앱을 새로 열 때만 Face ID 요구)
+  useEffect(() => {
+    if (!lockEnabled) return;
+    const handleHide = () => { setIsObscured(true); };
+    const handleShow = () => { setIsObscured(false); };
+    const onVisibility = () => {
+      if (document.hidden) handleHide();
+      else handleShow();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", handleHide);
+    window.addEventListener("pageshow", handleShow);
+    window.addEventListener("blur", handleHide);
+    window.addEventListener("focus", handleShow);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", handleHide);
+      window.removeEventListener("pageshow", handleShow);
+      window.removeEventListener("blur", handleHide);
+      window.removeEventListener("focus", handleShow);
+    };
+  }, [lockEnabled]);
+
+  // 3분 동안 터치가 전혀 없으면 자동으로 잠금 화면으로 돌아감 (사실상 "종료"와 같은 효과)
+  const lastTouchRef = useRef(Date.now());
+  useEffect(() => {
+    if (!lockEnabled) return;
+    const markActive = () => { lastTouchRef.current = Date.now(); };
+    const events = ["touchstart", "mousedown", "keydown", "scroll", "pointerdown"];
+    events.forEach((ev) => window.addEventListener(ev, markActive, { passive: true }));
+    const intervalId = setInterval(() => {
+      if (isLocked) { lastTouchRef.current = Date.now(); return; }
+      if (Date.now() - lastTouchRef.current >= 180000) {
+        setIsLocked(true);
+      }
+    }, 2000);
+    return () => {
+      events.forEach((ev) => window.removeEventListener(ev, markActive));
+      clearInterval(intervalId);
+    };
+  }, [lockEnabled, isLocked]);
+
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed.stocks) setStocks(parsed.stocks.map((s) => ({ ...s, virtualSellQty: "", virtualBuyQty: "" })));
+        if (parsed.cashAccounts) setCashAccounts(parsed.cashAccounts);
+        if (parsed.targetCashRatio !== undefined) setTargetCashRatio(parsed.targetCashRatio);
+        if (parsed.proxyUrl) setProxyUrl(parsed.proxyUrl);
+        if (parsed.appSecret) setAppSecret(parsed.appSecret);
+      }
+    } catch (e) {}
+    try {
+      const rawSnaps = localStorage.getItem(SNAPSHOTS_KEY);
+      if (rawSnaps) {
+        const parsedSnaps = JSON.parse(rawSnaps);
+        if (Array.isArray(parsedSnaps)) setSnapshots(parsedSnaps);
+      }
+    } catch (e) {}
+    try {
+      const rawLog = localStorage.getItem(REBALANCE_LOG_KEY);
+      if (rawLog) {
+        const parsedLog = JSON.parse(rawLog);
+        if (Array.isArray(parsedLog)) {
+          // 이전 형식(날짜 문자열 배열)과 새 형식({date, items}) 둘 다 지원
+          const migrated = parsedLog.map((g) => (typeof g === "string" ? { date: g, items: [] } : g));
+          setRebalanceLog(migrated);
+        }
+      }
+    } catch (e) {}
+    try {
+      const rawBackups = localStorage.getItem(LAUNCH_BACKUP_KEY);
+      if (rawBackups) {
+        const parsedBackups = JSON.parse(rawBackups);
+        if (Array.isArray(parsedBackups)) setLaunchBackups(parsedBackups);
+      }
+    } catch (e) {}
+    try {
+      const rawBaseline = localStorage.getItem(PRINCIPAL_BASELINE_KEY);
+      if (rawBaseline) setStockInvestBaseline(Number(rawBaseline) || 0);
+    } catch (e) {}
+    try {
+      const rawCashBaseline = localStorage.getItem(CASH_BASELINE_KEY);
+      if (rawCashBaseline) setCashBaseline(Number(rawCashBaseline) || 0);
+    } catch (e) {}
+    try {
+      const rawPrincipal = localStorage.getItem(INVESTMENT_PRINCIPAL_KEY);
+      if (rawPrincipal) setInvestmentPrincipalBase(Number(rawPrincipal) || 0);
+    } catch (e) {}
+    try {
+      const rawReduction = localStorage.getItem(PRINCIPAL_REDUCTION_LOG_KEY);
+      if (rawReduction) {
+        const parsed = JSON.parse(rawReduction);
+        if (Array.isArray(parsed)) setPrincipalReductionLog(parsed);
+      }
+    } catch (e) {}
+    try {
+      const rawSettle = localStorage.getItem(CASH_SETTLE_LOG_KEY);
+      if (rawSettle) {
+        const parsed = JSON.parse(rawSettle);
+        if (Array.isArray(parsed)) setCashSettleLog(parsed);
+      }
+    } catch (e) {}
+    setLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!loaded) return;
+    if (isPreviewing) return; // 미리보기 중에는 실제 데이터를 덮어쓰지 않음
+    const t = setTimeout(() => {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ stocks, cashAccounts, targetCashRatio, proxyUrl, appSecret }));
+      } catch (e) {}
+    }, 500);
+    return () => clearTimeout(t);
+  }, [stocks, cashAccounts, targetCashRatio, proxyUrl, appSecret, loaded, isPreviewing]);
+
+  const stockCalc = useMemo(() => {
+    const base = stocks.map((s) => {
+      const qty = num(s.qty), buy = num(s.buyPrice), cur = num(s.curPrice);
+      const vSellQty = num(s.virtualSellQty), vBuyQty = num(s.virtualBuyQty);
+      const vsell = vBuyQty - vSellQty; // 순 가상 수량 변화 (매수 +, 매도 -)
+      const prevClose = num(s.prevClose);
+      const hasName = s.name && s.name.trim() !== "";
+      const effQty = qty + vsell;
+      const investAmt = hasName ? buy * effQty : 0;
+      const valAmt = hasName ? cur * effQty : 0;
+      const pnl = hasName ? (cur - buy) * effQty : 0;
+      const returnRate = hasName && buy * qty !== 0 ? pnl / (buy * qty) : null;
+      const hasPrevClose = hasName && prevClose !== 0;
+      const prevChangeAmt = hasPrevClose ? cur - prevClose : null;
+      const prevChangeRate = hasPrevClose ? (cur - prevClose) / prevClose : null;
+      const vSellCash = cur * vSellQty; // 가상 매도로 들어오는 현금
+      const vBuyCash = cur * vBuyQty;   // 가상 매수로 나가는 현금
+      const vCashImpact = vSellCash - vBuyCash; // 순 현금 변화 (+면 현금 증가)
+      return { ...s, hasName, qty, buy, cur, vsell, vSellQty, vBuyQty, vSellCash, vBuyCash, vCashImpact, prevClose, hasPrevClose, prevChangeAmt, prevChangeRate, effQty, investAmt, valAmt, pnl, returnRate };
+    });
+    const totalInvest = sum(base.map((r) => r.investAmt));
+    const realTotalInvest = sum(base.map((r) => (r.hasName ? r.buy * r.qty : 0))); // 가상매수/매도 제외한 진짜 매입원가 (baseline 판단용)
+    const totalVal = sum(base.map((r) => r.valAmt));
+    const withWeights = base.map((r) => {
+      const profitWeight = r.hasName && totalVal + totalInvest !== 0 ? (r.valAmt + r.investAmt) / (totalVal + totalInvest) : null;
+      const purchaseWeight = r.hasName && totalInvest !== 0 ? r.investAmt / totalInvest : null;
+      return { ...r, profitWeight, purchaseWeight };
+    });
+    const profitRanks = rankDesc(withWeights.map((r) => r.profitWeight));
+    const purchaseRanks = rankDesc(withWeights.map((r) => r.purchaseWeight));
+    const withRanks = withWeights.map((r, i) => ({ ...r, profitRank: profitRanks[i], purchaseRank: purchaseRanks[i] }));
+    const withAvg = withRanks.map((r) => {
+      const avgWeight = r.profitWeight !== null && r.purchaseWeight !== null ? (r.profitWeight + r.purchaseWeight) / 2 : null;
+      const diffWeight = r.profitWeight !== null && r.purchaseWeight !== null ? r.profitWeight - r.purchaseWeight : null;
+      return { ...r, avgWeight, diffWeight };
+    });
+    const avgRanks = rankDesc(withAvg.map((r) => r.avgWeight));
+    const rows = withAvg.map((r, i) => ({ ...r, avgRank: avgRanks[i] }));
+    const top4Profit = sum(rows.filter((r) => r.profitRank && r.profitRank <= 4).map((r) => r.profitWeight || 0));
+    const top4Purchase = sum(rows.filter((r) => r.purchaseRank && r.purchaseRank <= 4).map((r) => r.purchaseWeight || 0));
+    const top4Avg = sum(rows.filter((r) => r.avgRank && r.avgRank <= 4).map((r) => r.avgWeight || 0));
+    const maxWeight = Math.max(0, ...rows.map((r) => r.purchaseWeight || 0));
+    return { rows, totalInvest, realTotalInvest, totalVal, top4Profit, top4Purchase, top4Avg, maxWeight };
+  }, [stocks]);
+
+  // 이름·코드가 있는 종목들의 고유 코드 목록 (주봉 신호 조회/상태 표시에서 공통으로 재사용)
+  const stockCodes = useMemo(
+    () => [...new Set(stocks.filter((s) => s.name && s.code).map((s) => s.code))],
+    [stocks]
+  );
+
+  const cashCalc = useMemo(() => {
+    const rows = cashAccounts.map((a) => {
+      const cash = num(a.cash), pledged = num(a.pledged), used = num(a.used);
+      return { ...a, cash, pledged, used, total: cash + pledged - used };
+    });
+    return {
+      rows,
+      totalCash: sum(rows.map((r) => r.cash)),
+      totalPledged: sum(rows.map((r) => r.pledged)),
+      totalUsed: sum(rows.map((r) => r.used)),
+      totalAccountValue: sum(rows.map((r) => r.total)),
+    };
+  }, [cashAccounts]);
+
+  const S2 = sum(stocks.map((s) => num(s.curPrice) * (num(s.virtualBuyQty) - num(s.virtualSellQty))));
+  const realAvailableCash = cashCalc.totalCash - S2;
+  // 평가총금액 = 주식투자평가액 + 실제보유현금합계 (가상매수/매도 시뮬레이션과 무관하게 항상 실제 값 기준)
+  const totalPortfolioValue = stockCalc.totalVal + cashCalc.totalCash;
+  const cashRatio = totalPortfolioValue !== 0 ? realAvailableCash / totalPortfolioValue : 0;
+  const investableCash = totalPortfolioValue * (cashRatio - targetCashRatio);
+  // 주식 매입원가와 현금 둘 다 baseline(한 번 오른 뒤엔 절대 안 내려가는 값)을 사용
+  // 투자금은 오직 "현금계좌의 사용한 돈" 정산을 통해서만 줄어들 수 있고, 그 외에는 절대 안 줄어든다
+  // "주식투자금"은 이제 baseline 없이 항상 지금 실제 보유수량 기준 값을 그대로 쓴다 — 계속 사고팔며 비중조절하는 게 정상이라 자유롭게 오르내려야 함
+  // "투자원금"은 주식/현금 공식과 완전히 분리된 독립 값이다.
+  //   - 오직 "사용한돈" 정산으로만 줄어들 수 있고, 그 내역은 기록으로 남는다.
+  //   - 늘리거나 고칠 땐 사용자가 직접 입력해서 적용한다 (자동으로 오르지 않음).
+  const investmentPrincipal = investmentPrincipalBase;
+  const totalReturnAmt = totalPortfolioValue - investmentPrincipal;
+  const totalReturnRate = investmentPrincipal !== 0 ? totalReturnAmt / investmentPrincipal : null;
+
+  // 최초 1회: 투자원금이 아직 한 번도 설정된 적 없으면(0이면), 지금 실제 주식투자금+보유현금 합계로 시작값을 잡아준다.
+  useEffect(() => {
+    if (!loaded) return;
+    try {
+      if (localStorage.getItem(INVESTMENT_PRINCIPAL_KEY)) return; // 이미 설정된 적 있음
+    } catch (e) {}
+    const startValue = stockCalc.totalInvest + cashCalc.totalCash + sum(cashAccounts.map((a) => num(a.pledged)));
+    if (startValue > 0) {
+      setInvestmentPrincipalBase(startValue);
+      try { localStorage.setItem(INVESTMENT_PRINCIPAL_KEY, String(startValue)); } catch (e) {}
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded]);
+
+  // (1회성) 지금 요청하신 대로, 투자금 기준을 딱 한 번 "지금 실제 현금+매입원가 합계"로 다시 맞춘다.
+  // 이후로는 평소처럼 baseline 로직(오르기만 하고, 정산 때만 내려감)이 계속 적용된다.
+  useEffect(() => {
+    if (!loaded) return;
+    try {
+      if (localStorage.getItem(PRINCIPAL_BASELINE_RESET_ONCE_KEY)) return; // 이미 한 번 실행함
+    } catch (e) {}
+    setStockInvestBaseline(stockCalc.realTotalInvest);
+    setCashBaseline(cashCalc.totalCash);
+    try {
+      localStorage.setItem(PRINCIPAL_BASELINE_KEY, String(stockCalc.realTotalInvest));
+      localStorage.setItem(CASH_BASELINE_KEY, String(cashCalc.totalCash));
+      localStorage.setItem(PRINCIPAL_BASELINE_RESET_ONCE_KEY, "1");
+    } catch (e) {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded]);
+
+  // 투자금 baseline을 "지금 현재의 실제 현금+매입원가 합계"로 다시 맞춘다 (그동안 쌓인 차이를 정리하고 지금부터 새로 시작)
+  const resetPrincipalBaseline = () => {
+    if (!window.confirm(`투자금 기준을 지금 실제 값(주식투자금 ${fmt(stockCalc.realTotalInvest)}원 + 현금 ${fmt(cashCalc.totalCash)}원 = ${fmt(stockCalc.realTotalInvest + cashCalc.totalCash)}원)으로 다시 시작할까요?`)) return;
+    setStockInvestBaseline(stockCalc.realTotalInvest);
+    setCashBaseline(cashCalc.totalCash);
+    try {
+      localStorage.setItem(PRINCIPAL_BASELINE_KEY, String(stockCalc.realTotalInvest));
+      localStorage.setItem(CASH_BASELINE_KEY, String(cashCalc.totalCash));
+    } catch (e) {}
+    setLockMsg("✅ 투자금 기준을 지금 값으로 다시 시작했어요.");
+    setTimeout(() => setLockMsg(""), 3000);
+  };
+
+  // 사용자가 "투자원금"을 직접 입력하면 그 값으로 바로 설정한다 (주식/현금 공식과 무관한 독립값이므로).
+  const applyPrincipalOverride = () => {
+    const newValue = num(fromDisplay(principalOverrideInput));
+    if (!principalOverrideInput || newValue <= 0) {
+      setLockMsg("❌ 적용할 금액을 입력해주세요.");
+      setTimeout(() => setLockMsg(""), 3000);
+      return;
+    }
+    if (!window.confirm(`투자원금을 ${fmt(newValue)}원으로 적용할까요?\n(현재: ${fmt(investmentPrincipalBase)}원)`)) return;
+    setInvestmentPrincipalBase(newValue);
+    try { localStorage.setItem(INVESTMENT_PRINCIPAL_KEY, String(newValue)); } catch (e) {}
+    setPrincipalOverrideInput("");
+    setLockMsg(`✅ 투자원금을 ${fmt(newValue)}원으로 적용했어요.`);
+    setTimeout(() => setLockMsg(""), 3000);
+  };
+
+
+  // 비중평균(avgWeight) 내림차순 정렬 — 단, 값이 바뀔 때마다 바로 재정렬하지 않고
+  // 종목 추가/삭제/불러오기 시, 그리고 "실시간 시세 새로고침" 실행 시에만 순서를 다시 계산한다.
+  const [stockOrder, setStockOrder] = useState([]);
+  const recomputeStockOrder = () => {
+    const order = [...stockCalc.rows]
+      .sort((a, b) => {
+        if (a.avgWeight === null && b.avgWeight === null) return 0;
+        if (a.avgWeight === null) return 1;
+        if (b.avgWeight === null) return -1;
+        return b.avgWeight - a.avgWeight;
+      })
+      .map((r) => r.id);
+    setStockOrder(order);
+  };
+  const stockIdsKey = stocks.map((s) => s.id).join(",");
+  useEffect(() => {
+    recomputeStockOrder();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stockIdsKey]);
+
+  const sortedStockRows = useMemo(() => {
+    const byId = {};
+    stockCalc.rows.forEach((r) => { byId[r.id] = r; });
+    const ordered = stockOrder.map((id) => byId[id]).filter(Boolean);
+    const missing = stockCalc.rows.filter((r) => !stockOrder.includes(r.id));
+    return [...ordered, ...missing];
+  }, [stockCalc.rows, stockOrder]);
+
+  // 사용자가 수동으로 순서를 정할 수 있도록 cashAccounts 배열 순서 그대로 사용 (자동 정렬 없음)
+  const sortedCashRows = cashCalc.rows;
+
+  const logRebalanceEvent = (name, qty, buyPrice) => {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    setRebalanceLog((prev) => {
+      const idx = prev.findIndex((g) => g.date === todayStr);
+      let next;
+      if (idx === -1) {
+        next = [...prev, { date: todayStr, items: [{ name, qty, buyPrice }] }];
+      } else {
+        const group = prev[idx];
+        const itemIdx = group.items.findIndex((it) => it.name === name);
+        const newItems = itemIdx === -1
+          ? [...group.items, { name, qty, buyPrice }]
+          : group.items.map((it, i) => (i === itemIdx ? { name, qty, buyPrice } : it));
+        next = prev.map((g, i) => (i === idx ? { ...group, items: newItems } : g));
+      }
+      try { localStorage.setItem(REBALANCE_LOG_KEY, JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
+  };
+  const deleteRebalanceEntry = (date) => {
+    setRebalanceLog((prev) => {
+      const next = prev.filter((g) => g.date !== date);
+      try { localStorage.setItem(REBALANCE_LOG_KEY, JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
+  };
+  const deleteRebalanceItem = (date, name) => {
+    setRebalanceLog((prev) => {
+      const next = prev
+        .map((g) => (g.date === date ? { ...g, items: g.items.filter((it) => it.name !== name) } : g))
+        .filter((g) => g.date !== date || g.items.length > 0);
+      try { localStorage.setItem(REBALANCE_LOG_KEY, JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
+  };
+  const logPrincipalReduction = (name, qtyBefore, qtyAfter, reducedAmount) => {
+    if (reducedAmount <= 0) return;
+    const entry = {
+      id: genId(),
+      date: new Date().toISOString().slice(0, 10),
+      time: new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }),
+      name, qtyBefore, qtyAfter, reducedAmount,
+    };
+    setPrincipalReductionLog((prev) => {
+      const next = [entry, ...prev];
+      try { localStorage.setItem(PRINCIPAL_REDUCTION_LOG_KEY, JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
+  };
+  const deletePrincipalReduction = (id) => {
+    setPrincipalReductionLog((prev) => {
+      const next = prev.filter((e) => e.id !== id);
+      try { localStorage.setItem(PRINCIPAL_REDUCTION_LOG_KEY, JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
+  };
+
+  const qtyFocusRef = useRef({}); // { [stockId]: 포커스 들어올 때의 qty 값 } — 타이핑 중간값이 아니라 최종값끼리만 비교하기 위함
+  const handleQtyFocus = (id, qty) => { qtyFocusRef.current[id] = num(qty); };
+  const handleQtyBlur = (id) => {
+    delete qtyFocusRef.current[id];
+  };
+
+  // "빌려투자한돈"이 늘면 투자원금도 늘고, 줄면(갚으면) 투자원금도 같이 줄어들며 이력에 기록된다.
+  const pledgedFocusRef = useRef({});
+  const handlePledgedFocus = (id, pledged) => { pledgedFocusRef.current[id] = num(pledged); };
+  const handlePledgedBlur = (id) => {
+    const before = pledgedFocusRef.current[id];
+    if (before === undefined) { delete pledgedFocusRef.current[id]; return; }
+    const account = cashAccounts.find((a) => a.id === id);
+    if (account) {
+      const after = num(account.pledged);
+      if (after !== before) {
+        const diff = after - before; // 양수면 증가, 음수면 감소(상환)
+        setInvestmentPrincipalBase((prev) => {
+          const next = Math.max(0, prev + diff);
+          try { localStorage.setItem(INVESTMENT_PRINCIPAL_KEY, String(next)); } catch (e) {}
+          return next;
+        });
+        const entry = {
+          id: genId(),
+          date: new Date().toISOString().slice(0, 10),
+          time: new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }),
+          accountName: account.name || "(이름없음)",
+          amount: Math.abs(diff),
+          cashBefore: before,
+          cashAfter: after,
+          type: diff > 0 ? "borrow" : "repay",
+        };
+        setCashSettleLog((prev) => {
+          const next = [entry, ...prev];
+          try { localStorage.setItem(CASH_SETTLE_LOG_KEY, JSON.stringify(next)); } catch (e) {}
+          return next;
+        });
+      }
+    }
+    delete pledgedFocusRef.current[id];
+  };
+
+  const updateStock = (id, field, value) => {
+    setStocks((prev) => prev.map((s) => (s.id === id ? { ...s, [field]: value } : s)));
+    if (field === "qty" || field === "buyPrice") {
+      const current = stocks.find((s) => s.id === id);
+      if (current) {
+        const displayName = current.name && current.name.trim() !== "" ? current.name : "(이름없음)";
+        const loggedQty = field === "qty" ? value : current.qty;
+        const loggedBuy = field === "buyPrice" ? value : current.buyPrice;
+        logRebalanceEvent(displayName, loggedQty, loggedBuy);
+      }
+    }
+  };
+  // 리밸런싱 이력 표시용 계산 (최근 30회차 + 전체 평균 주기)
+  const rebalanceDisplay = useMemo(() => {
+    const log = rebalanceLog;
+    const dayMs = 24 * 60 * 60 * 1000;
+    const withIntervals = log.map((g, idx) => {
+      const interval = idx === 0 ? null : Math.round((new Date(g.date) - new Date(log[idx - 1].date)) / dayMs);
+      return { ...g, interval };
+    });
+    const allIntervals = withIntervals.slice(1).map((r) => r.interval);
+    const avgIntervalAll = allIntervals.length > 0 ? allIntervals.reduce((a, b) => a + b, 0) / allIntervals.length : null;
+    const last30 = withIntervals.slice(-30).reverse(); // 최신 회차가 위로
+    return { last30, avgIntervalAll, totalCount: log.length };
+  }, [rebalanceLog]);
+
+
+  const updateStockName = (id, name) => {
+    setStocks((prev) => prev.map((s) => {
+      if (s.id !== id) return s;
+      const exact = findExactCode(name);
+      return exact ? { ...s, name, code: exact } : { ...s, name };
+    }));
+  };
+  const pickSuggestion = (id, name, code) => {
+    setStocks((prev) => prev.map((s) => (s.id === id ? { ...s, name, code } : s)));
+    setSuggestFor(null);
+  };
+  const addStock = () => setStocks((prev) => [...prev, emptyStock()]);
+  const removeStock = (id) => setStocks((prev) => prev.filter((s) => s.id !== id));
+  const updateCash = (id, field, value) => setCashAccounts((prev) => prev.map((a) => (a.id === id ? { ...a, [field]: value } : a)));
+  const addCash = () => setCashAccounts((prev) => [...prev, emptyCash()]);
+  const removeCash = (id) => setCashAccounts((prev) => prev.filter((a) => a.id !== id));
+
+  const deleteCashSettleEntry = (id) => {
+    setCashSettleLog((prev) => {
+      const entry = prev.find((e) => e.id === id);
+      if (entry) {
+        // 이 기록이 투자원금에 반영했던 효과를 되돌린다: "borrow"(증가)였으면 그만큼 빼고, 그 외(정산/상환, 감소)였으면 그만큼 다시 더한다.
+        const reverseDelta = entry.type === "borrow" ? -entry.amount : entry.amount;
+        setInvestmentPrincipalBase((prevBase) => {
+          const nextBase = Math.max(0, prevBase + reverseDelta);
+          try { localStorage.setItem(INVESTMENT_PRINCIPAL_KEY, String(nextBase)); } catch (e) {}
+          return nextBase;
+        });
+      }
+      const next = prev.filter((e) => e.id !== id);
+      try { localStorage.setItem(CASH_SETTLE_LOG_KEY, JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
+  };
+
+  // 앱을 실행할 때마다, 각 현금계좌의 "사용한 돈"을 "현금"에서 차감(정산)하고 사용한 돈을 0으로 리셋 + 정산 내역 기록
+  useEffect(() => {
+    if (!loaded) return;
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const nowTime = new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+    const newEntries = [];
+    // setState 업데이터 함수 안에서 사이드이펙트(newEntries.push)를 하면 실행 타이밍이 보장 안 돼서 기록이 누락되는 버그가 있었음.
+    // 그래서 지금 시점의 cashAccounts 값을 그대로 써서 미리 다 계산해두고, 그 결과로 한 번에 setState한다.
+    const nextAccounts = cashAccounts.map((a) => {
+      const used = num(a.used);
+      if (used > 0) {
+        const cashBefore = num(a.cash);
+        const cashAfter = cashBefore - used;
+        newEntries.push({ id: genId(), date: todayStr, time: nowTime, accountName: a.name || "(이름없음)", amount: used, cashBefore, cashAfter });
+        return { ...a, cash: String(cashAfter), used: "" };
+      }
+      return a;
+    });
+    if (newEntries.length > 0) {
+      setCashAccounts(nextAccounts);
+      setCashSettleLog((prevLog) => {
+        const next = [...newEntries, ...prevLog];
+        try { localStorage.setItem(CASH_SETTLE_LOG_KEY, JSON.stringify(next)); } catch (e) {}
+        return next;
+      });
+      // 정산된 만큼은 "사용한돈"을 통한 정당한 감소이므로, 투자원금(독립값)에서 그만큼 명시적으로 뺀다
+      const totalSettled = newEntries.reduce((a, e) => a + e.amount, 0);
+      setInvestmentPrincipalBase((prev) => {
+        const next = Math.max(0, prev - totalSettled);
+        try { localStorage.setItem(INVESTMENT_PRINCIPAL_KEY, String(next)); } catch (e) {}
+        return next;
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded]);
+
+  const moveCash = (id, dir) => {
+    setCashAccounts((prev) => {
+      const idx = prev.findIndex((a) => a.id === id);
+      const swapIdx = idx + dir;
+      if (idx < 0 || swapIdx < 0 || swapIdx >= prev.length) return prev;
+      const next = [...prev];
+      [next[idx], next[swapIdx]] = [next[swapIdx], next[idx]];
+      return next;
+    });
+  };
+
+  const refreshPrices = useCallback(async () => {
+    if (!proxyUrl) { setRefreshMsg("먼저 설정에서 프록시 서버 주소를 입력하세요."); return; }
+    setRefreshing(true); setRefreshMsg("");
+    const base = proxyUrl.replace(/\/$/, "");
+    const headers = appSecret ? { "x-app-secret": appSecret } : {};
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    const fetchOneStock = async (s, i) => {
+      if (!s.code || !s.name) return { i, skip: true };
+      try {
+        const res = await fetch(`${base}/price/${s.code}`, { headers });
+        if (!res.ok) throw new Error("bad response");
+        const data = await res.json();
+        if (data && data.price) {
+          return { i, ok: true, curPrice: String(data.price), prevClose: data.prevClose ? String(data.prevClose) : undefined };
+        }
+        return { i, ok: false };
+      } catch (e) {
+        return { i, ok: false };
+      }
+    };
+    const fetchIndex = (code) => fetch(`${base}/index/${code}`, { headers }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+
+    // 실패한 항목(종목/지수)만 최대 3번까지 자동으로 재시도
+    let indicesToTry = stocks.map((_, i) => i);
+    const stockResultMap = {};
+    let kospiData = null, kosdaqData = null;
+    let needKospi = true, needKosdaq = true;
+    let attempt = 0;
+    const maxRetries = 3;
+
+    while (attempt <= maxRetries) {
+      const [stockResults, kospiRes, kosdaqRes] = await Promise.all([
+        Promise.all(indicesToTry.map((i) => fetchOneStock(stocks[i], i))),
+        needKospi ? fetchIndex("0001") : Promise.resolve(null),
+        needKosdaq ? fetchIndex("1001") : Promise.resolve(null),
+      ]);
+      stockResults.forEach((r) => { stockResultMap[r.i] = r; });
+      if (needKospi && kospiRes && kospiRes.price) { kospiData = kospiRes; needKospi = false; }
+      if (needKosdaq && kosdaqRes && kosdaqRes.price) { kosdaqData = kosdaqRes; needKosdaq = false; }
+
+      indicesToTry = indicesToTry.filter((i) => stockResultMap[i] && !stockResultMap[i].skip && !stockResultMap[i].ok);
+      const stillFailing = indicesToTry.length > 0 || needKospi || needKosdaq;
+      attempt++;
+      if (!stillFailing || attempt > maxRetries) break;
+      setRefreshMsg(`일부 실패, 재시도 중... (${attempt}/${maxRetries})`);
+      await sleep(1500);
+    }
+
+    let okCount = 0, failCount = 0;
+    const updated = [...stocks];
+    Object.values(stockResultMap).forEach((r) => {
+      if (r.skip) return;
+      if (r.ok) {
+        updated[r.i] = { ...updated[r.i], curPrice: r.curPrice, ...(r.prevClose ? { prevClose: r.prevClose } : {}) };
+        okCount++;
+      } else {
+        failCount++;
+      }
+    });
+
+    setStocks(updated); setRefreshing(false);
+    setRefreshMsg(`완료: ${okCount}개 갱신${failCount ? `, ${failCount}개 실패(3회 재시도 후에도 실패)` : ""}`);
+    setLastRefreshedAt(new Date());
+    setPriceRefreshTick((t) => t + 1);
+    setMarketIndices({ kospi: kospiData, kosdaq: kosdaqData });
+  }, [proxyUrl, stocks, appSecret]);
+
+  // 주봉 캔들(날짜+종가) 배열로 5주/20주 이동평균을 구해서 현재 상태(golden/dead)를 판단
+  // "이번 주(아직 마감 안 된 주)"인지는 마지막 캔들의 날짜가 이번 주(이번 주 월요일 이후)인지로 정확히 판별해서 제외한다.
+  // (기존에는 무조건 마지막 1개를 제외했는데, 서버가 이미 완결된 주까지만 줄 때도 있어서 그때는 실수로 진짜 완결주 하나를 더 빼버려 계산이 흔들렸음)
+  const computeMaState = (candles) => {
+    if (!Array.isArray(candles) || candles.length === 0) return null;
+    const parsed = candles
+      .map((c) => ({ date: String(c.date || ""), close: Number(c.close) }))
+      .filter((c) => c.date.length === 8 && !isNaN(c.close) && c.close > 0)
+      .sort((a, b) => a.date.localeCompare(b.date));
+    if (parsed.length === 0) return null;
+
+    // 이번 주 월요일 날짜를 YYYYMMDD로 계산
+    const today = new Date();
+    const dow = today.getDay(); // 0=일 ~ 6=토
+    const diffToMonday = dow === 0 ? 6 : dow - 1;
+    const monday = new Date(today);
+    monday.setDate(today.getDate() - diffToMonday);
+    const mondayStr = `${monday.getFullYear()}${String(monday.getMonth() + 1).padStart(2, "0")}${String(monday.getDate()).padStart(2, "0")}`;
+
+    const lastDate = parsed[parsed.length - 1].date;
+    // 마지막 캔들이 이번 주(월요일 이후) 것이면 아직 마감 안 된 주이므로 제외, 아니면 이미 다 완결된 주들이므로 그대로 사용
+    const completed = lastDate >= mondayStr ? parsed.slice(0, -1) : parsed;
+
+    if (completed.length < 20) return null;
+    const closes = completed.map((c) => c.close);
+    const n = closes.length;
+    const ma5 = closes.slice(n - 5).reduce((a, b) => a + b, 0) / 5;
+    const ma20 = closes.slice(n - 20).reduce((a, b) => a + b, 0) / 20;
+    if (ma5 === ma20) return { ma5, ma20, state: null };
+    return { ma5, ma20, state: ma5 > ma20 ? "golden" : "dead" };
+  };
+
+
+  // 상태 + 현금비중(목표현금비중 대비)을 기준으로 매수/매도/중립 중 하나를 결정 (항상 셋 중 하나)
+  const deriveAdviceLabel = (state) => {
+    if (state === "golden" && cashRatio <= targetCashRatio) return "sell"; // 골든크로스인데 현금이 목표 이하 → 매도관점(현금 확보)
+    if (state === "dead" && cashRatio >= targetCashRatio) return "buy";   // 데드크로스인데 현금이 목표 이상 → 매수관점(저가 매수)
+    return "neutral";
+  };
+
+  // 코스피/코스닥 주봉 데이터 조회 — 하루 1회 계산 후 localStorage에 고정 저장 (앱을 몇 번을 다시 열어도 그날 안엔 절대 안 바뀜)
+  const fetchWeeklySignals = useCallback(async () => {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    try {
+      const stored = JSON.parse(localStorage.getItem(WEEKLY_SIGNAL_STORE_KEY) || "null");
+      if (stored && stored.date === todayStr && stored.data && stored.data.kospi && stored.data.kosdaq) {
+        setWeeklySignal(stored.data);
+        return; // 오늘 이미 "완전히 성공한" 계산이 있으면 그대로 사용
+      }
+    } catch (e) {}
+    if (!proxyUrl) return;
+    const base = proxyUrl.replace(/\/$/, "");
+    const headers = appSecret ? { "x-app-secret": appSecret } : {};
+    try {
+      const [kospiRes, kosdaqRes] = await Promise.all([
+        fetch(`${base}/index-history/0001`, { headers }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+        fetch(`${base}/index-history/1001`, { headers }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+      ]);
+      const toState = (histData) => {
+        if (!histData || !Array.isArray(histData.candles)) return null;
+        return computeMaState(histData.candles);
+      };
+      const result = { kospi: toState(kospiRes), kosdaq: toState(kosdaqRes) };
+      setWeeklySignal(result);
+      // 코스피·코스닥 둘 다 정상적으로 계산됐을 때만 "오늘 완료"로 저장 — 하나라도 실패(null)면 저장하지 않아서 다음에 자동으로 다시 시도함
+      if (result.kospi && result.kosdaq) {
+        try { localStorage.setItem(WEEKLY_SIGNAL_STORE_KEY, JSON.stringify({ date: todayStr, data: result })); } catch (e) {}
+      }
+    } catch (e) {}
+  }, [proxyUrl, appSecret]);
+
+  useEffect(() => {
+    if (!loaded) return;
+    fetchWeeklySignals();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, proxyUrl]);
+
+  // 개별 종목별 주봉 데이터 조회 — 마찬가지로 "완전히 성공"했을 때만 하루치로 고정 저장
+  const fetchStockWeeklySignals = useCallback(async () => {
+    const codes = stockCodes;
+    if (codes.length === 0) return;
+    const todayStr = new Date().toISOString().slice(0, 10);
+    let stored = null;
+    try { stored = JSON.parse(localStorage.getItem(STOCK_WEEKLY_SIGNAL_STORE_KEY) || "null"); } catch (e) {}
+    if (stored && stored.date === todayStr) {
+      // 오늘 이미 계산해둔 값이 있고, 지금 보유한 종목코드가 전부 "성공적으로(null 아님)" 들어있으면 재조회 안 함
+      const hasAll = codes.every((c) => Object.prototype.hasOwnProperty.call(stored.data || {}, c) && stored.data[c]);
+      if (hasAll) { setStockWeeklySignal(stored.data); return; }
+    }
+    if (!proxyUrl) return;
+    const base = proxyUrl.replace(/\/$/, "");
+    const headers = appSecret ? { "x-app-secret": appSecret } : {};
+    try {
+      const results = await Promise.all(
+        codes.map((code) =>
+          fetch(`${base}/stock-history/${code}`, { headers })
+            .then((r) => (r.ok ? r.json() : null))
+            .then((data) => ({ code, data }))
+            .catch(() => ({ code, data: null }))
+        )
+      );
+      const next = {};
+      results.forEach(({ code, data }) => {
+        if (!data || !Array.isArray(data.candles)) { next[code] = null; return; }
+        next[code] = computeMaState(data.candles);
+      });
+      setStockWeeklySignal((prev) => ({ ...prev, ...next }));
+      // 모든 종목이 정상적으로 계산됐을 때만 "오늘 완료"로 저장 — 하나라도 실패하면 저장 안 해서 다음에 자동 재시도
+      const allOk = codes.every((c) => next[c]);
+      if (allOk) {
+        try { localStorage.setItem(STOCK_WEEKLY_SIGNAL_STORE_KEY, JSON.stringify({ date: todayStr, data: next })); } catch (e) {}
+      }
+    } catch (e) {}
+  }, [proxyUrl, appSecret, stockCodes]);
+
+  useEffect(() => {
+    if (!loaded) return;
+    fetchStockWeeklySignals();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, proxyUrl, stockCodes]);
+
+  // 서버가 불안정해서 계산이 실패했을 때, 완전히 성공할 때까지 자동으로 재시도 (30초 간격)
+  // ref로 최신값을 참조해서, 종목 입력 중(타이핑)에 타이머가 계속 리셋되지 않도록 함
+  const weeklySignalRef = useRef(weeklySignal);
+  const stockWeeklySignalRef = useRef(stockWeeklySignal);
+  const stocksRef = useRef(stocks);
+  const fetchWeeklySignalsRef = useRef(fetchWeeklySignals);
+  const fetchStockWeeklySignalsRef = useRef(fetchStockWeeklySignals);
+  useEffect(() => { weeklySignalRef.current = weeklySignal; }, [weeklySignal]);
+  useEffect(() => { stockWeeklySignalRef.current = stockWeeklySignal; }, [stockWeeklySignal]);
+  useEffect(() => { stocksRef.current = stocks; }, [stocks]);
+  useEffect(() => { fetchWeeklySignalsRef.current = fetchWeeklySignals; }, [fetchWeeklySignals]);
+  useEffect(() => { fetchStockWeeklySignalsRef.current = fetchStockWeeklySignals; }, [fetchStockWeeklySignals]);
+
+  useEffect(() => {
+    if (!loaded || !proxyUrl) return;
+    const intervalId = setInterval(() => {
+      const marketDone = weeklySignalRef.current.kospi && weeklySignalRef.current.kosdaq;
+      if (!marketDone) fetchWeeklySignalsRef.current();
+
+      const codes = [...new Set(stocksRef.current.filter((s) => s.name && s.code).map((s) => s.code))];
+      const stockDone = codes.length === 0 || codes.every((c) => stockWeeklySignalRef.current[c]);
+      if (!stockDone) fetchStockWeeklySignalsRef.current();
+    }, 30000);
+    return () => clearInterval(intervalId);
+  }, [loaded, proxyUrl]);
+
+
+  // 코스피/코스닥 각각 매수/매도/중립 라벨 (항상 표시)
+  const marketAdviceList = useMemo(() => {
+    return [["kospi", "코스피"], ["kosdaq", "코스닥"]].map(([key, label]) => {
+      const s = weeklySignal[key];
+      const adv = s ? deriveAdviceLabel(s.state) : "neutral";
+      const text = adv === "sell" ? `${label} 매도관점(현금 20%~30%)`
+        : adv === "buy" ? `${label} 매수관점(현금 10%~20%)`
+        : `${label} 중립관점(현금 20%)`;
+      return { key, label, type: adv, text };
+    });
+  }, [weeklySignal, cashRatio, targetCashRatio]);
+
+  // 새로고침이 실제로 반영된 다음(state 커밋 이후)에 정렬 재계산 — 타이밍 문제 없이 안전하게 동작
+  useEffect(() => {
+    if (priceRefreshTick > 0) recomputeStockOrder();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [priceRefreshTick]);
+
+  // 앱을 열 때마다 자동으로 한 번 실시간 시세 새로고침 실행
+  useEffect(() => {
+    if (!loaded) return;
+    if (!proxyUrl) return;
+    refreshPrices();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, proxyUrl]);
+
+  // 앱이 실행되어 있는 동안 2분마다 자동으로 실시간 시세 새로고침
+  const refreshPricesRef = useRef(refreshPrices);
+  useEffect(() => { refreshPricesRef.current = refreshPrices; }, [refreshPrices]);
+  useEffect(() => {
+    if (!loaded || !proxyUrl) return;
+    const intervalId = setInterval(() => {
+      refreshPricesRef.current();
+    }, 2 * 60 * 1000);
+    return () => clearInterval(intervalId);
+  }, [loaded, proxyUrl]);
+
+  const exportDataAsText = () => {
+    const data = { stocks, cashAccounts, targetCashRatio, snapshots, rebalanceLog };
+    setImportText(JSON.stringify(data, null, 2));
+    setImportMsg("현재 데이터(종목·현금·저장된 스냅샷·리밸런싱 이력 전부)를 아래 상자에 불러왔어요. 전체 선택해서 복사해두시면 백업이 돼요.");
+  };
+
+  const applyImportedData = () => {
+    try {
+      const parsed = JSON.parse(importText);
+      if (!Array.isArray(parsed.stocks) || !Array.isArray(parsed.cashAccounts)) {
+        throw new Error("형식이 올바르지 않습니다 (stocks, cashAccounts 배열 필요).");
+      }
+      const newStocks = parsed.stocks.map((s) => ({ id: genId(), name: "", code: "", qty: "", buyPrice: "", curPrice: "", prevClose: "", virtualSellQty: "", virtualBuyQty: "", ...s }));
+      const newCash = parsed.cashAccounts.map((c) => ({ id: genId(), name: "", cash: "", pledged: "", used: "", ...c }));
+      setStocks(newStocks);
+      setCashAccounts(newCash);
+      if (typeof parsed.targetCashRatio === "number") setTargetCashRatio(parsed.targetCashRatio);
+      if (Array.isArray(parsed.snapshots)) {
+        setSnapshots(parsed.snapshots);
+        try { localStorage.setItem(SNAPSHOTS_KEY, JSON.stringify(parsed.snapshots)); } catch (e) {}
+      }
+      if (Array.isArray(parsed.rebalanceLog)) {
+        const migrated = parsed.rebalanceLog.map((g) => (typeof g === "string" ? { date: g, items: [] } : g));
+        setRebalanceLog(migrated);
+        try { localStorage.setItem(REBALANCE_LOG_KEY, JSON.stringify(migrated)); } catch (e) {}
+      }
+      setImportMsg("✅ 데이터를 불러왔어요 (스냅샷·리밸런싱 이력 포함).");
+    } catch (e) {
+      setImportMsg("❌ 불러오기 실패: " + String(e.message || e));
+    }
+  };
+
+  const saveSnapshot = (isAuto) => {
+    const now = new Date();
+    const label = now.toLocaleString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) + (isAuto ? " (자동)" : "");
+    const snap = {
+      id: genId(),
+      label,
+      savedAt: now.toISOString(),
+      stocks,
+      cashAccounts,
+      targetCashRatio,
+    };
+    setSnapshots((prev) => {
+      const todayStr = now.toISOString().slice(0, 10);
+      const withoutToday = prev.filter((s) => (s.savedAt || "").slice(0, 10) !== todayStr);
+      const next = [snap, ...withoutToday];
+      try { localStorage.setItem(SNAPSHOTS_KEY, JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
+    setSnapshotMsg(isAuto ? `📅 자동 저장 완료 (${label})` : `✅ ${label} 기준으로 저장했어요.`);
+    setTimeout(() => setSnapshotMsg(""), 4000);
+  };
+
+  // 앱을 실행할 때마다 그날 첫 실행이면 "현재날짜로보관"을 자동 실행 (하루 1회만)
+  useEffect(() => {
+    if (!loaded) return;
+    try {
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const lastAuto = localStorage.getItem(AUTOSAVE_KEY);
+      if (lastAuto !== todayStr) {
+        saveSnapshot(true);
+        localStorage.setItem(AUTOSAVE_KEY, todayStr);
+      }
+    } catch (e) {}
+    // 혹시 미리보기 상태로 남아있었다면, 실행 시 항상 최신 데이터로 복귀
+    setIsPreviewing(false);
+    setPreviewBackup(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded]);
+
+  // 앱을 실행할 때마다(매번) 그 시점의 전체 데이터를 자동 백업 — 최근 10회까지 보관, 언제든 복원 가능
+  useEffect(() => {
+    if (!loaded) return;
+    try {
+      const entry = {
+        id: genId(),
+        savedAt: new Date().toISOString(),
+        label: new Date().toLocaleString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }),
+        stocks, cashAccounts, targetCashRatio, snapshots, rebalanceLog,
+      };
+      const rawBackups = localStorage.getItem(LAUNCH_BACKUP_KEY);
+      const prevBackups = rawBackups ? JSON.parse(rawBackups) : [];
+      const nextBackups = [entry, ...prevBackups].slice(0, 10);
+      localStorage.setItem(LAUNCH_BACKUP_KEY, JSON.stringify(nextBackups));
+      setLaunchBackups(nextBackups);
+    } catch (e) {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded]);
+
+  const restoreFromLaunchBackup = (id) => {
+    const b = launchBackups.find((x) => x.id === id);
+    if (!b) return;
+    if (!window.confirm(`"${b.label}" 시점 자동백업으로 복원할까요?\n지금 화면에 있는 데이터는 덮어써집니다.`)) return;
+    setStocks(b.stocks || []);
+    setCashAccounts(b.cashAccounts || []);
+    if (typeof b.targetCashRatio === "number") setTargetCashRatio(b.targetCashRatio);
+    if (Array.isArray(b.snapshots)) {
+      setSnapshots(b.snapshots);
+      try { localStorage.setItem(SNAPSHOTS_KEY, JSON.stringify(b.snapshots)); } catch (e) {}
+    }
+    if (Array.isArray(b.rebalanceLog)) {
+      setRebalanceLog(b.rebalanceLog);
+      try { localStorage.setItem(REBALANCE_LOG_KEY, JSON.stringify(b.rebalanceLog)); } catch (e) {}
+    }
+    setIsPreviewing(false);
+    setPreviewBackup(null);
+    setShowBackupList(false);
+    setSnapshotMsg(`↩ ${b.label} 자동백업으로 복원했어요.`);
+    setTimeout(() => setSnapshotMsg(""), 4000);
+  };
+
+  const loadSnapshot = (id) => {
+    const snap = snapshots.find((s) => s.id === id);
+    if (!snap) return;
+    if (!isPreviewing) {
+      // 실제(최신) 데이터를 백업해뒀다가, 미리보기를 끝내면 그대로 복귀시킨다
+      setPreviewBackup({ stocks, cashAccounts, targetCashRatio });
+    }
+    setStocks(snap.stocks || []);
+    setCashAccounts(snap.cashAccounts || []);
+    if (typeof snap.targetCashRatio === "number") setTargetCashRatio(snap.targetCashRatio);
+    setIsPreviewing(true);
+    setShowSnapshotList(false);
+    setSnapshotMsg(`👁 ${snap.label} 데이터를 보는 중이에요 (보관용 미리보기, 저장되지 않아요).`);
+  };
+
+  const exitPreview = () => {
+    if (previewBackup) {
+      setStocks(previewBackup.stocks);
+      setCashAccounts(previewBackup.cashAccounts);
+      setTargetCashRatio(previewBackup.targetCashRatio);
+    }
+    setIsPreviewing(false);
+    setPreviewBackup(null);
+    setSnapshotMsg("↩ 최신(실시간) 데이터로 돌아왔어요.");
+    setTimeout(() => setSnapshotMsg(""), 3000);
+  };
+
+  const deleteSnapshot = (id) => {
+    setSnapshots((prev) => {
+      const next = prev.filter((s) => s.id !== id);
+      try { localStorage.setItem(SNAPSHOTS_KEY, JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
+  };
+
+  const cashRatioPct = Math.max(0, Math.min(100, cashRatio * 100));
+
+  const exportToExcel = () => {
+    const stockRows = sortedStockRows.filter(r => r.hasName).map((r) => ({
+      "종목명": r.name, "종목코드": r.code, "주식수": r.qty, "매입가": r.buy, "현재가": r.cur,
+      "투자금액": Math.round(r.investAmt), "평가금액": Math.round(r.valAmt), "평가손익": Math.round(r.pnl),
+      "수익률(%)": r.returnRate != null ? Number((r.returnRate * 100).toFixed(2)) : "",
+      "수익기준비중(%)": r.profitWeight != null ? Number((r.profitWeight * 100).toFixed(2)) : "",
+      "매입기준비중(%)": r.purchaseWeight != null ? Number((r.purchaseWeight * 100).toFixed(2)) : "",
+      "비중평균(%)": r.avgWeight != null ? Number((r.avgWeight * 100).toFixed(2)) : "",
+    }));
+    const cashRows = sortedCashRows.filter(a => a.name).map((a) => ({
+      "계좌명": a.name, "현금": a.cash, "빌려투자한돈": a.pledged, "사용한돈": a.used, "합계": Math.round(a.total),
+    }));
+    const summaryRows = [
+      { "항목": "평가금액", "값": Math.round(totalPortfolioValue) },
+      { "항목": "주식평가액", "값": Math.round(stockCalc.totalVal) },
+      { "항목": "투자원금", "값": Math.round(investmentPrincipal) },
+      { "항목": "총수익", "값": Math.round(totalReturnAmt) },
+      { "항목": "총수익률(%)", "값": totalReturnRate != null ? Number((totalReturnRate * 100).toFixed(2)) : "" },
+      { "항목": "현금비중(%)", "값": Number((cashRatio * 100).toFixed(2)) },
+      { "항목": "목표현금비중(%)", "값": Number((targetCashRatio * 100).toFixed(2)) },
+      { "항목": "투자가능현금", "값": Math.round(investableCash) },
+      { "항목": "보유현금합계", "값": Math.round(cashCalc.totalCash) },
+    ];
+    // 리밸런싱 이력 (날짜별 종목 변경 내역을 한 줄씩 펼쳐서)
+    const rebalanceRows = [];
+    rebalanceLog.forEach((g) => {
+      (g.items || []).forEach((it) => {
+        rebalanceRows.push({ "날짜": g.date, "종목명": it.name, "주식수": it.qty, "매입가": it.buyPrice });
+      });
+    });
+    // 보관(스냅샷) 목록
+    const snapshotRows = snapshots.map((s) => ({
+      "보관 라벨": s.label,
+      "저장시각": s.savedAt,
+      "종목수": (s.stocks || []).filter((x) => x.name).length,
+      "현금계좌수": (s.cashAccounts || []).filter((x) => x.name).length,
+    }));
+    // 투자금 감소 이력 (오직 "사용한돈" 정산만 투자금을 줄일 수 있음)
+    const principalRows = cashSettleLog.map((e) => ({
+      "날짜": e.date, "시각": e.time, "계좌명": e.accountName,
+      "구분": e.type === "repay" ? "빌린돈 상환" : e.type === "borrow" ? "빌려투자한돈 증가" : "사용한돈 정산",
+      "증가/감소금액": e.type === "borrow" ? Math.round(e.amount) : -Math.round(e.amount),
+      "이전값": Math.round(e.cashBefore), "이후값": Math.round(e.cashAfter),
+    }));
+    // 자동 백업 목록
+    const backupRows = launchBackups.map((b) => ({
+      "저장시각": b.label,
+      "종목수": (b.stocks || []).filter((x) => x.name).length,
+      "현금계좌수": (b.cashAccounts || []).filter((x) => x.name).length,
+    }));
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryRows), "요약");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(stockRows), "종목");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(cashRows), "현금계좌");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rebalanceRows.length ? rebalanceRows : [{ "안내": "기록 없음" }]), "리밸런싱이력");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(snapshotRows.length ? snapshotRows : [{ "안내": "기록 없음" }]), "보관목록");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(principalRows.length ? principalRows : [{ "안내": "기록 없음" }]), "투자원금증가감소이력");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(backupRows.length ? backupRows : [{ "안내": "기록 없음" }]), "자동백업목록");
+    const today = new Date();
+    const y = String(today.getFullYear()).slice(2);
+    const m = String(today.getMonth() + 1).padStart(2, "0");
+    const d = String(today.getDate()).padStart(2, "0");
+    XLSX.writeFile(wb, `PORTFOLIO_${y}${m}${d}.xlsx`);
+  };
+
+  if (isObscured && lockEnabled && !isLocked) {
+    return (
+      <div style={{ background: "#12151b", minHeight: "100vh", color: "#e7eaf0", fontFamily: "'Pretendard','Apple SD Gothic Neo',sans-serif", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ fontSize: 40 }}>🔒</div>
+        <div style={{ fontSize: 14, color: "#8993a6", marginTop: 10 }}>포트폴리오 리밸런싱</div>
+      </div>
+    );
+  }
+
+  if (isLocked) {
+    return (
+      <div
+        onClick={() => { if (!faceIdAttempting) unlockWithBiometrics(); }}
+        style={{ background: "#12151b", minHeight: "100vh", color: "#e7eaf0", fontFamily: "'Pretendard','Apple SD Gothic Neo',sans-serif", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24, textAlign: "center" }}
+      >
+        <div style={{ fontSize: 40, marginBottom: 16 }}>🔒</div>
+        <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 24 }}>포트폴리오 리밸런싱</div>
+
+        {hasLockPassword && (
+          <div style={{ width: "100%", maxWidth: 280 }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ fontSize: 12, color: "#5a6274", marginBottom: 8 }}>Face ID가 안 되면 비밀번호로 열기</div>
+            <input
+              type="password"
+              value={pwInput}
+              onChange={(e) => setPwInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") unlockWithPassword(); }}
+              placeholder="비밀번호"
+              className="field"
+              style={{ textAlign: "center", marginBottom: 8 }}
+            />
+            <button
+              onClick={unlockWithPassword}
+              style={{ width: "100%", padding: "10px 0", borderRadius: 8, border: "1px solid #c9974a", background: "none", color: "#c9974a", fontWeight: 700, fontSize: 13 }}
+            >
+              비밀번호로 잠금 해제
+            </button>
+          </div>
+        )}
+
+        {lockMsg && <div style={{ marginTop: 14, fontSize: 12, color: "#e8544b" }}>{lockMsg}</div>}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ background: "#12151b", minHeight: "100vh", color: "#e7eaf0", fontFamily: "'Pretendard','Apple SD Gothic Neo',sans-serif", paddingBottom: 40 }}>
+      <style>{`
+        .tnum { font-variant-numeric: tabular-nums; }
+        .card { background:#1a1f28; border:1px solid #262c37; border-radius:14px; }
+        .field { background:#12151b; border:1px solid #2a303c; border-radius:8px; color:#e7eaf0; padding:6px 8px; font-size:13px; width:100%; }
+        .field:focus { outline:none; border-color:#c9974a; }
+        .lbl { color:#8993a6; font-size:11px; }
+        .iconbtn { background:none; border:none; cursor:pointer; }
+        @keyframes spin { from { transform:rotate(0deg);} to { transform:rotate(360deg);} }
+        .spinning { display:inline-block; animation: spin 1s linear infinite; }
+      `}</style>
+
+      {mainView === "home" && (<>
+      <div className="tnum" style={{ padding: "calc(env(safe-area-inset-top, 0px) + 10px) 16px 0", display: "flex", flexDirection: "column", gap: 4, fontSize: 16, fontWeight: 600 }}>
+        {marketIndices.kospi ? (
+          <span style={{ color: num(marketIndices.kospi.change) > 0 ? "#e8544b" : num(marketIndices.kospi.change) < 0 ? "#4c8dff" : "#8993a6" }}>
+            코스피 {Number(marketIndices.kospi.price).toFixed(2)}
+            {" "}{num(marketIndices.kospi.change) > 0 ? "▲" : num(marketIndices.kospi.change) < 0 ? "▼" : ""}
+            {marketIndices.kospi.change !== undefined ? ` ${Math.abs(Number(marketIndices.kospi.change)).toFixed(2)}` : ""}
+            {marketIndices.kospi.changeRate !== undefined ? ` (${Number(marketIndices.kospi.changeRate) >= 0 ? "+" : ""}${Number(marketIndices.kospi.changeRate).toFixed(2)}%)` : ""}
+          </span>
+        ) : (
+          <span style={{ color: "#5a6274" }}>코스피 -</span>
+        )}
+        {marketIndices.kosdaq ? (
+          <span style={{ color: num(marketIndices.kosdaq.change) > 0 ? "#e8544b" : num(marketIndices.kosdaq.change) < 0 ? "#4c8dff" : "#8993a6" }}>
+            코스닥 {Number(marketIndices.kosdaq.price).toFixed(2)}
+            {" "}{num(marketIndices.kosdaq.change) > 0 ? "▲" : num(marketIndices.kosdaq.change) < 0 ? "▼" : ""}
+            {marketIndices.kosdaq.change !== undefined ? ` ${Math.abs(Number(marketIndices.kosdaq.change)).toFixed(2)}` : ""}
+            {marketIndices.kosdaq.changeRate !== undefined ? ` (${Number(marketIndices.kosdaq.changeRate) >= 0 ? "+" : ""}${Number(marketIndices.kosdaq.changeRate).toFixed(2)}%)` : ""}
+          </span>
+        ) : (
+          <span style={{ color: "#5a6274" }}>코스닥 -</span>
+        )}
+      </div>
+      {marketAdviceList.length > 0 && (
+        <div style={{ margin: "8px 16px 0", padding: "10px 12px", borderRadius: 10, fontSize: 12, fontWeight: 600, background: "#1a1f28", border: "1px solid #262c37", display: "flex", flexDirection: "column", gap: 4 }}>
+          <div style={{ display: "flex", gap: 14 }}>
+            {marketAdviceList.map((adv) => {
+              const color = adv.type === "buy" ? "#e8544b" : adv.type === "sell" ? "#4c8dff" : "#8993a6";
+              return (
+                <span key={adv.key} style={{ color }}>
+                  {adv.text}
+                </span>
+              );
+            })}
+          </div>
+          {(() => {
+            const codes = stockCodes;
+            const stockOkCount = codes.filter((c) => stockWeeklySignal[c]).length;
+            const allOk = !!weeklySignal.kospi && !!weeklySignal.kosdaq && stockOkCount === codes.length;
+            return (
+              <div style={{ fontSize: 10, fontWeight: 500, color: allOk ? "#5a6274" : "#8993a6" }}>
+                {allOk ? "✅ 데이터 계산 완료" : `⏳ 데이터 계산 중 (종목 ${stockOkCount}/${codes.length}) — 자동 재시도 중`}
+                {refreshMsg ? ` · ${refreshMsg}` : ""}
+              </div>
+            );
+          })()}
+        </div>
+      )}
+      <div style={{ padding: "10px 16px 10px" }}>
+        <div>
+          <div style={{ fontSize: 11, letterSpacing: 1, color: "#c9974a", fontWeight: 600 }}>PORTFOLIO</div>
+          <div style={{ fontSize: 20, fontWeight: 700 }}>포트폴리오 리밸런싱</div>
+        </div>
+      </div>
+      </>)}
+
+      {mainView === "settings" && (
+        <div style={{ padding: "calc(env(safe-area-inset-top, 0px) + 10px) 0 0" }}>
+          <div style={{ padding: "0 16px 10px" }}>
+            <button onClick={() => setMainView("home")} className="iconbtn" style={{ color: "#c9974a", fontWeight: 700, fontSize: 14 }}>← 뒤로</button>
+          </div>
+        <div style={{ margin: "0 16px 14px" }}>
+          <button
+            onClick={exportToExcel}
+            style={{ width: "100%", background: "#1a1f28", border: "1px solid #c9974a", color: "#c9974a", fontWeight: 700, borderRadius: 12, padding: "13px 0", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
+          >
+            📥 엑셀로 내보내기 (전체 데이터)
+          </button>
+        </div>
+        <div className="card" style={{ margin: "0 16px 14px", padding: 14 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>설정</div>
+          <div className="lbl" style={{ marginBottom: 4 }}>프록시 서버 주소 (실시간 시세 연동용)</div>
+          <input className="field" placeholder="https://your-proxy.onrender.com" value={proxyUrl} onChange={(e) => setProxyUrl(e.target.value)} style={{ marginBottom: 10 }} />
+          <div className="lbl" style={{ marginBottom: 4 }}>서버 비밀키 (APP_SHARED_SECRET과 동일하게)</div>
+          <input className="field" type="password" placeholder="Render에 설정한 비밀키" value={appSecret} onChange={(e) => setAppSecret(e.target.value)} style={{ marginBottom: 10 }} />
+          <div className="lbl" style={{ marginBottom: 4 }}>목표 현금비중: {(targetCashRatio * 100).toFixed(0)}%</div>
+          <input type="range" min="0" max="0.5" step="0.01" value={targetCashRatio} onChange={(e) => setTargetCashRatio(parseFloat(e.target.value))} style={{ width: "100%" }} />
+          <div style={{ display: "flex", gap: 8, marginTop: 6, color: "#8993a6", fontSize: 11 }}>
+            <span>0%</span><span style={{ marginLeft: "auto" }}>50%</span>
+          </div>
+          <button onClick={refreshPrices} disabled={refreshing}
+            style={{ marginTop: 12, width: "100%", background: "#c9974a", color: "#12151b", fontWeight: 700, border: "none", borderRadius: 10, padding: "10px 0", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+            <span className={refreshing ? "spinning" : ""}>↻</span>
+            {refreshing ? "시세 갱신 중..." : "실시간 시세 새로고침"}
+          </button>
+          {refreshMsg && <div style={{ marginTop: 8, fontSize: 12, color: "#8993a6" }}>{refreshMsg}</div>}
+
+          <button
+            onClick={() => {
+              try {
+                localStorage.removeItem(WEEKLY_SIGNAL_STORE_KEY);
+                localStorage.removeItem(STOCK_WEEKLY_SIGNAL_STORE_KEY);
+              } catch (e) {}
+              fetchWeeklySignals();
+              fetchStockWeeklySignals();
+            }}
+            style={{ marginTop: 8, width: "100%", background: "none", color: "#8993a6", fontWeight: 700, border: "1px solid #2a303c", borderRadius: 10, padding: "9px 0", fontSize: 12 }}
+          >
+            ↻ 매수/매도/중립관점 다시 계산
+          </button>
+          {(() => {
+            const codes = stockCodes;
+            const stockOkCount = codes.filter((c) => stockWeeklySignal[c]).length;
+            const stockTotal = codes.length;
+            const kospiOk = !!weeklySignal.kospi;
+            const kosdaqOk = !!weeklySignal.kosdaq;
+            const allOk = kospiOk && kosdaqOk && stockOkCount === stockTotal;
+            return (
+              <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 8, fontSize: 11, background: allOk ? "rgba(232,84,75,0.08)" : "rgba(137,147,166,0.10)", border: `1px solid ${allOk ? "#e8544b" : "#5a6274"}` }}>
+                <span style={{ color: kospiOk ? "#e8544b" : "#8993a6" }}>코스피 {kospiOk ? "✅ 성공" : "⏳ 대기/실패"}</span>
+                {"  ·  "}
+                <span style={{ color: kosdaqOk ? "#e8544b" : "#8993a6" }}>코스닥 {kosdaqOk ? "✅ 성공" : "⏳ 대기/실패"}</span>
+                {"  ·  "}
+                <span style={{ color: stockOkCount === stockTotal && stockTotal > 0 ? "#e8544b" : "#8993a6" }}>
+                  종목 {stockOkCount}/{stockTotal} 성공
+                </span>
+                {!allOk && <div style={{ marginTop: 4, color: "#5a6274" }}>실패한 항목은 30초마다 자동으로 다시 시도해요.</div>}
+              </div>
+            );
+          })()}
+
+          <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1px solid #262c37" }}>
+            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, color: "#8993a6" }}>🔒 앱 잠금 (Face ID / 암호)</div>
+            {!lockSupported ? (
+              <div style={{ fontSize: 11, color: "#5a6274" }}>이 브라우저/기기는 Face ID·암호 잠금을 지원하지 않아요.</div>
+            ) : lockEnabled ? (
+              <>
+                <div style={{ fontSize: 11, color: "#8993a6", marginBottom: 8 }}>✅ 잠금이 켜져 있어요. 앱을 다시 열 때마다 Face ID/암호를 요구해요.</div>
+                <button onClick={disableLock} style={{ width: "100%", padding: "10px 0", borderRadius: 8, border: "1px solid #5a6274", background: "none", color: "#8993a6", fontWeight: 700, fontSize: 12 }}>
+                  잠금 끄기
+                </button>
+              </>
+            ) : (
+              <button onClick={enableLock} style={{ width: "100%", padding: "10px 0", borderRadius: 8, border: "none", background: "#c9974a", color: "#12151b", fontWeight: 700, fontSize: 12 }}>
+                🔒 Face ID / 암호로 앱 잠금 설정
+              </button>
+            )}
+            {lockEnabled && (
+              <div style={{ marginTop: 12 }}>
+                <div className="lbl" style={{ marginBottom: 4 }}>
+                  {hasLockPassword ? "예비 비밀번호 (Face ID 안 될 때 사용)" : "예비 비밀번호 설정 (Face ID 안 될 때 대신 사용)"}
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <input
+                    type="password"
+                    className="field"
+                    placeholder={hasLockPassword ? "새 비밀번호로 변경" : "4자리 이상 입력"}
+                    value={newPwInput}
+                    onChange={(e) => setNewPwInput(e.target.value)}
+                    style={{ flex: 1 }}
+                  />
+                  <button onClick={setLockPassword} style={{ padding: "0 14px", borderRadius: 8, border: "1px solid #c9974a", background: "none", color: "#c9974a", fontWeight: 700, fontSize: 12 }}>
+                    저장
+                  </button>
+                </div>
+              </div>
+            )}
+            {lockMsg && <div style={{ marginTop: 6, fontSize: 11, color: "#8993a6" }}>{lockMsg}</div>}
+          </div>
+
+          <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1px solid #262c37" }}>
+            <button className="iconbtn" onClick={() => setShowImportExport((v) => !v)} style={{ fontSize: 12, color: "#8993a6" }}>
+              🔄 데이터 백업/복원 {showImportExport ? "▴" : "▾"}
+            </button>
+            {showImportExport && (
+              <div style={{ marginTop: 10 }}>
+                <div className="lbl" style={{ marginBottom: 6 }}>
+                  이 상자에 데이터를 붙여넣고 "불러오기"를 누르면 종목/현금 정보가 채워져요. (이 데이터는 이 기기 브라우저에만 저장되고, 소스코드나 GitHub에는 절대 들어가지 않아요)
+                </div>
+                <textarea
+                  className="field"
+                  value={importText}
+                  onChange={(e) => setImportText(e.target.value)}
+                  placeholder='{"stocks":[...],"cashAccounts":[...]}'
+                  style={{ width: "100%", minHeight: 120, fontFamily: "monospace", fontSize: 11, resize: "vertical" }}
+                />
+                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                  <button onClick={exportDataAsText} style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: "1px solid #2a303c", background: "none", color: "#8993a6", fontSize: 12 }}>
+                    현재 데이터 내보내기
+                  </button>
+                  <button onClick={applyImportedData} style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: "none", background: "#c9974a", color: "#12151b", fontWeight: 700, fontSize: 12 }}>
+                    불러오기
+                  </button>
+                </div>
+                {importMsg && <div style={{ marginTop: 6, fontSize: 11, color: "#8993a6" }}>{importMsg}</div>}
+              </div>
+            )}
+          </div>
+
+          <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1px solid #262c37" }}>
+            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: "#8993a6" }}>📌 현재날짜로보관</div>
+            <button onClick={() => saveSnapshot(false)} style={{ width: "100%", padding: "10px 0", borderRadius: 8, border: "none", background: "#c9974a", color: "#12151b", fontWeight: 700, fontSize: 12 }}>
+              💾 현재날짜로보관
+            </button>
+            <div style={{ marginTop: 4, fontSize: 10, color: "#5a6274" }}>
+              보관된 데이터는 나중에 잠깐 열어서 확인만 하는 용도예요. 열어봐도 실제 데이터는 바뀌지 않아요.
+            </div>
+            {snapshotMsg && <div style={{ marginTop: 6, fontSize: 11, color: "#8993a6" }}>{snapshotMsg}</div>}
+            {isPreviewing && (
+              <button onClick={exitPreview} style={{ marginTop: 8, width: "100%", padding: "8px 0", borderRadius: 8, border: "1px solid #c9974a", background: "none", color: "#c9974a", fontWeight: 700, fontSize: 12 }}>
+                ↩ 실시간 데이터로 돌아가기
+              </button>
+            )}
+
+            <div style={{ marginTop: 10, position: "relative" }}>
+              <button
+                className="iconbtn"
+                onClick={() => setShowSnapshotList((v) => !v)}
+                style={{ width: "100%", textAlign: "left", fontSize: 12, color: "#8993a6", border: "1px solid #2a303c", borderRadius: 8, padding: "8px 10px", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+              >
+                <span>
+                  {snapshots.length > 0
+                    ? `보관 날짜 목록 (${snapshots.length}개) — 최근: ${snapshots[0].label}`
+                    : "보관된 날짜 없음"}
+                </span>
+                <span>{showSnapshotList ? "▴" : "▾"}</span>
+              </button>
+              {showSnapshotList && (
+                <div style={{ marginTop: 6, maxHeight: 240, overflowY: "auto", background: "#12151b", border: "1px solid #2a303c", borderRadius: 8 }}>
+                  {snapshots.length === 0 && (
+                    <div style={{ padding: 12, fontSize: 12, color: "#5a6274", textAlign: "center" }}>보관된 날짜가 없어요.</div>
+                  )}
+                  {snapshots.map((s) => (
+                    <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 10px", borderBottom: "1px solid #1a1f28" }}>
+                      <button
+                        onClick={() => loadSnapshot(s.id)}
+                        className="tnum"
+                        style={{ flex: 1, textAlign: "left", background: "none", border: "none", color: "#e7eaf0", fontSize: 12, cursor: "pointer", padding: 0 }}
+                      >
+                        {s.label}
+                      </button>
+                      <button
+                        className="iconbtn"
+                        onClick={() => { if (window.confirm(`"${s.label}" 보관을 삭제할까요?`)) deleteSnapshot(s.id); }}
+                        style={{ color: "#5a6274", fontSize: 13, padding: 4 }}
+                      >
+                        🗑
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid #262c37" }}>
+              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, color: "#8993a6" }}>🛟 자동 백업 (앱 실행마다 자동 저장, 최근 10회)</div>
+              <div style={{ fontSize: 10, color: "#5a6274", marginBottom: 8 }}>
+                실수로 데이터가 잘못됐을 때, 이전 실행 시점으로 되돌릴 수 있어요.
+              </div>
+              <button
+                className="iconbtn"
+                onClick={() => setShowBackupList((v) => !v)}
+                style={{ width: "100%", textAlign: "left", fontSize: 12, color: "#8993a6", border: "1px solid #2a303c", borderRadius: 8, padding: "8px 10px", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+              >
+                <span>
+                  {launchBackups.length > 0
+                    ? `자동 백업 목록 (${launchBackups.length}개) — 최근: ${launchBackups[0].label}`
+                    : "자동 백업 없음"}
+                </span>
+                <span>{showBackupList ? "▴" : "▾"}</span>
+              </button>
+              {showBackupList && (
+                <div style={{ marginTop: 6, maxHeight: 240, overflowY: "auto", background: "#12151b", border: "1px solid #2a303c", borderRadius: 8 }}>
+                  {launchBackups.length === 0 && (
+                    <div style={{ padding: 12, fontSize: 12, color: "#5a6274", textAlign: "center" }}>아직 자동 백업이 없어요.</div>
+                  )}
+                  {launchBackups.map((b) => (
+                    <div key={b.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 10px", borderBottom: "1px solid #1a1f28" }}>
+                      <span className="tnum" style={{ flex: 1, fontSize: 12, color: "#e7eaf0" }}>{b.label}</span>
+                      <button
+                        onClick={() => restoreFromLaunchBackup(b.id)}
+                        style={{ background: "none", border: "1px solid #c9974a", color: "#c9974a", borderRadius: 6, padding: "4px 8px", fontSize: 11, fontWeight: 700 }}
+                      >
+                        복원
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid #262c37" }}>
+              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, color: "#8993a6" }}>📉 투자원금 증가/감소 이력</div>
+              <div style={{ fontSize: 10, color: "#5a6274", marginBottom: 8 }}>
+                투자원금은 "사용한돈" 정산이나 "빌려투자한돈" 변경을 통해서만 늘거나 줄어요. 그 내역이 아래에 날짜별로 기록돼요.
+              </div>
+              <button
+                className="iconbtn"
+                onClick={() => setShowPrincipalLog((v) => !v)}
+                style={{ width: "100%", textAlign: "left", fontSize: 12, color: "#8993a6", border: "1px solid #2a303c", borderRadius: 8, padding: "8px 10px", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+              >
+                <span>{cashSettleLog.length > 0 ? `이력 (${cashSettleLog.length}건)` : "이력 없음"}</span>
+                <span>{showPrincipalLog ? "▴" : "▾"}</span>
+              </button>
+              {showPrincipalLog && (
+                <div style={{ marginTop: 6, marginBottom: 10, maxHeight: 240, overflowY: "auto", background: "#12151b", border: "1px solid #2a303c", borderRadius: 8 }}>
+                  {cashSettleLog.length === 0 && (
+                    <div style={{ padding: 12, fontSize: 12, color: "#5a6274", textAlign: "center" }}>기록이 없어요.</div>
+                  )}
+                  {cashSettleLog.map((e) => {
+                    const isIncrease = e.type === "borrow";
+                    return (
+                      <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 10px", borderBottom: "1px solid #1a1f28" }}>
+                        <div className="tnum" style={{ flex: 1, fontSize: 11 }}>
+                          <div style={{ color: "#8993a6" }}>{e.date} {e.time}</div>
+                          <div>
+                            {e.accountName}: {fmt(e.cashBefore)}원 → {fmt(e.cashAfter)}원
+                            {" ("}<span style={{ color: isIncrease ? "#e8544b" : "#4c8dff", fontWeight: 700 }}>{isIncrease ? "+" : "-"}{fmt(e.amount)}원</span>
+                            {e.type === "repay" ? " 빌린돈 상환)" : e.type === "borrow" ? " 빌려투자한돈 증가)" : " 정산)"}
+                          </div>
+                        </div>
+                        <button onClick={() => deleteCashSettleEntry(e.id)} style={{ color: "#5a6274", fontSize: 13, padding: 4, background: "none", border: "none" }}>🗑</button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              <div className="lbl" style={{ marginBottom: 4 }}>투자원금 (실제보유현금 포함)을 직접 입력해서 적용 (현재: {fmt(investmentPrincipal)}원)</div>
+              <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+                <input
+                  className="field"
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="적용할 금액 입력"
+                  value={toDisplay(principalOverrideInput)}
+                  onChange={(e) => setPrincipalOverrideInput(fromDisplay(e.target.value))}
+                  style={{ flex: 1 }}
+                />
+                <button onClick={applyPrincipalOverride} style={{ padding: "0 14px", borderRadius: 8, border: "1px solid #c9974a", background: "none", color: "#c9974a", fontWeight: 700, fontSize: 12 }}>
+                  적용
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      )}
+
+      {mainView === "home" && (<>
+      <div className="card tnum" style={{ margin: "0 16px 14px", padding: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
+          <div>
+            <div className="lbl">평가금액(주식평가액+보유현금합계)</div>
+            <div style={{ fontSize: 22, fontWeight: 700 }}>{fmt(totalPortfolioValue)}원</div>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <div className="lbl">총수익 (원금 대비)</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: totalReturnAmt > 0 ? "#e8544b" : totalReturnAmt < 0 ? "#4c8dff" : "#e7eaf0" }}>
+              {totalReturnAmt > 0 ? "▲ " : totalReturnAmt < 0 ? "▼ " : ""}
+              {totalReturnAmt >= 0 ? "+" : ""}{fmt(totalReturnAmt)}원 ({totalReturnRate !== null ? (totalReturnRate >= 0 ? "+" : "") + (totalReturnRate * 100).toFixed(1) + "%" : "-"})
+            </div>
+          </div>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10, paddingTop: 10, borderTop: "1px solid #262c37" }}>
+          <div>
+            <div className="lbl">투자원금 (실제보유현금 포함)</div>
+            <div style={{ fontSize: 16, fontWeight: 700 }}>{fmt(investmentPrincipal)}원</div>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <div className="lbl">투자가능현금</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: investableCash >= 0 ? "#e8544b" : "#4c8dff" }}>
+              {investableCash >= 0 ? "+" : ""}{fmt(investableCash)}원
+            </div>
+          </div>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#8993a6", marginBottom: 4 }}>
+          <span>주식 {fmtPct(1 - cashRatio)}</span>
+          <span>현금 {fmtPct(cashRatio)} (목표 {(targetCashRatio * 100).toFixed(0)}%)</span>
+        </div>
+        <div style={{ height: 8, background: "#12151b", borderRadius: 6, overflow: "hidden", position: "relative" }}>
+          <div style={{ width: `${100 - cashRatioPct}%`, background: "#c9974a", height: "100%", display: "inline-block" }} />
+          <div style={{ width: `${cashRatioPct}%`, background: "#4c8dff", height: "100%", display: "inline-block" }} />
+          <div style={{ position: "absolute", left: `${100 - targetCashRatio * 100}%`, top: -2, width: 2, height: 12, background: "#e7eaf0" }} />
+        </div>
+      </div>
+
+      {isPreviewing && (
+        <div style={{ margin: "0 16px 10px", padding: "10px 12px", background: "#3a2f12", border: "1px solid #c9974a", borderRadius: 10, fontSize: 12, color: "#e7c98a", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span>👁 보관된 데이터 보는 중 (읽기 전용)</span>
+          <button onClick={exitPreview} style={{ background: "none", border: "1px solid #c9974a", color: "#c9974a", borderRadius: 6, padding: "4px 8px", fontSize: 11, fontWeight: 700 }}>돌아가기</button>
+        </div>
+      )}
+      <div style={isPreviewing ? { pointerEvents: "none", opacity: 0.75 } : undefined}>
+      <div className="card tnum" style={{ margin: "0 16px 14px", padding: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
+          <div>
+            <div className="lbl">주식평가액</div>
+            <div style={{ fontSize: 22, fontWeight: 700 }}>{fmt(stockCalc.totalVal)}원</div>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <div className="lbl">주식투자수익</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: stockCalc.totalVal - stockCalc.totalInvest > 0 ? "#e8544b" : stockCalc.totalVal - stockCalc.totalInvest < 0 ? "#4c8dff" : "#e7eaf0" }}>
+              {stockCalc.totalVal - stockCalc.totalInvest > 0 ? "▲ " : stockCalc.totalVal - stockCalc.totalInvest < 0 ? "▼ " : ""}
+              {(stockCalc.totalVal - stockCalc.totalInvest) >= 0 ? "+" : ""}{fmt(stockCalc.totalVal - stockCalc.totalInvest)}원
+              {stockCalc.totalInvest !== 0 ? ` (${(stockCalc.totalVal - stockCalc.totalInvest) / stockCalc.totalInvest >= 0 ? "+" : ""}${(((stockCalc.totalVal - stockCalc.totalInvest) / stockCalc.totalInvest) * 100).toFixed(1)}%)` : ""}
+            </div>
+          </div>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", paddingTop: 10, borderTop: "1px solid #262c37" }}>
+          <div>
+            <div className="lbl">주식투자금</div>
+            <div style={{ fontSize: 16, fontWeight: 700 }}>{fmt(stockCalc.totalInvest)}원</div>
+          </div>
+          <button className="iconbtn" onClick={() => setShowAnalysis((v) => !v)} style={{ fontSize: 11, color: "#8993a6", display: "flex", alignItems: "center", gap: 3 }}>
+            ◔ 비중 분석 {showAnalysis ? "▴" : "▾"}
+          </button>
+        </div>
+      </div>
+
+      {showAnalysis && (
+        <div className="card tnum" style={{ margin: "0 16px 12px", padding: 12, fontSize: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+            <span className="lbl">상위 4종목 (수익기준 비중)</span>
+            <span style={{ fontWeight: 700, color: stockCalc.top4Profit > 0.8 ? "#e8544b" : "#e7eaf0" }}>{fmtPct(stockCalc.top4Profit)}</span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+            <span className="lbl">상위 4종목 (매입기준 비중)</span>
+            <span style={{ fontWeight: 700, color: stockCalc.top4Purchase > 0.8 ? "#e8544b" : "#e7eaf0" }}>{fmtPct(stockCalc.top4Purchase)}</span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+            <span className="lbl">상위 4종목 (비중평균)</span>
+            <span style={{ fontWeight: 700, color: stockCalc.top4Avg > 0.8 ? "#e8544b" : "#e7eaf0" }}>{fmtPct(stockCalc.top4Avg)}</span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <span className="lbl">최대 단일종목 비중 (40% 룰)</span>
+            <span style={{ fontWeight: 700, color: stockCalc.maxWeight > 0.4 ? "#e8544b" : "#e7eaf0" }}>{fmtPct(stockCalc.maxWeight)}</span>
+          </div>
+        </div>
+      )}
+
+      <div className="card tnum" style={{ margin: "0 16px 10px", padding: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div className="lbl">💰 보유현금합계</div>
+        <div style={{ fontSize: 16, fontWeight: 700 }}>{fmt(cashCalc.totalCash)}원</div>
+      </div>
+      <div style={{ padding: "0 16px", display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+        <span style={{ fontSize: 11, color: "#5a6274" }}>
+          {lastRefreshedAt ? `시세 새로고침: ${lastRefreshedAt.getFullYear()}.${String(lastRefreshedAt.getMonth() + 1).padStart(2, "0")}.${String(lastRefreshedAt.getDate()).padStart(2, "0")} ${String(lastRefreshedAt.getHours()).padStart(2, "0")}:${String(lastRefreshedAt.getMinutes()).padStart(2, "0")}` : ""}
+        </span>
+        <button className="iconbtn" onClick={() => setShowRebalanceLog((v) => !v)} style={{ fontSize: 11, color: "#8993a6", display: "flex", alignItems: "center", gap: 3 }}>
+          🔁 리밸런싱 이력 {showRebalanceLog ? "▴" : "▾"}
+        </button>
+      </div>
+
+      {showRebalanceLog && (
+        <div className="card tnum" style={{ margin: "0 16px 12px", padding: 12, fontSize: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, paddingBottom: 8, borderBottom: "1px solid #262c37" }}>
+            <span className="lbl">전체 평균 리밸런싱 주기 (총 {rebalanceDisplay.totalCount}회)</span>
+            <span style={{ fontWeight: 700 }}>{rebalanceDisplay.avgIntervalAll !== null ? `평균 ${rebalanceDisplay.avgIntervalAll.toFixed(1)}일에 한 번씩` : "-"}</span>
+          </div>
+          {rebalanceDisplay.last30.length === 0 ? (
+            <div style={{ color: "#5a6274", textAlign: "center", padding: 8 }}>아직 기록된 리밸런싱이 없어요.</div>
+          ) : (
+            rebalanceDisplay.last30.map((r, i) => (
+              <div key={r.date} style={{ padding: "6px 0", borderBottom: i === rebalanceDisplay.last30.length - 1 ? "none" : "1px solid #1a1f28" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                  <span style={{ color: "#8993a6", flexShrink: 0 }}>{rebalanceDisplay.totalCount - i}회차 · {r.date}{r.interval !== null ? ` (${r.interval}일 주기)` : " (최초)"}</span>
+                  <button className="iconbtn" onClick={() => deleteRebalanceEntry(r.date)} style={{ padding: 2, color: "#5a6274", fontSize: 12, flexShrink: 0 }}>🗑 회차삭제</button>
+                </div>
+                {r.items && r.items.map((it, j) => (
+                  <div key={j} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginTop: 3 }}>
+                    <span style={{ fontWeight: 700, color: "#c9974a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {it.name} 주식수{fmt(num(it.qty))}·매입가{fmt(num(it.buyPrice))}원
+                    </span>
+                    <button className="iconbtn" onClick={() => deleteRebalanceItem(r.date, it.name)} style={{ padding: 2, color: "#5a6274", fontSize: 12, flexShrink: 0 }}>🗑</button>
+                  </div>
+                ))}
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      </div>
+      </>)}
+
+      {mainView === "stocks" && (
+      <div style={{ padding: "calc(env(safe-area-inset-top, 0px) + 10px) 0 0" }}>
+        <div style={{ padding: "0 16px 10px" }}>
+          <button onClick={() => setMainView("home")} className="iconbtn" style={{ color: "#c9974a", fontWeight: 700, fontSize: 14 }}>← 뒤로</button>
+        </div>
+      <div style={{ padding: "0 16px", display: "flex", flexDirection: "column", gap: 10 }}>
+        {sortedStockRows.map((r, idx) => {
+          const isUp = r.pnl > 0, isDown = r.pnl < 0;
+          const expanded = expandedStock === r.id;
+          return (
+            <div key={r.id} className="card tnum" style={{ padding: 12 }}>
+              <div style={{ display: "flex", gap: 8, marginBottom: 8, position: "relative" }}>
+                <div style={{ flex: 2, position: "relative", display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ flexShrink: 0, fontSize: 12, color: "#8993a6", fontWeight: 700, minWidth: 14, textAlign: "right" }}>{idx + 1}</span>
+                  <input
+                    className="field"
+                    placeholder="종목명"
+                    value={r.name}
+                    onChange={(e) => updateStockName(r.id, e.target.value)}
+                    onFocus={() => setSuggestFor(r.id)}
+                    onBlur={() => setTimeout(() => setSuggestFor((cur) => (cur === r.id ? null : cur)), 150)}
+                    style={{ fontWeight: 600, width: "100%" }}
+                  />
+                  {suggestFor === r.id && findSuggestions(r.name).length > 0 && (
+                    <div style={{ position: "absolute", top: "100%", left: 20, right: 0, zIndex: 10, background: "#1a1f28", border: "1px solid #2a303c", borderRadius: 8, marginTop: 4, overflow: "hidden" }}>
+                      {findSuggestions(r.name).map(([name, code]) => (
+                        <div key={name} onMouseDown={() => pickSuggestion(r.id, name, code)}
+                          style={{ padding: "8px 10px", fontSize: 13, borderBottom: "1px solid #262c37", display: "flex", justifyContent: "space-between" }}>
+                          <span>{name}</span><span style={{ color: "#8993a6" }}>{code}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <input className="field" placeholder="종목코드" value={r.code} onChange={(e) => updateStock(r.id, "code", e.target.value)} style={{ flex: 1 }} />
+                <button className="iconbtn" onClick={() => removeStock(r.id)} style={{ padding: 4, color:"#5a6274", fontSize:16 }}>🗑</button>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "0.7fr 1fr 1fr 1fr", gap: 6, marginBottom: 4 }}>
+                <div><div className="lbl">주식수</div>
+                  <input className="field" type="text" inputMode="numeric" value={toDisplay(r.qty)} onChange={(e) => updateStock(r.id, "qty", fromDisplay(e.target.value))} onFocus={() => handleQtyFocus(r.id, r.qty)} onBlur={() => handleQtyBlur(r.id)} />
+                </div>
+                <div><div className="lbl">매입가</div>
+                  <input className="field" type="text" inputMode="numeric" value={toDisplay(r.buy)} onChange={(e) => updateStock(r.id, "buyPrice", fromDisplay(e.target.value))} />
+                </div>
+                <div><div className="lbl">전일종가</div>
+                  <input className="field" type="text" inputMode="numeric" value={toDisplay(r.prevClose)} onChange={(e) => updateStock(r.id, "prevClose", fromDisplay(e.target.value))} />
+                </div>
+                <div><div className="lbl">현재가</div>
+                  <input className="field" type="text" inputMode="numeric" value={toDisplay(r.cur)} onChange={(e) => updateStock(r.id, "curPrice", fromDisplay(e.target.value))} />
+                </div>
+              </div>
+              <div style={{ textAlign: "right", marginBottom: 8 }}>
+                {r.hasPrevClose ? (
+                  <span className="tnum" style={{ fontSize: 12, fontWeight: 700, color: r.prevChangeAmt > 0 ? "#e8544b" : r.prevChangeAmt < 0 ? "#4c8dff" : "#e7eaf0" }}>
+                    전일대비 {r.prevChangeAmt > 0 ? "▲ " : r.prevChangeAmt < 0 ? "▼ " : ""}{fmt(r.prevChangeAmt)}원 ({r.prevChangeRate >= 0 ? "+" : ""}{(r.prevChangeRate * 100).toFixed(2)}%)
+                  </span>
+                ) : (
+                  <span style={{ color: "#5a6274", fontSize: 11 }}>전일 종가 입력 필요</span>
+                )}
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1.2fr", gap: 6, alignItems: "start" }}>
+                <div><div className="lbl">투자금액</div><div style={{ fontWeight: 700, color: "#8993a6", fontSize: 13 }}>{fmt(r.investAmt)}원</div></div>
+                <div><div className="lbl">평가금액</div><div style={{ fontWeight: 700, fontSize: 13 }}>{fmt(r.valAmt)}원</div></div>
+                <div style={{ textAlign: "right" }}>
+                  <div className="lbl">평가손익 · 수익률</div>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: isUp ? "#e8544b" : isDown ? "#4c8dff" : "#e7eaf0" }}>
+                    {isUp ? "▲ " : isDown ? "▼ " : ""}{fmt(r.pnl)}원 ({r.returnRate !== null ? (r.returnRate * 100).toFixed(1) + "%" : "-"})
+                  </div>
+                </div>
+              </div>
+              {(() => {
+                const sig = r.code ? stockWeeklySignal[r.code] : null;
+                const adv = sig ? deriveAdviceLabel(sig.state) : "neutral";
+                const color = adv === "buy" ? "#e8544b" : adv === "sell" ? "#4c8dff" : "#8993a6";
+                const badgeText = adv === "buy" ? "매수관점" : adv === "sell" ? "매도관점" : "중립관점";
+                return (
+                  <div style={{ marginTop: 6, display: "inline-block", padding: "3px 8px", borderRadius: 6, fontSize: 11, fontWeight: 700, color, background: `${color}22`, border: `1px solid ${color}` }}>
+                    {badgeText}
+                  </div>
+                );
+              })()}
+              <button className="iconbtn" onClick={() => setExpandedStock(expanded ? null : r.id)} style={{ marginTop: 8, fontSize: 11, color: "#8993a6" }}>
+                상세 비중 {expanded ? "▴" : "▾"}
+              </button>
+              {expanded && (
+                <div style={{ marginTop: 6, fontSize: 11, color: "#c3c9d4", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                  <div>수익기준 비중: {fmtPct(r.profitWeight)} (랭킹 {r.profitRank ?? "-"})</div>
+                  <div>매입기준 비중: {fmtPct(r.purchaseWeight)} (랭킹 {r.purchaseRank ?? "-"})</div>
+                  <div>비중 평균: {fmtPct(r.avgWeight)} (랭킹 {r.avgRank ?? "-"})</div>
+                  <div>비중 차이: {fmtPct(r.diffWeight)}</div>
+                  <div>
+                    <div className="lbl">가상매도수량</div>
+                    <input className="field" type="text" inputMode="numeric" value={toDisplay(r.vSellQty)} onChange={(e) => updateStock(r.id, "virtualSellQty", fromDisplay(e.target.value))} />
+                  </div>
+                  <div>
+                    <div className="lbl">가상매수수량</div>
+                    <input className="field" type="text" inputMode="numeric" value={toDisplay(r.vBuyQty)} onChange={(e) => updateStock(r.id, "virtualBuyQty", fromDisplay(e.target.value))} />
+                  </div>
+                  {(r.vSellQty !== 0 || r.vBuyQty !== 0) && (
+                    <div style={{ gridColumn: "1 / span 2", marginTop: 4, padding: 8, background: "#161a22", borderRadius: 8 }}>
+                      <div style={{ marginBottom: 4 }}>
+                        가상 실행 시 보유수량: {fmt(r.qty)}주 → <span style={{ fontWeight: 700, color: r.vsell > 0 ? "#e8544b" : r.vsell < 0 ? "#4c8dff" : "#e7eaf0" }}>{fmt(r.effQty)}주</span>
+                        {" "}({r.vsell > 0 ? "+" : ""}{fmt(r.vsell)}주)
+                      </div>
+                      <div style={{ fontWeight: 700, color: r.vCashImpact > 0 ? "#e8544b" : r.vCashImpact < 0 ? "#4c8dff" : "#e7eaf0" }}>
+                        현금 변화: {r.vCashImpact > 0 ? "+" : ""}{fmt(r.vCashImpact)}원 {r.vCashImpact > 0 ? "(매도로 현금 유입)" : r.vCashImpact < 0 ? "(매수로 현금 유출)" : ""}
+                      </div>
+                      <div style={{ marginTop: 4 }}>
+                        투자가능현금흐름: <span style={{ fontWeight: 700, color: investableCash - r.vCashImpact >= 0 ? "#e8544b" : "#4c8dff" }}>{investableCash - r.vCashImpact >= 0 ? "+" : ""}{fmt(investableCash - r.vCashImpact)}원</span>
+                        {" → "}
+                        <span style={{ fontWeight: 700, color: investableCash >= 0 ? "#e8544b" : "#4c8dff" }}>{investableCash >= 0 ? "+" : ""}{fmt(investableCash)}원</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+        <button className="iconbtn" onClick={addStock} style={{ border: "1px dashed #3a4150", color: "#8993a6", borderRadius: 10, padding: "10px 0", fontSize: 13 }}>+ 종목 추가</button>
+      </div>
+      </div>
+      )}
+
+      {mainView === "cash" && (
+      <div style={{ padding: "calc(env(safe-area-inset-top, 0px) + 10px) 0 0" }}>
+        <div style={{ padding: "0 16px 10px" }}>
+          <button onClick={() => setMainView("home")} className="iconbtn" style={{ color: "#c9974a", fontWeight: 700, fontSize: 14 }}>← 뒤로</button>
+        </div>
+      <div style={{ padding: "18px 16px 8px", fontSize: 13, fontWeight: 700, color: "#c9974a" }}>현금 계좌</div>
+      <div style={{ padding: "0 16px", display: "flex", flexDirection: "column", gap: 8 }}>
+        {sortedCashRows.map((a, idx) => (
+          <div key={a.id} className="card tnum" style={{ padding: 10 }}>
+            <div style={{ display: "flex", gap: 8, marginBottom: 6, alignItems: "center" }}>
+              <span style={{ flexShrink: 0, fontSize: 12, color: "#8993a6", fontWeight: 700, minWidth: 14, textAlign: "right" }}>{idx + 1}</span>
+              <input className="field" placeholder="계좌명" value={a.name} onChange={(e) => updateCash(a.id, "name", e.target.value)} style={{ flex: 2, fontWeight: 600 }} />
+              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                <button className="iconbtn" onClick={() => moveCash(a.id, -1)} disabled={idx === 0} style={{ padding: "0 6px", color: idx === 0 ? "#3a4150" : "#8993a6", fontSize: 12, lineHeight: 1 }}>▲</button>
+                <button className="iconbtn" onClick={() => moveCash(a.id, 1)} disabled={idx === sortedCashRows.length - 1} style={{ padding: "0 6px", color: idx === sortedCashRows.length - 1 ? "#3a4150" : "#8993a6", fontSize: 12, lineHeight: 1 }}>▼</button>
+              </div>
+              <button className="iconbtn" onClick={() => removeCash(a.id)} style={{ padding: 4, color:"#5a6274", fontSize:14 }}>🗑</button>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+              <div><div className="lbl">현금</div><input className="field" type="text" inputMode="numeric" value={toDisplay(a.cash)} onChange={(e) => updateCash(a.id, "cash", fromDisplay(e.target.value))} /></div>
+              <div><div className="lbl">빌려투자한돈</div><input className="field" type="text" inputMode="numeric" value={toDisplay(a.pledged)} onChange={(e) => updateCash(a.id, "pledged", fromDisplay(e.target.value))} onFocus={() => handlePledgedFocus(a.id, a.pledged)} onBlur={() => handlePledgedBlur(a.id)} /></div>
+              <div><div className="lbl">사용한돈</div><input className="field" type="text" inputMode="numeric" value={toDisplay(a.used)} onChange={(e) => updateCash(a.id, "used", fromDisplay(e.target.value))} /></div>
+            </div>
+            <div style={{ textAlign: "right", marginTop: 6, fontSize: 12, color: "#8993a6" }}>합계 <span style={{ color: "#e7eaf0", fontWeight: 700 }}>{fmt(a.total)}원</span></div>
+          </div>
+        ))}
+        <button className="iconbtn" onClick={addCash} style={{ border: "1px dashed #3a4150", color: "#8993a6", borderRadius: 10, padding: "10px 0", fontSize: 13, marginBottom: 20 }}>+ 계좌 추가</button>
+      </div>
+      </div>
+      )}
+
+      {mainView === "home" && (<>
+      <div style={{ padding: "0 16px 14px", display: "flex", gap: 10 }}>
+        <button onClick={() => setMainView("stocks")} className="iconbtn" style={{ flex: 1, padding: "12px 0", borderRadius: 10, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 13 }}>
+          📈 보유종목
+        </button>
+        <button onClick={() => setMainView("cash")} className="iconbtn" style={{ flex: 1, padding: "12px 0", borderRadius: 10, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 13 }}>
+          💰 현금계좌
+        </button>
+        <button onClick={() => setMainView("settings")} className="iconbtn" style={{ flex: 1, padding: "12px 0", borderRadius: 10, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 13 }}>
+          ⚙ 설정
+        </button>
+      </div>
+      </>)}
+
+      {toast && (
+        <div style={{ position: "fixed", left: 16, right: 16, bottom: 24, background: "#1a1f28", border: "1px solid #c9974a", color: "#e7eaf0", borderRadius: 10, padding: "12px 14px", fontSize: 13, zIndex: 100, boxShadow: "0 4px 20px rgba(0,0,0,0.4)" }}>
+          {toast}
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<PortfolioApp />);
+</script>
+</body>
+</html>
