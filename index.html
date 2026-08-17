@@ -2692,9 +2692,7 @@ function PortfolioApp() {
 
         const renderValueRow = (label, annualPts, years, excellentThreshold) => (
           <div style={{ display: "grid", gridTemplateColumns: `68px repeat(${years.length}, 1fr)`, gap: 4, alignItems: "center", marginTop: 2 }}>
-            <span style={{ color: "#5a6274", fontSize: 10 }}>
-              {label} <span style={{ fontSize: 8 }}>(우수 {excellentThreshold}%↑)</span>
-            </span>
+            <span style={{ color: "#5a6274", fontSize: 10 }}>{label}</span>
             {years.map((year) => {
               const v = lookup(annualPts, year);
               if (v === null) {
@@ -2807,6 +2805,7 @@ function PortfolioApp() {
                         <span style={{ color: "#e7eaf0", textAlign: "left", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1, minWidth: 0, fontWeight: 700 }}>
                           {r.usedCommon && <span title="본주 기준" style={{ color: "#5a6274" }}>●</span>} {r.name}
                         </span>
+                        <span style={{ fontSize: 9, color: "#5a6274", flexShrink: 0, whiteSpace: "nowrap" }}>(ROE : 15%↑) (매출액성장률 : 15%↑)</span>
                         <span style={{ color: "#5a6274", flexShrink: 0, fontSize: 10 }}>{isSel ? "▲" : "▼"}</span>
                       </div>
                       {years.length > 0 && (
