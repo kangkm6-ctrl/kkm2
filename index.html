@@ -2182,9 +2182,9 @@ function PortfolioApp() {
                             <span key={p.year} style={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
                               <span style={{ color: "#5a6274", fontSize: 8 }}>{"'" + p.year.slice(2, 4)}</span>
                               <span style={{
-                                fontWeight: 700, fontSize: 12, color: yoyColor(p.year),
+                                fontWeight: 700, fontSize: 12, color: yoyColor(p.year), lineHeight: 1.2,
                                 border: isExcellent ? "1px solid #e8544b" : "1px solid transparent",
-                                borderRadius: 4, padding: "2px 6px",
+                                borderRadius: 4, padding: "1px 6px",
                               }}>{fmtVal(p.value)}</span>
                             </span>
                           );
@@ -2612,9 +2612,9 @@ function PortfolioApp() {
                             <span key={p.year} style={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
                               <span style={{ color: "#5a6274", fontSize: 8 }}>{fmtYear(p.year)}</span>
                               <span style={{
-                                fontWeight: 700, fontSize: 12, color: yoyColor,
+                                fontWeight: 700, fontSize: 12, color: yoyColor, lineHeight: 1.2,
                                 border: isExcellent ? "1px solid #e8544b" : "1px solid transparent",
-                                borderRadius: 4, padding: "2px 6px",
+                                borderRadius: 4, padding: "1px 6px",
                               }}>{fmtRatio(p.value)}</span>
                             </span>
                           );
@@ -2706,9 +2706,9 @@ function PortfolioApp() {
               const isExcellent = v >= excellentThreshold;
               return (
                 <span key={year} className="tnum" style={{
-                  fontWeight: 700, fontSize: 12, textAlign: "center", color: yoyColor,
+                  fontWeight: 700, fontSize: 12, textAlign: "center", color: yoyColor, lineHeight: 1.2,
                   border: isExcellent ? "1px solid #e8544b" : "1px solid transparent",
-                  borderRadius: 4, padding: "2px 4px",
+                  borderRadius: 4, padding: "1px 6px",
                 }}>
                   {fmtPct(v)}
                 </span>
@@ -3445,7 +3445,7 @@ function PortfolioApp() {
                         {rows.map(([label, pts, formatter, colorFn, excellentRange]) => {
                           const yoy = yoyColorFor(pts);
                           return (
-                            <div key={label} style={{ display: "grid", gridTemplateColumns: `1.3fr repeat(${allYears.length}, 1fr)`, gap: 4, padding: "4px 0", borderTop: "1px solid #1a1f28" }}>
+                            <div key={label} style={{ display: "grid", gridTemplateColumns: `1.3fr repeat(${allYears.length}, 1fr)`, gap: 4, padding: "3px 0", borderTop: "1px solid #1a1f28" }}>
                               <div style={{ color: "#8993a6", fontSize: 11 }}>
                                 {label}
                                 {excellentRange && <div style={{ fontSize: 9, color: "#5a6274" }}>(우수 {excellentRange})</div>}
@@ -3459,9 +3459,9 @@ function PortfolioApp() {
                                     key={y}
                                     className="tnum"
                                     style={{
-                                      textAlign: "center", fontWeight: 700, fontSize: 12, color,
+                                      textAlign: "center", fontWeight: 700, fontSize: 12, color, lineHeight: 1.2,
                                       border: isExcellent ? "1px solid #e8544b" : "1px solid transparent",
-                                      borderRadius: 4, padding: "2px 6px",
+                                      borderRadius: 4, padding: "1px 6px",
                                     }}
                                   >
                                     {p ? formatter(p.value) : "-"}
