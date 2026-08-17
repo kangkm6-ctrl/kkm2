@@ -2172,7 +2172,7 @@ function PortfolioApp() {
                         <span style={{ color: "#e7eaf0", textAlign: "left", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1, minWidth: 0, fontWeight: 700 }}>
                           {r.usedCommon && <span title="본주 기준" style={{ color: "#5a6274" }}>●</span>} {r.name}
                         </span>
-                        <span style={{ fontSize: 9, color: "#5a6274", flexShrink: 0, whiteSpace: "nowrap" }}>(우수 15%↑)</span>
+                        <span style={{ fontSize: 9, color: "#5a6274", flexShrink: 0, whiteSpace: "nowrap" }}>(15%↑)</span>
                         <span style={{ color: "#5a6274", flexShrink: 0, fontSize: 10 }}>{isSel ? "▲" : "▼"}</span>
                       </div>
                       <div className="tnum" style={{ display: "flex", justifyContent: "flex-end", gap: 6, flexWrap: "nowrap", overflow: "hidden", marginTop: 2 }}>
@@ -2599,7 +2599,7 @@ function PortfolioApp() {
                         <span style={{ color: "#e7eaf0", textAlign: "left", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1, minWidth: 0, fontWeight: 700 }}>
                           {r.usedCommon && <span title="본주 기준" style={{ color: "#5a6274" }}>●</span>} {r.name}
                         </span>
-                        <span style={{ fontSize: 9, color: "#5a6274", flexShrink: 0, whiteSpace: "nowrap" }}>(우수 1↓)</span>
+                        <span style={{ fontSize: 9, color: "#5a6274", flexShrink: 0, whiteSpace: "nowrap" }}>(1↓)</span>
                         <span style={{ color: "#5a6274", flexShrink: 0, fontSize: 10 }}>{isSel ? "▲" : "▼"}</span>
                       </div>
                       <div className="tnum" style={{ display: "flex", justifyContent: "flex-end", gap: 6, overflow: "hidden", marginTop: 2 }}>
@@ -3426,7 +3426,7 @@ function PortfolioApp() {
                   ["PSR", psrAnnual, (v) => `${v.toFixed(2)}배`, psrColor, psrRange],
                   ["PBR", pbrAnnual, (v) => `${v.toFixed(2)}배`, pbrColor, pbrRange],
                   ["부채비율", debtRatioAnnual, (v) => `${v.toFixed(1)}%`, debtTier, debtRange],
-                  ["당좌비율(근사)", quickRatioAnnual, (v) => `${v.toFixed(1)}%`, quickRatioColor, "150%↑"],
+                  ["당좌비율", quickRatioAnnual, (v) => `${v.toFixed(1)}%`, quickRatioColor, "150%↑"],
                 ];
                 const allYears = [...new Set(rows.flatMap(([, pts]) => pts.map((p) => p.year)))].sort().slice(-4);
 
@@ -3437,17 +3437,17 @@ function PortfolioApp() {
                       <div>표시할 데이터가 없어요.</div>
                     ) : (
                       <>
-                        <div style={{ display: "grid", gridTemplateColumns: `1.3fr repeat(${allYears.length}, 1fr)`, gap: 4, marginBottom: 3, fontWeight: 700, color: "#8993a6" }}>
+                        <div style={{ display: "grid", gridTemplateColumns: `1fr repeat(${allYears.length}, 46px)`, gap: 4, marginBottom: 3, fontWeight: 700, color: "#8993a6" }}>
                           <div></div>
                           {allYears.map((y) => <div key={y} className="tnum" style={{ textAlign: "center", fontSize: 12 }}>{"'" + y.slice(2, 4)}</div>)}
                         </div>
                         {rows.map(([label, pts, formatter, colorFn, excellentRange]) => {
                           const yoy = yoyColorFor(pts);
                           return (
-                            <div key={label} style={{ display: "grid", gridTemplateColumns: `1.3fr repeat(${allYears.length}, 1fr)`, gap: 4, padding: "3px 0", borderTop: "1px solid #1a1f28" }}>
-                              <div style={{ color: "#8993a6", fontSize: 11 }}>
+                            <div key={label} style={{ display: "grid", gridTemplateColumns: `1fr repeat(${allYears.length}, 46px)`, gap: 4, padding: "3px 0", borderTop: "1px solid #1a1f28" }}>
+                              <div style={{ color: "#8993a6", fontSize: 11, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                                 {label}
-                                {excellentRange && <div style={{ fontSize: 9, color: "#5a6274" }}>(우수 {excellentRange})</div>}
+                                {excellentRange && <span style={{ fontSize: 9, color: "#5a6274" }}> ({excellentRange})</span>}
                               </div>
                               {allYears.map((y) => {
                                 const p = pts.find((x) => x.year === y);
@@ -3460,7 +3460,7 @@ function PortfolioApp() {
                                     style={{
                                       textAlign: "center", fontWeight: 700, fontSize: 12, color, lineHeight: 1.2,
                                       border: isExcellent ? "1px solid #e8544b" : "1px solid transparent",
-                                      borderRadius: 4, padding: "1px 6px",
+                                      borderRadius: 4, padding: "1px 3px",
                                     }}
                                   >
                                     {p ? formatter(p.value) : "-"}
