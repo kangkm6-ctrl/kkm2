@@ -2505,7 +2505,8 @@ function PortfolioApp() {
         const fmtRatio = (v) => `${v.toFixed(2)}배`;
         const fmtYear = (y) => `${y}년`;
         // 1배 이하=붉은색, 1~2배=노란색, 2배 이상=파란색
-        const valueColor = (v) => (v <= 1 ? "#e8544b" : v <= 2 ? "#e0b93c" : "#4c8dff");
+        // 챠트의 분기별 점 색 기준: 1이하=파란색, 1~1.5=노란색, 1.5이상=붉은색
+        const dotColor = (v) => (v <= 1 ? "#4c8dff" : v <= 1.5 ? "#e0b93c" : "#e8544b");
         const palette = ["#c9974a", "#3fbf7f", "#b06fdb", "#ee7fb0", "#e0b93c", "#7f8fd8", "#5fbf9f"];
         const topCode = allRows.length > 0 ? allRows[0].code : null;
         const botCode = allRows.length > 0 ? allRows[allRows.length - 1].code : null;
@@ -2533,7 +2534,7 @@ function PortfolioApp() {
           const lineStr = pts.map((p, idx) => `${xOf(idx, pts.length)},${yOf(p.value)}`).join(" ");
           const areaStr = `${padL},${yOf(vMin)} ${lineStr} ${xOf(pts.length - 1, pts.length)},${yOf(vMin)}`;
           const last = pts[pts.length - 1].value;
-          const lastColor = valueColor(last);
+          const lastColor = dotColor(last);
           return (
             <>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, fontSize: 11, color: "#8993a6" }}>
@@ -2548,10 +2549,10 @@ function PortfolioApp() {
                   </g>
                 ))}
                 {vMin < 1 && vMax > 1 && <line x1={padL} y1={yOf(1)} x2={W - padR} y2={yOf(1)} stroke="#3a4150" strokeWidth="1" strokeDasharray="3 3" />}
-                {vMin < 2 && vMax > 2 && <line x1={padL} y1={yOf(2)} x2={W - padR} y2={yOf(2)} stroke="#3a4150" strokeWidth="1" strokeDasharray="3 3" />}
+                {vMin < 1.5 && vMax > 1.5 && <line x1={padL} y1={yOf(1.5)} x2={W - padR} y2={yOf(1.5)} stroke="#3a4150" strokeWidth="1" strokeDasharray="3 3" />}
                 <polygon fill={lastColor} opacity="0.12" points={areaStr} />
                 <polyline fill="none" stroke={lastColor} strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" points={lineStr} />
-                {pts.map((p, idx) => <circle key={p.period} cx={xOf(idx, pts.length)} cy={yOf(p.value)} r="2" fill={valueColor(p.value)} />)}
+                {pts.map((p, idx) => <circle key={p.period} cx={xOf(idx, pts.length)} cy={yOf(p.value)} r="2" fill={dotColor(p.value)} />)}
                 <text x={padL} y={H - 5} fill="#5a6274" fontSize="8" textAnchor="start">{fmtPeriod(pts[0].period)}</text>
                 <text x={W - padR} y={H - 5} fill="#5a6274" fontSize="8" textAnchor="end">{fmtPeriod(pts[pts.length - 1].period)}</text>
               </svg>
