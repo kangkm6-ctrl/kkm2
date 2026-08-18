@@ -2599,10 +2599,10 @@ function PortfolioApp() {
                         <span style={{ color: "#e7eaf0", textAlign: "left", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1, minWidth: 0, fontWeight: 700 }}>
                           {r.usedCommon && <span title="본주 기준" style={{ color: "#5a6274" }}>●</span>} {r.name}
                         </span>
+                        <span style={{ fontSize: 9, color: "#5a6274", flexShrink: 0, whiteSpace: "nowrap" }}>(1↓)</span>
                         <span style={{ color: "#5a6274", flexShrink: 0, fontSize: 10 }}>{isSel ? "▲" : "▼"}</span>
                       </div>
-                      <div style={{ fontSize: 9, color: "#5a6274", textAlign: "left", marginTop: 0 }}>(1↓)</div>
-                      <div className="tnum" style={{ display: "flex", justifyContent: "flex-end", gap: 6, overflow: "hidden", marginTop: 1 }}>
+                      <div className="tnum" style={{ display: "flex", justifyContent: "flex-end", gap: 6, overflow: "hidden", marginTop: 2 }}>
                         {r.psrAnnual.slice(-4).map((p) => {
                           const idx = r.psrAnnual.findIndex((x) => x.year === p.year);
                           const prev = idx > 0 ? r.psrAnnual[idx - 1].value : null;
@@ -2610,11 +2610,11 @@ function PortfolioApp() {
                           const isExcellent = p.value <= 1;
                           return (
                             <span key={p.year} style={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
-                              <span style={{ color: "#5a6274", fontSize: 8, lineHeight: 1.1 }}>{fmtYear(p.year)}</span>
+                              <span style={{ color: "#5a6274", fontSize: 8 }}>{fmtYear(p.year)}</span>
                               <span style={{
-                                fontWeight: 700, fontSize: 12, color: yoyColor, lineHeight: 1.1,
+                                fontWeight: 700, fontSize: 12, color: yoyColor, lineHeight: 1.2,
                                 border: isExcellent ? "1px solid #e8544b" : "1px solid transparent",
-                                borderRadius: 4, padding: "0px 6px",
+                                borderRadius: 4, padding: "1px 6px",
                               }}>{fmtRatio(p.value)}</span>
                             </span>
                           );
