@@ -2180,7 +2180,7 @@ function PortfolioApp() {
                           const isExcellent = p.value >= 15;
                           return (
                             <span key={p.year} style={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
-                              <span style={{ color: "#5a6274", fontSize: 8 }}>{"'" + p.year.slice(2, 4)}</span>
+                              <span style={{ color: "#5a6274", fontSize: 8 }}>{p.year + "년"}</span>
                               <span style={{
                                 fontWeight: 700, fontSize: 12, color: yoyColor(p.year), lineHeight: 1.2,
                                 border: isExcellent ? "1px solid #e8544b" : "1px solid transparent",
@@ -2503,7 +2503,7 @@ function PortfolioApp() {
           .sort((a, b) => a.psrValue - b.psrValue); // PSR 낮은(저평가) 순
 
         const fmtRatio = (v) => `${v.toFixed(2)}배`;
-        const fmtYear = (y) => `'${y.slice(2, 4)}`;
+        const fmtYear = (y) => `${y}년`;
         // 1배 이하=붉은색, 1~2배=노란색, 2배 이상=파란색
         const valueColor = (v) => (v <= 1 ? "#e8544b" : v <= 2 ? "#e0b93c" : "#4c8dff");
         const palette = ["#c9974a", "#3fbf7f", "#b06fdb", "#ee7fb0", "#e0b93c", "#7f8fd8", "#5fbf9f"];
@@ -2679,7 +2679,7 @@ function PortfolioApp() {
         });
 
         const fmtPct = (v) => (v >= 0 ? "+" : "") + v.toFixed(1) + "%";
-        const fmtYear = (y) => `'${y.slice(2, 4)}`;
+        const fmtYear = (y) => `${y}년`;
         const W = 320, H = 190, padL = 40, padR = 6, padT = 8, padB = 18;
         const plotW = W - padL - padR, plotH = H - padT - padB;
 
@@ -3437,14 +3437,14 @@ function PortfolioApp() {
                       <div>표시할 데이터가 없어요.</div>
                     ) : (
                       <>
-                        <div style={{ display: "grid", gridTemplateColumns: `1fr repeat(${allYears.length}, 46px)`, gap: 4, marginBottom: 3, fontWeight: 700, color: "#8993a6" }}>
+                        <div style={{ display: "grid", gridTemplateColumns: `1fr repeat(${allYears.length}, 60px)`, gap: 4, marginBottom: 3, fontWeight: 700, color: "#8993a6" }}>
                           <div></div>
-                          {allYears.map((y) => <div key={y} className="tnum" style={{ textAlign: "center", fontSize: 12 }}>{"'" + y.slice(2, 4)}</div>)}
+                          {allYears.map((y) => <div key={y} className="tnum" style={{ textAlign: "center", fontSize: 12 }}>{y + "년"}</div>)}
                         </div>
                         {rows.map(([label, pts, formatter, colorFn, excellentRange]) => {
                           const yoy = yoyColorFor(pts);
                           return (
-                            <div key={label} style={{ display: "grid", gridTemplateColumns: `1fr repeat(${allYears.length}, 46px)`, gap: 4, padding: "3px 0", borderTop: "1px solid #1a1f28" }}>
+                            <div key={label} style={{ display: "grid", gridTemplateColumns: `1fr repeat(${allYears.length}, 60px)`, gap: 4, padding: "3px 0", borderTop: "1px solid #1a1f28" }}>
                               <div style={{ color: "#8993a6", fontSize: 11, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                                 {label}
                                 {excellentRange && <span style={{ fontSize: 9, color: "#5a6274" }}> ({excellentRange})</span>}
