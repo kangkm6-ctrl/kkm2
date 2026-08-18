@@ -3370,37 +3370,41 @@ function PortfolioApp() {
                 let profileLabel = "일반 기준";
                 let perColor, pbrColor, psrColor, opMarginTier, roeTier, debtTier;
                 let perRange, pbrRange, psrRange, opMarginRange, roeRange, debtRange;
+                let perFair, pbrFair, psrFair, opMarginFair, roeFair, debtFair, growthFair, netMarginFair, quickFair;
+                growthFair = "0~5%"; // 매출액성장률·EPS성장률 보통 구간 (업종 공통)
+                netMarginFair = "2~5%"; // 순이익률 보통 구간 (업종 공통)
+                quickFair = "100~150%"; // 당좌비율 양호 구간 (업종 공통)
                 if (isSemi) {
                   profileLabel = "반도체·부품 업종 기준";
-                  perColor = perColorWith(15, 25); perRange = "15↓";
-                  pbrColor = pbrColorWith(2, 4); pbrRange = "2↓";
-                  psrColor = psrColorWith(1, 2); psrRange = "1↓"; // PSR은 업종별 기준 미제공 → 일반 기준 유지
-                  opMarginTier = tier4(8, 15, 25); opMarginRange = "25%↑";
-                  roeTier = tier4(5, 12, 20); roeRange = "20%↑";
-                  debtTier = tier4(50, 100, 200, true); debtRange = "50%↓";
+                  perColor = perColorWith(15, 25); perRange = "15↓"; perFair = "15~25";
+                  pbrColor = pbrColorWith(2, 4); pbrRange = "2↓"; pbrFair = "2~4";
+                  psrColor = psrColorWith(1, 2); psrRange = "1↓"; psrFair = "1~2"; // PSR은 업종별 기준 미제공 → 일반 기준 유지
+                  opMarginTier = tier4(8, 15, 25); opMarginRange = "25%↑"; opMarginFair = "8~15%";
+                  roeTier = tier4(5, 12, 20); roeRange = "20%↑"; roeFair = "5~12%";
+                  debtTier = tier4(50, 100, 200, true); debtRange = "50%↓"; debtFair = "50~100%";
                 } else if (isGame) {
                   profileLabel = "게임 업종 기준";
-                  perColor = perColorWith(15, 30); perRange = "15↓";
-                  pbrColor = pbrColorWith(1, 1.5); pbrRange = "1↓"; // PBR은 업종별 기준 미제공 → 일반 기준 유지
-                  psrColor = psrColorWith(3, 6); psrRange = "3↓";
-                  opMarginTier = tier4(8, 15, 30); opMarginRange = "30%↑";
-                  roeTier = tier4(5, 10, 15); roeRange = "15%↑"; // 업종별 기준 미제공 → 일반 기준 유지
-                  debtTier = tier4(50, 100, 200, true); debtRange = "50%↓";
+                  perColor = perColorWith(15, 30); perRange = "15↓"; perFair = "15~30";
+                  pbrColor = pbrColorWith(1, 1.5); pbrRange = "1↓"; pbrFair = "1~1.5"; // PBR은 업종별 기준 미제공 → 일반 기준 유지
+                  psrColor = psrColorWith(3, 6); psrRange = "3↓"; psrFair = "3~6";
+                  opMarginTier = tier4(8, 15, 30); opMarginRange = "30%↑"; opMarginFair = "8~15%";
+                  roeTier = tier4(5, 10, 15); roeRange = "15%↑"; roeFair = "5~10%"; // 업종별 기준 미제공 → 일반 기준 유지
+                  debtTier = tier4(50, 100, 200, true); debtRange = "50%↓"; debtFair = "50~100%";
                 } else if (isBattery) {
                   profileLabel = "2차전지·화학 업종 기준";
-                  perColor = perColorWith(10, 20); perRange = "10↓";
-                  pbrColor = pbrColorWith(1.5, 3); pbrRange = "1.5↓";
-                  psrColor = psrColorWith(1, 2); psrRange = "1↓"; // 업종별 기준 미제공 → 일반 기준 유지
-                  opMarginTier = tier3(5, 10); opMarginRange = "10%↑"; // 우수10%+/양호5~10%/위험5%↓ (보통 구간 없음)
-                  roeTier = tier4(5, 10, 15); roeRange = "15%↑"; // 업종별 기준 미제공 → 일반 기준 유지
-                  debtTier = tier4(50, 100, 150, true); debtRange = "50%↓"; // 위험선 150%로 낮춤
+                  perColor = perColorWith(10, 20); perRange = "10↓"; perFair = "10~20";
+                  pbrColor = pbrColorWith(1.5, 3); pbrRange = "1.5↓"; pbrFair = "1.5~3";
+                  psrColor = psrColorWith(1, 2); psrRange = "1↓"; psrFair = "1~2"; // 업종별 기준 미제공 → 일반 기준 유지
+                  opMarginTier = tier3(5, 10); opMarginRange = "10%↑"; opMarginFair = "5~10%"; // 우수10%+/양호5~10%/위험5%↓ (보통 구간 없음)
+                  roeTier = tier4(5, 10, 15); roeRange = "15%↑"; roeFair = "5~10%"; // 업종별 기준 미제공 → 일반 기준 유지
+                  debtTier = tier4(50, 100, 150, true); debtRange = "50%↓"; debtFair = "50~100%(위험선150%↓)"; // 위험선 150%로 낮춤
                 } else {
-                  perColor = perColorWith(10, 15); perRange = "10↓";
-                  pbrColor = pbrColorWith(1, 1.5); pbrRange = "1↓";
-                  psrColor = psrColorWith(1, 2); psrRange = "1↓";
-                  opMarginTier = tier4(3, 8, 15); opMarginRange = "15%↑";
-                  roeTier = tier4(5, 10, 15); roeRange = "15%↑";
-                  debtTier = tier4(50, 100, 200, true); debtRange = "50%↓";
+                  perColor = perColorWith(10, 15); perRange = "10↓"; perFair = "10~15";
+                  pbrColor = pbrColorWith(1, 1.5); pbrRange = "1↓"; pbrFair = "1~1.5";
+                  psrColor = psrColorWith(1, 2); psrRange = "1↓"; psrFair = "1~2";
+                  opMarginTier = tier4(3, 8, 15); opMarginRange = "15%↑"; opMarginFair = "3~8%";
+                  roeTier = tier4(5, 10, 15); roeRange = "15%↑"; roeFair = "5~10%";
+                  debtTier = tier4(50, 100, 200, true); debtRange = "50%↓"; debtFair = "50~100%";
                 }
 
                 // 절대값 지표(매출액·EPS·BPS)는 업종 기준선이 없어서, 전년 대비 증감으로 색을 매긴다.
@@ -3414,19 +3418,19 @@ function PortfolioApp() {
                 };
 
                 const rows = [
-                  ["매출액(억원)", revenueAnnual, (v) => fmt(v), null, null],
-                  ["매출액성장률", revenueGrowthAnnual, (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`, tier4(0, 5, 15), "15%↑"],
-                  ["영업이익률", opMarginAnnual, (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`, opMarginTier, opMarginRange],
-                  ["순이익률", netMarginAnnual, (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`, tier4(2, 5, 10), "10%↑"],
-                  ["EPS", epsAnnual, (v) => fmt(v), null, null],
-                  ["EPS성장률", epsGrowthAnnual, (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`, tier4(0, 5, 15), "15%↑"],
-                  ["BPS", bpsAnnual, (v) => fmt(v), null, null],
-                  ["PER", perAnnual, (v) => (v < 0 ? "극저" : v >= 100 ? "극고" : `${v.toFixed(1)}배`), perColor, perRange],
-                  ["ROE", roeAnnual, (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`, roeTier, roeRange],
-                  ["PSR", psrAnnual, (v) => `${v.toFixed(2)}배`, psrColor, psrRange],
-                  ["PBR", pbrAnnual, (v) => `${v.toFixed(2)}배`, pbrColor, pbrRange],
-                  ["부채비율", debtRatioAnnual, (v) => `${v.toFixed(1)}%`, debtTier, debtRange],
-                  ["당좌비율", quickRatioAnnual, (v) => `${v.toFixed(1)}%`, quickRatioColor, "150%↑"],
+                  ["매출액(억원)", revenueAnnual, (v) => fmt(v), null, null, null],
+                  ["매출액성장률", revenueGrowthAnnual, (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`, tier4(0, 5, 15), "15%↑", growthFair],
+                  ["영업이익률", opMarginAnnual, (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`, opMarginTier, opMarginRange, opMarginFair],
+                  ["순이익률", netMarginAnnual, (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`, tier4(2, 5, 10), "10%↑", netMarginFair],
+                  ["EPS", epsAnnual, (v) => fmt(v), null, null, null],
+                  ["EPS성장률", epsGrowthAnnual, (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`, tier4(0, 5, 15), "15%↑", growthFair],
+                  ["BPS", bpsAnnual, (v) => fmt(v), null, null, null],
+                  ["PER", perAnnual, (v) => (v < 0 ? "극저" : v >= 100 ? "극고" : `${v.toFixed(1)}배`), perColor, perRange, perFair],
+                  ["ROE", roeAnnual, (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`, roeTier, roeRange, roeFair],
+                  ["PSR", psrAnnual, (v) => `${v.toFixed(2)}배`, psrColor, psrRange, psrFair],
+                  ["PBR", pbrAnnual, (v) => `${v.toFixed(2)}배`, pbrColor, pbrRange, pbrFair],
+                  ["부채비율", debtRatioAnnual, (v) => `${v.toFixed(1)}%`, debtTier, debtRange, debtFair],
+                  ["당좌비율", quickRatioAnnual, (v) => `${v.toFixed(1)}%`, quickRatioColor, "150%↑", quickFair],
                 ];
                 const allYears = [...new Set(rows.flatMap(([, pts]) => pts.map((p) => p.year)))].sort().slice(-4);
 
@@ -3441,13 +3445,14 @@ function PortfolioApp() {
                           <div></div>
                           {allYears.map((y) => <div key={y} className="tnum" style={{ textAlign: "center", fontSize: 12 }}>{y + "년"}</div>)}
                         </div>
-                        {rows.map(([label, pts, formatter, colorFn, excellentRange]) => {
+                        {rows.map(([label, pts, formatter, colorFn, excellentRange, fairRange]) => {
                           const yoy = yoyColorFor(pts);
                           return (
                             <div key={label} style={{ display: "grid", gridTemplateColumns: `1fr repeat(${allYears.length}, 60px)`, gap: 4, padding: "3px 0", borderTop: "1px solid #1a1f28" }}>
-                              <div style={{ color: "#8993a6", fontSize: 11, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                              <div style={{ color: "#8993a6", fontSize: 11 }}>
                                 {label}
                                 {excellentRange && <span style={{ fontSize: 9, color: "#5a6274" }}> ({excellentRange})</span>}
+                                {fairRange && <div style={{ fontSize: 9, color: "#6f7a90" }}>적정 {fairRange}</div>}
                               </div>
                               {allYears.map((y) => {
                                 const p = pts.find((x) => x.year === y);
@@ -3472,7 +3477,7 @@ function PortfolioApp() {
                         })}
                         <div style={{ marginTop: 6, fontSize: 9 }}>
                           당좌비율은 유동자산÷유동부채로 근사 계산했어요(재고자산 분리 불가). PER이 마이너스면 "극저", 100배 이상이면 "극고"로 표시돼요. 우선주는 본주 재무데이터를 사용해요. 색은 전년 대비 증가(붉은색)·감소(파란색)로만 표시되고, 그 수치가 "우수" 기준을 만족하면 <span style={{ border: "1px solid #e8544b", padding: "0 3px", borderRadius: 3 }}>테두리</span>가 추가돼요.
-                          <br /><span style={{ color: "#e8544b" }}>●우수</span> <span style={{ color: "#e0b93c" }}>●양호</span> <span style={{ color: "#8993a6" }}>●보통/적정</span> <span style={{ color: "#4c8dff" }}>●주의</span> · 업종명을 인식해 반도체·게임·2차전지는 전용 기준선을, 그 외는 일반 기준선을 적용해요. 업종별로 기준이 없는 지표는 일반 기준을 그대로 써요.
+                          <br /><span style={{ color: "#e8544b" }}>●우수</span> <span style={{ color: "#e0b93c" }}>●양호</span> <span style={{ color: "#8993a6" }}>●보통/적정</span> <span style={{ color: "#4c8dff" }}>●주의</span> · 각 지표명 밑에 "적정 X~Y" 구간도 업종별로 같이 표시돼요. 업종명을 인식해 반도체·게임·2차전지는 전용 기준선을, 그 외는 일반 기준선을 적용해요. 업종별로 기준이 없는 지표는 일반 기준을 그대로 써요.
                         </div>
                       </>
                     )}
