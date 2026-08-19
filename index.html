@@ -402,7 +402,7 @@ function PortfolioApp() {
         publicKey: {
           challenge: randomBytes(32),
           rp: { name: "포트폴리오 리밸런싱" },
-          user: { id: randomBytes(16), name: "portfolio-user", displayName: "포트폴리오" },
+          user: { id: randomBytes(16), name: "포트폴리오", displayName: "포트폴리오" },
           pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }],
           authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required" },
           timeout: 60000,
@@ -443,21 +443,20 @@ function PortfolioApp() {
     setTimeout(() => setLockMsg(""), 3000);
   };
 
-  const unlockWithPassword = async () => {
+  // 비밀번호를 입력하는 동안, 버튼을 안 눌러도 맞는 순간 바로 잠금 해제한다. (타이핑 중 오답에는 에러 메시지를 안 띄움)
+  const checkPasswordAutoUnlock = async (value) => {
+    setPwInput(value);
+    if (!value) return;
     try {
       const storedHash = localStorage.getItem(LOCK_PW_HASH_KEY);
       if (!storedHash) return;
-      const inputHash = await sha256Hex(pwInput);
+      const inputHash = await sha256Hex(value);
       if (inputHash === storedHash) {
         setIsLocked(false);
         setPwInput("");
         setLockMsg("");
-      } else {
-        setLockMsg("❌ 비밀번호가 틀렸어요.");
       }
-    } catch (e) {
-      setLockMsg("❌ 오류가 발생했어요.");
-    }
+    } catch (e) {}
   };
 
   // 잠긴 상태가 되면(=앱 시작 시) 자동으로 Face ID 인증을 바로 시도
@@ -1789,22 +1788,15 @@ function PortfolioApp() {
 
         {hasLockPassword && (
           <div style={{ width: "100%", maxWidth: 280 }} onClick={(e) => e.stopPropagation()}>
-            <div style={{ fontSize: 12, color: "#5a6274", marginBottom: 8 }}>Face ID가 안 되면 비밀번호로 열기</div>
             <input
               type="password"
               value={pwInput}
-              onChange={(e) => setPwInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") unlockWithPassword(); }}
+              onChange={(e) => checkPasswordAutoUnlock(e.target.value)}
               placeholder="비밀번호"
               className="field"
-              style={{ textAlign: "center", marginBottom: 8 }}
+              autoFocus
+              style={{ textAlign: "center", fontSize: 24, padding: "20px 0", borderRadius: 12 }}
             />
-            <button
-              onClick={unlockWithPassword}
-              style={{ width: "100%", padding: "10px 0", borderRadius: 8, border: "1px solid #c9974a", background: "none", color: "#c9974a", fontWeight: 700, fontSize: 13 }}
-            >
-              비밀번호로 잠금 해제
-            </button>
           </div>
         )}
 
