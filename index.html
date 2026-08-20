@@ -1409,7 +1409,7 @@ function PortfolioApp() {
 
   // 종목챠트에서 종목을 탭하면, 그 종목의 주가·코스피·코스닥 월봉(5년 이상)을 받아서 겹쳐 그린다.
   useEffect(() => {
-    if (!loaded || mainView !== "chart" || !fundSelected || !proxyUrl) { setChartOverlay(null); return; }
+    if (!loaded || mainView !== "chart" || (chartTab !== "eps" && chartTab !== "eva") || !fundSelected || !proxyUrl) { setChartOverlay(null); return; }
     setChartOverlayLoading(true);
     const base = proxyUrl.replace(/\/$/, "");
     const headers = appSecret ? { "x-app-secret": appSecret } : {};
@@ -2842,8 +2842,6 @@ function PortfolioApp() {
         // ⚠️ 근사치예요: 법인세율 22%·WACC는 업종별 고정값으로 가정했고(베타·무위험이자율 등 실제 자본비용 데이터가 없음),
         // 투하자본은 총자산-유동부채로 단순화했어요(이자부/비이자부 부채 구분 불가).
         const TAX_RATE = 0.22;
-        const industryName0 = ""; // 목록 전체 화면이라 종목별로 아래에서 다시 판정
-        const wacc0 = 0.08;
 
         const buildEvaPts = (s, f, ef) => {
           if (!ef || !Array.isArray(ef.periods)) return [];
@@ -2903,10 +2901,30 @@ function PortfolioApp() {
         });
 
         const fmtVal = (v) => `${v >= 0 ? "+" : ""}${fmt(v)}억`;
+        const fmtPct2 = (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
         const fmtPeriod = (p) => (p && p.length === 6 ? `'${p.slice(2, 4)}.${p.slice(4, 6)}` : p);
         const W = 320, H = 190, padL = 44, padR = 6, padT = 8, padB = 18;
         const plotW = W - padL - padR, plotH = H - padT - padB;
         const evaColor = "#e8544b";
+        const priceColor = "#c9974a"; // 중간굵기 황금색
+
+        // 주가 월봉에서, EVA 분기 시점(YYYYMM)에 가장 가까운(그 달 이전 최근) 종가를 찾는다.
+        const matchAtPeriod = (candles, period) => {
+          if (!candles || candles.length === 0) return null;
+          const cutoff = period + "31";
+          let best = null;
+          for (const c of candles) { if (c.date <= cutoff) best = c; else break; }
+          return best ? num(best.close) : null;
+        };
+        const toCumPct = (vals) => {
+          const firstIdx = vals.findIndex((v) => v !== null);
+          if (firstIdx === -1) return vals.map(() => null);
+          const base = vals[firstIdx];
+          return vals.map((v) => (v !== null && base !== 0 ? ((v - base) / base) * 100 : null));
+        };
+
+        // 종목명 옆 4개년 표시는 전체 종목의 연도 합집합(최근 4개)을 공유해서, 세로 라인이 정확히 맞도록 한다.
+        const allYears = [...new Set(styled.flatMap((r) => r.annualPts.map((p) => p.year)))].sort().slice(-4);
 
         return (
           <div style={{ padding: "calc(env(safe-area-inset-top, 0px) + 10px) 0 0" }}>
@@ -2922,7 +2940,7 @@ function PortfolioApp() {
             <div style={{ padding: "0 16px 20px" }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: "#e7eaf0", marginBottom: 4 }}>종목챠트 · EVA</div>
               <div style={{ fontSize: 10, color: "#5a6274", marginBottom: 10 }}>
-                EVA(경제적 부가가치) = 세후영업이익(NOPAT) − 투하자본×WACC로 근사 계산했어요. ⚠️ 법인세율 22%·WACC는 업종별 고정 가정치라 실제 자본비용과 차이가 있을 수 있어요(베타·무위험이자율 데이터 없음). 투하자본은 총자산−유동부채로 단순화했어요. 우선주는 본주 재무데이터를 사용해요. 탭하면 분기별 추이가 나와요.
+                EVA(경제적 부가가치) = 세후영업이익(NOPAT) − 투하자본×WACC로 근사 계산했어요. ⚠️ 법인세율 22%·WACC는 업종별 고정 가정치라 실제 자본비용과 차이가 있을 수 있어요(베타·무위험이자율 데이터 없음). 투하자본은 총자산−유동부채로 단순화했어요. 우선주는 본주 재무데이터를 사용해요. 탭하면 EVA(붉은선, 자체 기준 누적%)에 주가(황금색, 누적%) 추이가 겹쳐 나와요.
               </div>
               {fundamentalsLoading && <div style={{ color: "#8993a6", fontSize: 12, textAlign: "center", padding: 16 }}>불러오는 중...</div>}
               {!fundamentalsLoading && styled.length === 0 && (
@@ -2930,7 +2948,6 @@ function PortfolioApp() {
               )}
               {styled.map((r, i) => {
                 const isSel = fundSelected === r.code;
-                const last4 = r.annualPts.slice(-4);
                 const yoyColor = (year) => {
                   const idx = r.annualPts.findIndex((p) => p.year === year);
                   if (idx <= 0) return "#8993a6";
@@ -2960,18 +2977,19 @@ function PortfolioApp() {
                         <span style={{ fontSize: 9, color: "#5a6274", flexShrink: 0, whiteSpace: "nowrap" }}>(0↑)</span>
                         <span style={{ color: "#5a6274", flexShrink: 0, fontSize: 10 }}>{isSel ? "▲" : "▼"}</span>
                       </div>
-                      <div className="tnum" style={{ display: "flex", justifyContent: "flex-end", gap: 6, flexWrap: "nowrap", overflow: "hidden", marginTop: 2 }}>
-                        {last4.map((p) => {
-                          const isExcellent = p.value > 0;
+                      <div style={{ display: "grid", gridTemplateColumns: `repeat(${allYears.length}, 1fr)`, gap: 6, marginTop: 2 }}>
+                        {allYears.map((y) => {
+                          const p = r.annualPts.find((x) => x.year === y);
+                          const isExcellent = p && p.value > 0;
                           return (
-                            <span key={p.year} style={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
-                              <span style={{ color: "#5a6274", fontSize: 8 }}>{"'" + p.year.slice(2, 4)}</span>
+                            <div key={y} className="tnum" style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+                              <span style={{ color: "#5a6274", fontSize: 8 }}>{y + "년"}</span>
                               <span style={{
-                                fontWeight: 700, fontSize: 12, color: yoyColor(p.year), lineHeight: 1.2,
+                                fontWeight: 700, fontSize: 12, color: p ? yoyColor(y) : "#3a4150", lineHeight: 1.2,
                                 border: isExcellent ? "1px solid #e8544b" : "1px solid transparent",
                                 borderRadius: 4, padding: "1px 4px",
-                              }}>{fmtVal(p.value)}</span>
-                            </span>
+                              }}>{p ? fmtVal(p.value) : "-"}</span>
+                            </div>
                           );
                         })}
                       </div>
@@ -2979,31 +2997,61 @@ function PortfolioApp() {
 
                     {isSel && (() => {
                       const pts = r.evaQuarterly;
-                      let vMin = Math.min(...pts.map((p) => p.value), 0);
-                      let vMax = Math.max(...pts.map((p) => p.value), 0);
+                      const evaPts = toCumPct(pts.map((p) => p.value));
+                      const overlay = chartOverlay && chartOverlay.code === r.code ? chartOverlay : null;
+                      const pricePts = overlay ? toCumPct(pts.map((p) => matchAtPeriod(overlay.price, p.period))) : null;
+                      const extraVals = [pricePts].filter(Boolean).flatMap((arr) => arr.filter((v) => v !== null));
+                      let vMin = Math.min(...evaPts.filter((v) => v !== null), ...extraVals, 0);
+                      let vMax = Math.max(...evaPts.filter((v) => v !== null), ...extraVals, 0);
                       const vPad = Math.max((vMax - vMin) * 0.1, 1);
                       vMin -= vPad; vMax += vPad;
                       const xOf = (idx, len) => padL + (len <= 1 ? 0 : (idx / (len - 1)) * plotW);
                       const yOf = (v) => padT + (vMax === vMin ? plotH / 2 : ((vMax - v) / (vMax - vMin)) * plotH);
-                      const lineStr = pts.map((p, idx) => `${xOf(idx, pts.length)},${yOf(p.value)}`).join(" ");
-                      const areaStr = `${padL},${yOf(vMin)} ${lineStr} ${xOf(pts.length - 1, pts.length)},${yOf(vMin)}`;
+                      const lineOfVals = (vals) => {
+                        const segs = [];
+                        let cur = [];
+                        vals.forEach((v, idx) => {
+                          if (v === null) { if (cur.length > 1) segs.push(cur); cur = []; return; }
+                          cur.push(`${xOf(idx, pts.length)},${yOf(v)}`);
+                        });
+                        if (cur.length > 1) segs.push(cur);
+                        return segs.map((s) => s.join(" "));
+                      };
+                      const lastPrice = pricePts ? [...pricePts].reverse().find((v) => v !== null) : null;
+                      const lastEva = [...evaPts].reverse().find((v) => v !== null);
                       return (
                         <div className="card" style={{ margin: "6px 0 10px", padding: 12, background: "#161b24" }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, fontSize: 11, color: "#8993a6" }}>
-                            <span>{r.name} · EVA(억원)</span>
-                            <span className="tnum" style={{ fontWeight: 700, color: evaColor }}>{fmtVal(r.value)}</span>
+                          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, marginBottom: 8, fontSize: 10, color: "#8993a6" }}>
+                            <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                              <svg width="16" height="4"><line x1="0" y1="2" x2="16" y2="2" stroke={evaColor} strokeWidth="1.6" /></svg>
+                              EVA(누적%) {lastEva !== null && <span className="tnum" style={{ fontWeight: 700, color: evaColor }}>{fmtPct2(lastEva)}</span>}
+                            </span>
+                            {chartOverlayLoading && <span>겹쳐그릴 데이터 불러오는 중...</span>}
+                            {lastPrice !== null && (
+                              <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                                <svg width="16" height="4"><line x1="0" y1="2" x2="16" y2="2" stroke={priceColor} strokeWidth="1.6" /></svg>
+                                주가 <span className="tnum" style={{ fontWeight: 700, color: priceColor }}>{fmtPct2(lastPrice)}</span>
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ fontSize: 9, color: "#5a6274", marginBottom: 6 }}>
+                            이 차트는 EVA·주가 모두 첫 시점 대비 누적 변화율(%)로 정규화해서 겹쳐 그려요 (단위가 달라 절대값 비교는 어려워요).
                           </div>
                           <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", display: "block", background: "#12151b", borderRadius: 10, border: "1px solid #262c37" }}>
                             {[vMax, (vMax + vMin) / 2, vMin].map((v, vi) => (
                               <g key={vi}>
                                 <line x1={padL} y1={yOf(v)} x2={W - padR} y2={yOf(v)} stroke="#1f2530" strokeWidth="1" />
-                                <text x={padL - 4} y={yOf(v) + 3} fill="#5a6274" fontSize="8" textAnchor="end">{fmt(v)}</text>
+                                <text x={padL - 4} y={yOf(v) + 3} fill="#5a6274" fontSize="8" textAnchor="end">{v.toFixed(0)}%</text>
                               </g>
                             ))}
                             {vMin < 0 && vMax > 0 && <line x1={padL} y1={yOf(0)} x2={W - padR} y2={yOf(0)} stroke="#3a4150" strokeWidth="1" strokeDasharray="3 3" />}
-                            <polygon fill={evaColor} opacity="0.10" points={areaStr} />
-                            <polyline fill="none" stroke={evaColor} strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" points={lineStr} />
-                            {pts.map((p, idx) => <circle key={p.period} cx={xOf(idx, pts.length)} cy={yOf(p.value)} r="2" fill={evaColor} />)}
+                            {pricePts && lineOfVals(pricePts).map((seg, idx) => (
+                              <polyline key={"pr" + idx} fill="none" stroke={priceColor} strokeWidth="1.6" strokeLinejoin="round" points={seg} />
+                            ))}
+                            {lineOfVals(evaPts).map((seg, idx) => (
+                              <polyline key={"ev" + idx} fill="none" stroke={evaColor} strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" points={seg} />
+                            ))}
+                            {pts.map((p, idx) => evaPts[idx] !== null && <circle key={p.period} cx={xOf(idx, pts.length)} cy={yOf(evaPts[idx])} r="2" fill={evaColor} />)}
                             <text x={padL} y={H - 5} fill="#5a6274" fontSize="8" textAnchor="start">{fmtPeriod(pts[0].period)}</text>
                             <text x={W - padR} y={H - 5} fill="#5a6274" fontSize="8" textAnchor="end">{fmtPeriod(pts[pts.length - 1].period)}</text>
                           </svg>
