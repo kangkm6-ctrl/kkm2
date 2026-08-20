@@ -1399,6 +1399,14 @@ function PortfolioApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded, metricsStock]);
 
+  // EVA 탭을 열면, EVA 계산에 필요한 재무데이터(매출액/영업이익/총자산 등)를 보유종목 전체에 대해 한 번에 받아온다.
+  useEffect(() => {
+    if (!loaded || mainView !== "chart" || chartTab !== "eva") return;
+    const codes = stockCodes.filter((c) => !extraFundamentalsData[c] && !extraFundamentalsLoading[c]);
+    codes.forEach((c) => fetchStockMetrics(c));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, mainView, chartTab, stockCodes]);
+
   // 종목챠트에서 종목을 탭하면, 그 종목의 주가·코스피·코스닥 월봉(5년 이상)을 받아서 겹쳐 그린다.
   useEffect(() => {
     if (!loaded || mainView !== "chart" || !fundSelected || !proxyUrl) { setChartOverlay(null); return; }
@@ -1795,7 +1803,7 @@ function PortfolioApp() {
               placeholder="비밀번호"
               className="field"
               autoFocus
-              style={{ textAlign: "center", fontSize: 24, padding: "20px 0", borderRadius: 12 }}
+              style={{ textAlign: "center", fontSize: 17, padding: "12px 0", borderRadius: 10 }}
             />
           </div>
         )}
@@ -2124,6 +2132,7 @@ function PortfolioApp() {
               <button onClick={() => { setChartTab("eps"); setFundSelected(null); }} className="iconbtn" style={{ flex: 1, padding: "6px 0", borderRadius: 8, border: chartTab === "eps" ? "1px solid #c9974a" : "1px solid #262c37", background: chartTab === "eps" ? "rgba(201,151,74,0.15)" : "#1a1f28", color: chartTab === "eps" ? "#c9974a" : "#8993a6", fontWeight: 700, fontSize: 12 }}>EPS성장률</button>
               <button onClick={() => { setChartTab("psr"); setFundSelected(null); }} className="iconbtn" style={{ flex: 1, padding: "6px 0", borderRadius: 8, border: chartTab === "psr" ? "1px solid #c9974a" : "1px solid #262c37", background: chartTab === "psr" ? "rgba(201,151,74,0.15)" : "#1a1f28", color: chartTab === "psr" ? "#c9974a" : "#8993a6", fontWeight: 700, fontSize: 12 }}>PSR</button>
               <button onClick={() => { setChartTab("roe"); setFundSelected(null); }} className="iconbtn" style={{ flex: 1, padding: "6px 0", borderRadius: 8, border: chartTab === "roe" ? "1px solid #c9974a" : "1px solid #262c37", background: chartTab === "roe" ? "rgba(201,151,74,0.15)" : "#1a1f28", color: chartTab === "roe" ? "#c9974a" : "#8993a6", fontWeight: 700, fontSize: 12 }}>ROE·성장률</button>
+              <button onClick={() => { setChartTab("eva"); setFundSelected(null); }} className="iconbtn" style={{ flex: 1, padding: "6px 0", borderRadius: 8, border: chartTab === "eva" ? "1px solid #c9974a" : "1px solid #262c37", background: chartTab === "eva" ? "rgba(201,151,74,0.15)" : "#1a1f28", color: chartTab === "eva" ? "#c9974a" : "#8993a6", fontWeight: 700, fontSize: 12 }}>EVA</button>
             </div>
             <div style={{ padding: "0 16px 20px" }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: "#e7eaf0", marginBottom: 4 }}>종목챠트 · EPS성장률</div>
@@ -2561,6 +2570,7 @@ function PortfolioApp() {
               <button onClick={() => { setChartTab("eps"); setFundSelected(null); }} className="iconbtn" style={{ flex: 1, padding: "6px 0", borderRadius: 8, border: chartTab === "eps" ? "1px solid #c9974a" : "1px solid #262c37", background: chartTab === "eps" ? "rgba(201,151,74,0.15)" : "#1a1f28", color: chartTab === "eps" ? "#c9974a" : "#8993a6", fontWeight: 700, fontSize: 12 }}>EPS성장률</button>
               <button onClick={() => { setChartTab("psr"); setFundSelected(null); }} className="iconbtn" style={{ flex: 1, padding: "6px 0", borderRadius: 8, border: chartTab === "psr" ? "1px solid #c9974a" : "1px solid #262c37", background: chartTab === "psr" ? "rgba(201,151,74,0.15)" : "#1a1f28", color: chartTab === "psr" ? "#c9974a" : "#8993a6", fontWeight: 700, fontSize: 12 }}>PSR</button>
               <button onClick={() => { setChartTab("roe"); setFundSelected(null); }} className="iconbtn" style={{ flex: 1, padding: "6px 0", borderRadius: 8, border: chartTab === "roe" ? "1px solid #c9974a" : "1px solid #262c37", background: chartTab === "roe" ? "rgba(201,151,74,0.15)" : "#1a1f28", color: chartTab === "roe" ? "#c9974a" : "#8993a6", fontWeight: 700, fontSize: 12 }}>ROE·성장률</button>
+              <button onClick={() => { setChartTab("eva"); setFundSelected(null); }} className="iconbtn" style={{ flex: 1, padding: "6px 0", borderRadius: 8, border: chartTab === "eva" ? "1px solid #c9974a" : "1px solid #262c37", background: chartTab === "eva" ? "rgba(201,151,74,0.15)" : "#1a1f28", color: chartTab === "eva" ? "#c9974a" : "#8993a6", fontWeight: 700, fontSize: 12 }}>EVA</button>
             </div>
             <div style={{ padding: "0 16px 20px" }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: "#e7eaf0", marginBottom: 4 }}>PSR (주가매출비율)</div>
@@ -2766,6 +2776,7 @@ function PortfolioApp() {
               <button onClick={() => { setChartTab("eps"); setFundSelected(null); }} className="iconbtn" style={{ flex: 1, padding: "6px 0", borderRadius: 8, border: chartTab === "eps" ? "1px solid #c9974a" : "1px solid #262c37", background: chartTab === "eps" ? "rgba(201,151,74,0.15)" : "#1a1f28", color: chartTab === "eps" ? "#c9974a" : "#8993a6", fontWeight: 700, fontSize: 12 }}>EPS성장률</button>
               <button onClick={() => { setChartTab("psr"); setFundSelected(null); }} className="iconbtn" style={{ flex: 1, padding: "6px 0", borderRadius: 8, border: chartTab === "psr" ? "1px solid #c9974a" : "1px solid #262c37", background: chartTab === "psr" ? "rgba(201,151,74,0.15)" : "#1a1f28", color: chartTab === "psr" ? "#c9974a" : "#8993a6", fontWeight: 700, fontSize: 12 }}>PSR</button>
               <button onClick={() => { setChartTab("roe"); setFundSelected(null); }} className="iconbtn" style={{ flex: 1, padding: "6px 0", borderRadius: 8, border: chartTab === "roe" ? "1px solid #c9974a" : "1px solid #262c37", background: chartTab === "roe" ? "rgba(201,151,74,0.15)" : "#1a1f28", color: chartTab === "roe" ? "#c9974a" : "#8993a6", fontWeight: 700, fontSize: 12 }}>ROE·성장률</button>
+              <button onClick={() => { setChartTab("eva"); setFundSelected(null); }} className="iconbtn" style={{ flex: 1, padding: "6px 0", borderRadius: 8, border: chartTab === "eva" ? "1px solid #c9974a" : "1px solid #262c37", background: chartTab === "eva" ? "rgba(201,151,74,0.15)" : "#1a1f28", color: chartTab === "eva" ? "#c9974a" : "#8993a6", fontWeight: 700, fontSize: 12 }}>EVA</button>
             </div>
             <div style={{ padding: "0 16px 20px" }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: "#e7eaf0", marginBottom: 4 }}>ROE·매출액성장률</div>
@@ -2818,6 +2829,187 @@ function PortfolioApp() {
                         {renderCombinedChart(r)}
                       </div>
                     )}
+                  </React.Fragment>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
+      {mainView === "chart" && chartTab === "eva" && (() => {
+        // EVA(경제적 부가가치) 근사 계산: NOPAT(세후영업이익) - 투하자본×WACC
+        // ⚠️ 근사치예요: 법인세율 22%·WACC는 업종별 고정값으로 가정했고(베타·무위험이자율 등 실제 자본비용 데이터가 없음),
+        // 투하자본은 총자산-유동부채로 단순화했어요(이자부/비이자부 부채 구분 불가).
+        const TAX_RATE = 0.22;
+        const industryName0 = ""; // 목록 전체 화면이라 종목별로 아래에서 다시 판정
+        const wacc0 = 0.08;
+
+        const buildEvaPts = (s, f, ef) => {
+          if (!ef || !Array.isArray(ef.periods)) return [];
+          const isSemi = /전기|전자/.test(s.industryName || "");
+          const isGame = /오락|문화|게임/.test(s.industryName || "");
+          const isBattery = /화학/.test(s.industryName || "");
+          const wacc = isSemi ? 0.09 : isGame ? 0.10 : isBattery ? 0.085 : 0.08; // 업종별 대략치(변동성 큰 업종일수록 높게)
+          const byPeriod = {};
+          ef.periods.forEach((p) => { byPeriod[p.period] = p; });
+          return ef.periods
+            .map((p) => {
+              const opProfit = p.opProfit;
+              const totalAssets = p.totalAssets;
+              const curLblt = p.curLblt;
+              if (opProfit === null || opProfit === undefined || totalAssets === null || totalAssets === undefined || curLblt === null || curLblt === undefined) return null;
+              const nopat = opProfit * (1 - TAX_RATE);
+              const investedCapital = totalAssets - curLblt;
+              if (investedCapital <= 0) return null;
+              const eva = nopat - investedCapital * wacc;
+              return { period: p.period, value: eva / 100 }; // 백만원 → 억원
+            })
+            .filter(Boolean);
+        };
+        const deriveAnnual = (periodPts) => {
+          const byYear = {};
+          periodPts.forEach((p) => {
+            const year = p.period.slice(0, 4);
+            const mm = p.period.slice(4, 6);
+            if (!byYear[year] || mm >= byYear[year].mm) byYear[year] = { mm, value: p.value };
+          });
+          return Object.keys(byYear).sort().map((year) => ({ year, value: byYear[year].value }));
+        };
+
+        const allRows = stocks
+          .filter((s) => s.code && s.name && extraFundamentalsData[s.code])
+          .map((s) => {
+            const f = fundamentalsData[s.code];
+            const ef = extraFundamentalsData[s.code];
+            const evaQuarterly = buildEvaPts(s, f, ef);
+            if (evaQuarterly.length === 0) return null;
+            const annualPts = deriveAnnual(evaQuarterly);
+            const value = annualPts[annualPts.length - 1].value;
+            return { code: s.code, name: s.name, value, annualPts, evaQuarterly, usedCommon: f ? f.usedCommon : false };
+          })
+          .filter(Boolean)
+          .sort((a, b) => b.value - a.value);
+
+        const palette = ["#c9974a", "#3fbf7f", "#b06fdb", "#40b8c4", "#ee7fb0", "#e0b93c", "#7f8fd8", "#5fbf9f"];
+        const topCode = allRows.length > 0 ? allRows[0].code : null;
+        const botCode = allRows.length > 0 ? allRows[allRows.length - 1].code : null;
+        let oi = 0;
+        const styled = allRows.map((r) => {
+          if (r.code === topCode) return { ...r, color: "#e8544b", width: 2.1 };
+          if (r.code === botCode) return { ...r, color: "#4c8dff", width: 2.1 };
+          const c = palette[oi % palette.length]; oi++;
+          return { ...r, color: c, width: 1 };
+        });
+
+        const fmtVal = (v) => `${v >= 0 ? "+" : ""}${fmt(v)}억`;
+        const fmtPeriod = (p) => (p && p.length === 6 ? `'${p.slice(2, 4)}.${p.slice(4, 6)}` : p);
+        const W = 320, H = 190, padL = 44, padR = 6, padT = 8, padB = 18;
+        const plotW = W - padL - padR, plotH = H - padT - padB;
+        const evaColor = "#e8544b";
+
+        return (
+          <div style={{ padding: "calc(env(safe-area-inset-top, 0px) + 10px) 0 0" }}>
+            <div style={{ padding: "0 16px 10px", position: "sticky", top: "env(safe-area-inset-top, 0px)", zIndex: 20, background: "#12151b" }}>
+              <button onClick={() => setMainView("home")} className="iconbtn" style={{ color: "#c9974a", fontWeight: 700, fontSize: 14 }}>← 뒤로</button>
+            </div>
+            <div style={{ display: "flex", gap: 6, padding: "0 16px 10px" }}>
+              <button onClick={() => { setChartTab("eps"); setFundSelected(null); }} className="iconbtn" style={{ flex: 1, padding: "6px 0", borderRadius: 8, border: chartTab === "eps" ? "1px solid #c9974a" : "1px solid #262c37", background: chartTab === "eps" ? "rgba(201,151,74,0.15)" : "#1a1f28", color: chartTab === "eps" ? "#c9974a" : "#8993a6", fontWeight: 700, fontSize: 12 }}>EPS성장률</button>
+              <button onClick={() => { setChartTab("psr"); setFundSelected(null); }} className="iconbtn" style={{ flex: 1, padding: "6px 0", borderRadius: 8, border: chartTab === "psr" ? "1px solid #c9974a" : "1px solid #262c37", background: chartTab === "psr" ? "rgba(201,151,74,0.15)" : "#1a1f28", color: chartTab === "psr" ? "#c9974a" : "#8993a6", fontWeight: 700, fontSize: 12 }}>PSR</button>
+              <button onClick={() => { setChartTab("roe"); setFundSelected(null); }} className="iconbtn" style={{ flex: 1, padding: "6px 0", borderRadius: 8, border: chartTab === "roe" ? "1px solid #c9974a" : "1px solid #262c37", background: chartTab === "roe" ? "rgba(201,151,74,0.15)" : "#1a1f28", color: chartTab === "roe" ? "#c9974a" : "#8993a6", fontWeight: 700, fontSize: 12 }}>ROE·성장률</button>
+              <button onClick={() => { setChartTab("eva"); setFundSelected(null); }} className="iconbtn" style={{ flex: 1, padding: "6px 0", borderRadius: 8, border: chartTab === "eva" ? "1px solid #c9974a" : "1px solid #262c37", background: chartTab === "eva" ? "rgba(201,151,74,0.15)" : "#1a1f28", color: chartTab === "eva" ? "#c9974a" : "#8993a6", fontWeight: 700, fontSize: 12 }}>EVA</button>
+            </div>
+            <div style={{ padding: "0 16px 20px" }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#e7eaf0", marginBottom: 4 }}>종목챠트 · EVA</div>
+              <div style={{ fontSize: 10, color: "#5a6274", marginBottom: 10 }}>
+                EVA(경제적 부가가치) = 세후영업이익(NOPAT) − 투하자본×WACC로 근사 계산했어요. ⚠️ 법인세율 22%·WACC는 업종별 고정 가정치라 실제 자본비용과 차이가 있을 수 있어요(베타·무위험이자율 데이터 없음). 투하자본은 총자산−유동부채로 단순화했어요. 우선주는 본주 재무데이터를 사용해요. 탭하면 분기별 추이가 나와요.
+              </div>
+              {fundamentalsLoading && <div style={{ color: "#8993a6", fontSize: 12, textAlign: "center", padding: 16 }}>불러오는 중...</div>}
+              {!fundamentalsLoading && styled.length === 0 && (
+                <div style={{ color: "#5a6274", fontSize: 12, textAlign: "center", padding: 20 }}>표시할 데이터가 없어요. 종목을 눌러 "재무데이터"를 한 번 펼쳐보시면 EVA 계산에 필요한 데이터가 받아져요.</div>
+              )}
+              {styled.map((r, i) => {
+                const isSel = fundSelected === r.code;
+                const last4 = r.annualPts.slice(-4);
+                const yoyColor = (year) => {
+                  const idx = r.annualPts.findIndex((p) => p.year === year);
+                  if (idx <= 0) return "#8993a6";
+                  const cur = r.annualPts[idx].value, prev = r.annualPts[idx - 1].value;
+                  if (cur > prev) return "#e8544b";
+                  if (cur < prev) return "#4c8dff";
+                  return "#8993a6";
+                };
+                return (
+                  <React.Fragment key={r.code}>
+                    <button
+                      type="button"
+                      onClick={() => setFundSelected((cur) => (cur === r.code ? null : r.code))}
+                      style={{
+                        width: "100%", padding: "5px 6px", fontSize: 12,
+                        border: isSel ? `1px solid ${r.color}` : "1px solid transparent",
+                        background: isSel ? "rgba(255,255,255,0.06)" : "none",
+                        borderRadius: 6,
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                        <span style={{ color: "#5a6274", minWidth: 14, textAlign: "right", flexShrink: 0, fontSize: 11 }}>{i + 1}</span>
+                        <span style={{ width: 10, height: r.width >= 2 ? 4 : 2, background: r.color, borderRadius: 2, flexShrink: 0 }} />
+                        <span style={{ color: "#e7eaf0", textAlign: "left", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1, minWidth: 0, fontWeight: 700 }}>
+                          {r.usedCommon && <span title="본주 기준" style={{ color: "#5a6274" }}>●</span>} {r.name}
+                        </span>
+                        <span style={{ fontSize: 9, color: "#5a6274", flexShrink: 0, whiteSpace: "nowrap" }}>(0↑)</span>
+                        <span style={{ color: "#5a6274", flexShrink: 0, fontSize: 10 }}>{isSel ? "▲" : "▼"}</span>
+                      </div>
+                      <div className="tnum" style={{ display: "flex", justifyContent: "flex-end", gap: 6, flexWrap: "nowrap", overflow: "hidden", marginTop: 2 }}>
+                        {last4.map((p) => {
+                          const isExcellent = p.value > 0;
+                          return (
+                            <span key={p.year} style={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
+                              <span style={{ color: "#5a6274", fontSize: 8 }}>{"'" + p.year.slice(2, 4)}</span>
+                              <span style={{
+                                fontWeight: 700, fontSize: 12, color: yoyColor(p.year), lineHeight: 1.2,
+                                border: isExcellent ? "1px solid #e8544b" : "1px solid transparent",
+                                borderRadius: 4, padding: "1px 4px",
+                              }}>{fmtVal(p.value)}</span>
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </button>
+
+                    {isSel && (() => {
+                      const pts = r.evaQuarterly;
+                      let vMin = Math.min(...pts.map((p) => p.value), 0);
+                      let vMax = Math.max(...pts.map((p) => p.value), 0);
+                      const vPad = Math.max((vMax - vMin) * 0.1, 1);
+                      vMin -= vPad; vMax += vPad;
+                      const xOf = (idx, len) => padL + (len <= 1 ? 0 : (idx / (len - 1)) * plotW);
+                      const yOf = (v) => padT + (vMax === vMin ? plotH / 2 : ((vMax - v) / (vMax - vMin)) * plotH);
+                      const lineStr = pts.map((p, idx) => `${xOf(idx, pts.length)},${yOf(p.value)}`).join(" ");
+                      const areaStr = `${padL},${yOf(vMin)} ${lineStr} ${xOf(pts.length - 1, pts.length)},${yOf(vMin)}`;
+                      return (
+                        <div className="card" style={{ margin: "6px 0 10px", padding: 12, background: "#161b24" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, fontSize: 11, color: "#8993a6" }}>
+                            <span>{r.name} · EVA(억원)</span>
+                            <span className="tnum" style={{ fontWeight: 700, color: evaColor }}>{fmtVal(r.value)}</span>
+                          </div>
+                          <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", display: "block", background: "#12151b", borderRadius: 10, border: "1px solid #262c37" }}>
+                            {[vMax, (vMax + vMin) / 2, vMin].map((v, vi) => (
+                              <g key={vi}>
+                                <line x1={padL} y1={yOf(v)} x2={W - padR} y2={yOf(v)} stroke="#1f2530" strokeWidth="1" />
+                                <text x={padL - 4} y={yOf(v) + 3} fill="#5a6274" fontSize="8" textAnchor="end">{fmt(v)}</text>
+                              </g>
+                            ))}
+                            {vMin < 0 && vMax > 0 && <line x1={padL} y1={yOf(0)} x2={W - padR} y2={yOf(0)} stroke="#3a4150" strokeWidth="1" strokeDasharray="3 3" />}
+                            <polygon fill={evaColor} opacity="0.10" points={areaStr} />
+                            <polyline fill="none" stroke={evaColor} strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" points={lineStr} />
+                            {pts.map((p, idx) => <circle key={p.period} cx={xOf(idx, pts.length)} cy={yOf(p.value)} r="2" fill={evaColor} />)}
+                            <text x={padL} y={H - 5} fill="#5a6274" fontSize="8" textAnchor="start">{fmtPeriod(pts[0].period)}</text>
+                            <text x={W - padR} y={H - 5} fill="#5a6274" fontSize="8" textAnchor="end">{fmtPeriod(pts[pts.length - 1].period)}</text>
+                          </svg>
+                        </div>
+                      );
+                    })()}
                   </React.Fragment>
                 );
               })}
