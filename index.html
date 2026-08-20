@@ -443,10 +443,14 @@ function PortfolioApp() {
     setTimeout(() => setLockMsg(""), 3000);
   };
 
-  // 비밀번호를 입력하는 동안, 버튼을 안 눌러도 맞는 순간 바로 잠금 해제한다. (타이핑 중 오답에는 에러 메시지를 안 띄움)
+  // 비밀번호를 입력하는 동안, 버튼을 안 눌러도 맞는 순간 바로 잠금 해제한다. 잠깐 입력을 멈췄는데 여전히 틀렸으면 자동으로 비우고 다시 입력하게 한다.
+  const pwWrongTimerRef = useRef(null);
+  const pwInputRef = useRef("");
   const checkPasswordAutoUnlock = async (value) => {
     setPwInput(value);
-    if (!value) return;
+    pwInputRef.current = value;
+    if (pwWrongTimerRef.current) { clearTimeout(pwWrongTimerRef.current); pwWrongTimerRef.current = null; }
+    if (!value) { setLockMsg(""); return; }
     try {
       const storedHash = localStorage.getItem(LOCK_PW_HASH_KEY);
       if (!storedHash) return;
@@ -454,8 +458,18 @@ function PortfolioApp() {
       if (inputHash === storedHash) {
         setIsLocked(false);
         setPwInput("");
+        pwInputRef.current = "";
         setLockMsg("");
+        return;
       }
+      // 입력이 잠깐(0.9초) 멈췄는데도 여전히 틀린 상태면, 오답으로 보고 비워서 다시 입력하게 한다.
+      pwWrongTimerRef.current = setTimeout(() => {
+        if (pwInputRef.current === value) {
+          setPwInput("");
+          pwInputRef.current = "";
+          setLockMsg("❌ 비밀번호가 틀렸어요. 다시 입력해주세요.");
+        }
+      }, 900);
     } catch (e) {}
   };
 
@@ -1797,9 +1811,20 @@ function PortfolioApp() {
         {hasLockPassword && (
           <div style={{ width: "100%", maxWidth: 280 }} onClick={(e) => e.stopPropagation()}>
             <input
-              type="password"
-              value={pwInput}
-              onChange={(e) => checkPasswordAutoUnlock(e.target.value)}
+              type="tel"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              value={"•".repeat(pwInput.length)}
+              onChange={(e) => {
+                const raw = e.target.value;
+                if (raw.length > pwInput.length) {
+                  // 새로 입력된 실제 문자(점이 아닌 것)를 찾아서 이어붙인다 — 처음부터 화면엔 점만 보이게 함
+                  const added = [...raw].find((ch) => ch !== "•") || "";
+                  checkPasswordAutoUnlock(pwInput + added);
+                } else if (raw.length < pwInput.length) {
+                  checkPasswordAutoUnlock(pwInput.slice(0, raw.length));
+                }
+              }}
               placeholder="비밀번호"
               className="field"
               autoFocus
