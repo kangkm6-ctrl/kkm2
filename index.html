@@ -3002,12 +3002,12 @@ function PortfolioApp() {
                         <span style={{ fontSize: 9, color: "#5a6274", flexShrink: 0, whiteSpace: "nowrap" }}>(0↑)</span>
                         <span style={{ color: "#5a6274", flexShrink: 0, fontSize: 10 }}>{isSel ? "▲" : "▼"}</span>
                       </div>
-                      <div style={{ display: "grid", gridTemplateColumns: `repeat(${allYears.length}, 1fr)`, gap: 6, marginTop: 2 }}>
+                      <div style={{ display: "grid", gridTemplateColumns: `repeat(${allYears.length}, 48px)`, gap: 6, marginTop: 2, justifyContent: "flex-end" }}>
                         {allYears.map((y) => {
                           const p = r.annualPts.find((x) => x.year === y);
                           const isExcellent = p && p.value > 0;
                           return (
-                            <div key={y} className="tnum" style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+                            <div key={y} className="tnum" style={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
                               <span style={{ color: "#5a6274", fontSize: 8 }}>{y + "년"}</span>
                               <span style={{
                                 fontWeight: 700, fontSize: 12, color: p ? yoyColor(y) : "#3a4150", lineHeight: 1.2,
