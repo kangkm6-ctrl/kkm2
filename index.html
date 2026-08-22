@@ -328,7 +328,7 @@ function PortfolioApp() {
   const [importText, setImportText] = useState("");
   const [importMsg, setImportMsg] = useState("");
   const [showAnalysis, setShowAnalysis] = useState(false);
-  const [mainView, setMainView] = useState("home"); // 'home' | 'stocks' | 'cash' | 'settings' | 'view' | 'chart' | 'sectorChart' ('chart'는 chartTab으로 eps/psr/roe 세분화)
+  const [mainView, setMainView] = useState("home"); // 'home' | 'stocks' | 'cash' | 'settings' | 'view' | 'chart' | 'sectorChart' | 'strengthChart' ('chart'는 chartTab으로 eps/psr/roe/eva 세분화)
   const [showRebalanceLog, setShowRebalanceLog] = useState(false);
   const [expandedStock, setExpandedStock] = useState(null);
   const [metricsStock, setMetricsStock] = useState(null); // "종목지표" 펼친 종목 id
@@ -346,6 +346,9 @@ function PortfolioApp() {
   const [fundamentalsMsg, setFundamentalsMsg] = useState("");
   const [fundSelected, setFundSelected] = useState(null); // PSR/ROE 화면에서 탭한 종목코드
   const [chartTab, setChartTab] = useState("eps"); // 종목챠트 안의 탭: 'eps' | 'psr' | 'roe'
+  const [strengthPeriod, setStrengthPeriod] = useState("W"); // 강약챠트 탭: 'D' | 'W' | 'M'
+  const [strengthData, setStrengthData] = useState({}); // { [key(코드:period)]: candles[] }
+  const [strengthLoading, setStrengthLoading] = useState(false);
   const [chartOverlay, setChartOverlay] = useState(null); // 종목챠트에서 탭한 종목의 주가/코스피/코스닥 월봉 (EPS성장률과 겹쳐 그림)
   const [chartOverlayLoading, setChartOverlayLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -1420,6 +1423,38 @@ function PortfolioApp() {
     codes.forEach((c) => fetchStockMetrics(c));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded, mainView, chartTab, stockCodes]);
+
+  // 강약챠트: 코스피/코스닥 지수 + 보유종목 전체의 일봉/주봉/월봉 캔들(OHLC)을 받아온다.
+  const fetchStrengthData = useCallback(async (period) => {
+    if (!proxyUrl) return;
+    setStrengthLoading(true);
+    const base = proxyUrl.replace(/\/$/, "");
+    const headers = appSecret ? { "x-app-secret": appSecret } : {};
+    const days = period === "D" ? 180 : period === "W" ? 260 : period === "M" ? 1200 : 7300;
+    const targets = [
+      { key: `0001:${period}`, url: `${base}/index-history/0001?period=${period}&days=${days}` },
+      { key: `1001:${period}`, url: `${base}/index-history/1001?period=${period}&days=${days}` },
+      ...stockCodes.map((c) => ({ key: `${c}:${period}`, url: `${base}/stock-history/${c}?period=${period}&days=${days}` })),
+    ].filter((t) => !strengthData[t.key]);
+    if (targets.length === 0) { setStrengthLoading(false); return; }
+    try {
+      const results = await Promise.all(targets.map((t) =>
+        fetch(t.url, { headers }).then((r) => (r.ok ? r.json() : null)).then((d) => ({ key: t.key, candles: d && Array.isArray(d.candles) ? d.candles : [] })).catch(() => ({ key: t.key, candles: [] }))
+      ));
+      setStrengthData((prev) => {
+        const next = { ...prev };
+        results.forEach(({ key, candles }) => { next[key] = candles; });
+        return next;
+      });
+    } catch (e) {}
+    setStrengthLoading(false);
+  }, [proxyUrl, appSecret, stockCodes, strengthData]);
+
+  useEffect(() => {
+    if (!loaded || mainView !== "strengthChart") return;
+    fetchStrengthData(strengthPeriod);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, mainView, strengthPeriod, stockCodes]);
 
   // 종목챠트에서 종목을 탭하면, 그 종목의 주가·코스피·코스닥 월봉(5년 이상)을 받아서 겹쳐 그린다.
   useEffect(() => {
@@ -3091,6 +3126,113 @@ function PortfolioApp() {
         );
       })()}
 
+      {mainView === "strengthChart" && (() => {
+        // 캔들 하나하나가 "전강후약"(장중 강했다가 종가는 약함=파란 점)인지 "전약후강"(장중 약했다가 종가는 강함=붉은 점)인지를
+        // 그 캔들의 저가~고가 범위 안에서 종가의 위치로 근사 판정한다. (분봉 데이터가 없어 캔들 자체의 고저 위치로 추정)
+        const dotColorFor = (c) => {
+          const h = num(c.high || c.close), l = num(c.low || c.close), cl = num(c.close);
+          const range = h - l;
+          if (range <= 0) return "#8993a6";
+          const closePos = (cl - l) / range;
+          return closePos < 0.5 ? "#4c8dff" : "#e8544b"; // 종가가 하단권=전강후약(파랑), 상단권=전약후강(빨강)
+        };
+
+        const renderCandles = (title, candles) => {
+          if (!candles || candles.length === 0) {
+            return (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6, color: "#e7eaf0" }}>{title}</div>
+                <div style={{ fontSize: 11, color: "#5a6274", padding: 12, textAlign: "center", background: "#12151b", borderRadius: 8, border: "1px solid #262c37" }}>데이터 없음</div>
+              </div>
+            );
+          }
+          const recent = candles.slice(-60);
+          const H = 170, padL = 38, padR = 8, padT = 8, padB = 16;
+          const candleGap = 6;
+          const W = Math.max(320, padL + padR + recent.length * candleGap);
+          const plotW = W - padL - padR, plotH = H - padT - padB;
+          const highs = recent.map((c) => num(c.high || c.close));
+          const lows = recent.map((c) => num(c.low || c.close));
+          let vMin = Math.min(...lows), vMax = Math.max(...highs);
+          const vPad = Math.max((vMax - vMin) * 0.08, 1);
+          vMin -= vPad; vMax += vPad;
+          const xOf = (idx) => padL + (recent.length <= 1 ? plotW / 2 : (idx / Math.max(1, recent.length - 1)) * plotW);
+          const yOf = (v) => padT + (vMax === vMin ? plotH / 2 : ((vMax - v) / (vMax - vMin)) * plotH);
+          const candleW = Math.max(2, candleGap * 0.6);
+          const last = recent[recent.length - 1];
+          const lastChange = last ? ((num(last.close) - num(recent.length > 1 ? recent[recent.length - 2].close : last.open || last.close)) / num(recent.length > 1 ? recent[recent.length - 2].close : last.open || last.close)) * 100 : null;
+          return (
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#e7eaf0" }}>{title}</div>
+                {last && <div className="tnum" style={{ fontSize: 12, fontWeight: 700, color: "#8993a6" }}>{fmt(num(last.close))}</div>}
+              </div>
+              <div style={{ overflowX: "auto" }}>
+                <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} style={{ background: "#12151b", borderRadius: 8, border: "1px solid #262c37", display: "block" }}>
+                  {[vMax, (vMax + vMin) / 2, vMin].map((v, vi) => (
+                    <g key={vi}>
+                      <line x1={padL} y1={yOf(v)} x2={W - padR} y2={yOf(v)} stroke="#1f2530" strokeWidth="1" />
+                      <text x={padL - 4} y={yOf(v) + 3} fill="#5a6274" fontSize="8" textAnchor="end">{fmt(v)}</text>
+                    </g>
+                  ))}
+                  {recent.map((c, idx) => {
+                    const o = num(c.open || c.close), h = num(c.high || c.close), l = num(c.low || c.close), cl = num(c.close);
+                    const x = xOf(idx);
+                    const isUp = cl >= o;
+                    const bodyColor = isUp ? "#e8544b" : "#4c8dff"; // 한국식: 상승 붉은색, 하락 파란색
+                    const bodyTop = yOf(Math.max(o, cl)), bodyBot = yOf(Math.min(o, cl));
+                    return (
+                      <g key={idx}>
+                        <line x1={x} y1={yOf(h)} x2={x} y2={yOf(l)} stroke={bodyColor} strokeWidth="1" />
+                        <rect x={x - candleW / 2} y={bodyTop} width={candleW} height={Math.max(1, bodyBot - bodyTop)} fill={bodyColor} />
+                        <circle cx={x} cy={H - padB + 7} r="1.8" fill={dotColorFor(c)} />
+                      </g>
+                    );
+                  })}
+                </svg>
+              </div>
+            </div>
+          );
+        };
+
+        const kospiCandles = strengthData[`0001:${strengthPeriod}`] || [];
+        const kosdaqCandles = strengthData[`1001:${strengthPeriod}`] || [];
+
+        return (
+          <div style={{ padding: "calc(env(safe-area-inset-top, 0px) + 10px) 0 0" }}>
+            <div style={{ padding: "0 16px 10px", position: "sticky", top: "env(safe-area-inset-top, 0px)", zIndex: 20, background: "#12151b" }}>
+              <button onClick={() => setMainView("home")} className="iconbtn" style={{ color: "#c9974a", fontWeight: 700, fontSize: 14 }}>← 뒤로</button>
+            </div>
+            <div style={{ display: "flex", gap: 6, padding: "0 16px 10px" }}>
+              {[["D", "일봉"], ["W", "주봉"], ["M", "월봉"], ["Y", "년봉"]].map(([code, label]) => (
+                <button
+                  key={code}
+                  onClick={() => setStrengthPeriod(code)}
+                  className="iconbtn"
+                  style={{ flex: 1, padding: "6px 0", borderRadius: 8, border: strengthPeriod === code ? "1px solid #c9974a" : "1px solid #262c37", background: strengthPeriod === code ? "rgba(201,151,74,0.15)" : "#1a1f28", color: strengthPeriod === code ? "#c9974a" : "#8993a6", fontWeight: 700, fontSize: 12 }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div style={{ padding: "0 16px 20px" }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#e7eaf0", marginBottom: 4 }}>강약챠트</div>
+              <div style={{ fontSize: 10, color: "#5a6274", marginBottom: 10 }}>
+                각 캔들 밑의 점은 그 캔들의 저가~고가 범위 안에서 종가 위치로 강약을 근사 판정해요. <span style={{ color: "#4c8dff" }}>파란 점</span>=전강후약(종가가 하단권, 약세 마감), <span style={{ color: "#e8544b" }}>붉은 점</span>=전약후강(종가가 상단권, 강세 마감). 캔들 몸통 색은 상승(붉은색)·하락(파란색) 기준이에요. 최근 60개만 표시돼요.
+              </div>
+              {strengthLoading && <div style={{ color: "#8993a6", fontSize: 12, textAlign: "center", padding: 16 }}>불러오는 중...</div>}
+              {renderCandles("코스피", kospiCandles)}
+              {renderCandles("코스닥", kosdaqCandles)}
+              {stocks.filter((s) => s.code && s.name).map((s) => (
+                <React.Fragment key={s.id}>
+                  {renderCandles(s.name, strengthData[`${s.code}:${strengthPeriod}`] || [])}
+                </React.Fragment>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
       {mainView === "view" && (
         <div style={{ padding: "calc(env(safe-area-inset-top, 0px) + 10px) 0 0" }}>
           <div style={{ padding: "0 16px 10px", position: "sticky", top: "env(safe-area-inset-top, 0px)", zIndex: 20, background: "#12151b" }}>
@@ -3914,6 +4056,13 @@ function PortfolioApp() {
           style={{ flex: 1, padding: "8px 4px", borderRadius: 10, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 13, whiteSpace: "nowrap" }}
         >
           📈 종목챠트
+        </button>
+        <button
+          onClick={() => { setStrengthPeriod("W"); setMainView("strengthChart"); }}
+          className="iconbtn"
+          style={{ flex: 1, padding: "8px 4px", borderRadius: 10, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 13, whiteSpace: "nowrap" }}
+        >
+          📊 강약챠트
         </button>
       </div>
       </>)}
