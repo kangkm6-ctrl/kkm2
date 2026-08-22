@@ -3198,7 +3198,15 @@ function PortfolioApp() {
                 <div style={{ fontSize: 12, fontWeight: 700, color: "#e7eaf0" }}>{title}</div>
                 {last && <div className="tnum" style={{ fontSize: 12, fontWeight: 700, color: "#8993a6" }}>{fmt(num(last.close))}</div>}
               </div>
-              <div style={{ overflowX: "auto" }}>
+              <div
+                style={{ overflowX: "auto" }}
+                ref={(el) => {
+                  if (el && el.dataset.scrolled !== "1") {
+                    el.dataset.scrolled = "1";
+                    requestAnimationFrame(() => { el.scrollLeft = el.scrollWidth; });
+                  }
+                }}
+              >
                 <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} preserveAspectRatio="none" style={{ background: "#12151b", borderRadius: 8, border: "1px solid #262c37", display: "block", minWidth: "100%" }}>
                   {[vMax, (vMax + vMin) / 2, vMin].map((v, vi) => (
                     <g key={vi}>
