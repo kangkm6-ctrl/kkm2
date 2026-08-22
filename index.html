@@ -1430,7 +1430,8 @@ function PortfolioApp() {
     setStrengthLoading(true);
     const base = proxyUrl.replace(/\/$/, "");
     const headers = appSecret ? { "x-app-secret": appSecret } : {};
-    const days = period === "D" ? 180 : period === "W" ? 260 : period === "M" ? 1200 : 7300;
+    // 최근 60개 캔들 전체에 5·20·60·120 이동평균선이 끊기지 않게 나오려면, 그보다 180개(60+120) 앞서는 데이터가 더 필요하다.
+    const days = period === "D" ? 400 : period === "W" ? 1500 : period === "M" ? 6000 : 7300;
     const targets = [
       { key: `0001:${period}`, url: `${base}/index-history/0001?period=${period}&days=${days}` },
       { key: `1001:${period}`, url: `${base}/index-history/1001?period=${period}&days=${days}` },
@@ -3198,7 +3199,7 @@ function PortfolioApp() {
                 {last && <div className="tnum" style={{ fontSize: 12, fontWeight: 700, color: "#8993a6" }}>{fmt(num(last.close))}</div>}
               </div>
               <div style={{ overflowX: "auto" }}>
-                <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} style={{ background: "#12151b", borderRadius: 8, border: "1px solid #262c37", display: "block" }}>
+                <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} preserveAspectRatio="none" style={{ background: "#12151b", borderRadius: 8, border: "1px solid #262c37", display: "block", minWidth: "100%" }}>
                   {[vMax, (vMax + vMin) / 2, vMin].map((v, vi) => (
                     <g key={vi}>
                       <line x1={padL} y1={yOf(v)} x2={W - padR} y2={yOf(v)} stroke="#1f2530" strokeWidth="1" />
@@ -3232,7 +3233,7 @@ function PortfolioApp() {
                   </span>
                 ))}
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4, fontSize: 11 }}>
+              <div style={{ display: "flex", gap: 10, marginTop: 4, fontSize: 11 }}>
                 <span style={{ color: "#4c8dff", fontWeight: 700 }}>약세 {weakPct.toFixed(0)}%</span>
                 <span style={{ color: "#e8544b", fontWeight: 700 }}>강세 {strongPct.toFixed(0)}%</span>
               </div>
