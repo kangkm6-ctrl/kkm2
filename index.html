@@ -3242,8 +3242,8 @@ function PortfolioApp() {
                 ))}
               </div>
               <div style={{ display: "flex", gap: 10, marginTop: 4, fontSize: 11 }}>
-                <span style={{ color: "#4c8dff", fontWeight: 700 }}>약세 {weakPct.toFixed(0)}%</span>
-                <span style={{ color: "#e8544b", fontWeight: 700 }}>강세 {strongPct.toFixed(0)}%</span>
+                {weakPct > 50 && <span style={{ color: "#4c8dff", fontWeight: 700 }}>약세 {weakPct.toFixed(0)}%</span>}
+                {strongPct > 50 && <span style={{ color: "#e8544b", fontWeight: 700 }}>강세 {strongPct.toFixed(0)}%</span>}
               </div>
             </div>
           );
