@@ -3137,6 +3137,19 @@ function PortfolioApp() {
           return closePos < 0.5 ? "#4c8dff" : "#e8544b"; // 종가가 하단권=전강후약(파랑), 상단권=전약후강(빨강)
         };
 
+        const computeSMA = (allCandles, period) => allCandles.map((c, idx) => {
+          if (idx < period - 1) return null;
+          const slice = allCandles.slice(idx - period + 1, idx + 1);
+          const sum = slice.reduce((a, cc) => a + num(cc.close), 0);
+          return sum / period;
+        });
+        const maLines = [
+          { period: 5, color: "#e7eaf0" },
+          { period: 20, color: "#c9974a" },
+          { period: 60, color: "#b06fdb" },
+          { period: 120, color: "#40b8c4" },
+        ];
+
         const renderCandles = (title, candles) => {
           if (!candles || candles.length === 0) {
             return (
@@ -3147,23 +3160,40 @@ function PortfolioApp() {
             );
           }
           const recent = candles.slice(-60);
+          const recentStart = candles.length - recent.length;
+          const maSeries = maLines.map((m) => ({ ...m, values: computeSMA(candles, m.period).slice(recentStart) }));
           const H = 170, padL = 38, padR = 8, padT = 8, padB = 16;
-          const candleGap = 6;
+          const candleGap = 10;
           const W = Math.max(320, padL + padR + recent.length * candleGap);
           const plotW = W - padL - padR, plotH = H - padT - padB;
           const highs = recent.map((c) => num(c.high || c.close));
           const lows = recent.map((c) => num(c.low || c.close));
-          let vMin = Math.min(...lows), vMax = Math.max(...highs);
+          const maVals = maSeries.flatMap((m) => m.values.filter((v) => v !== null));
+          let vMin = Math.min(...lows, ...(maVals.length ? maVals : lows)), vMax = Math.max(...highs, ...(maVals.length ? maVals : highs));
           const vPad = Math.max((vMax - vMin) * 0.08, 1);
           vMin -= vPad; vMax += vPad;
           const xOf = (idx) => padL + (recent.length <= 1 ? plotW / 2 : (idx / Math.max(1, recent.length - 1)) * plotW);
           const yOf = (v) => padT + (vMax === vMin ? plotH / 2 : ((vMax - v) / (vMax - vMin)) * plotH);
           const candleW = Math.max(2, candleGap * 0.6);
           const last = recent[recent.length - 1];
-          const lastChange = last ? ((num(last.close) - num(recent.length > 1 ? recent[recent.length - 2].close : last.open || last.close)) / num(recent.length > 1 ? recent[recent.length - 2].close : last.open || last.close)) * 100 : null;
+          const lineOfVals = (vals) => {
+            const segs = [];
+            let cur = [];
+            vals.forEach((v, idx) => {
+              if (v === null) { if (cur.length > 1) segs.push(cur); cur = []; return; }
+              cur.push(`${xOf(idx)},${yOf(v)}`);
+            });
+            if (cur.length > 1) segs.push(cur);
+            return segs.map((s) => s.join(" "));
+          };
+          const weakCount = recent.filter((c) => dotColorFor(c) === "#4c8dff").length;
+          const strongCount = recent.filter((c) => dotColorFor(c) === "#e8544b").length;
+          const totalCounted = weakCount + strongCount;
+          const weakPct = totalCounted > 0 ? (weakCount / totalCounted) * 100 : 0;
+          const strongPct = totalCounted > 0 ? (strongCount / totalCounted) * 100 : 0;
           return (
             <div style={{ marginBottom: 16 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: "#e7eaf0" }}>{title}</div>
                 {last && <div className="tnum" style={{ fontSize: 12, fontWeight: 700, color: "#8993a6" }}>{fmt(num(last.close))}</div>}
               </div>
@@ -3189,7 +3219,22 @@ function PortfolioApp() {
                       </g>
                     );
                   })}
+                  {maSeries.map((m) => lineOfVals(m.values).map((seg, idx) => (
+                    <polyline key={`ma${m.period}-${idx}`} fill="none" stroke={m.color} strokeWidth="1" points={seg} />
+                  )))}
                 </svg>
+              </div>
+              <div style={{ display: "flex", gap: 10, marginTop: 4, fontSize: 9, color: "#8993a6", flexWrap: "wrap" }}>
+                {maLines.map((m) => (
+                  <span key={m.period} style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                    <svg width="10" height="3"><line x1="0" y1="1.5" x2="10" y2="1.5" stroke={m.color} strokeWidth="1" /></svg>
+                    {m.period}
+                  </span>
+                ))}
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4, fontSize: 11 }}>
+                <span style={{ color: "#4c8dff", fontWeight: 700 }}>약세 {weakPct.toFixed(0)}%</span>
+                <span style={{ color: "#e8544b", fontWeight: 700 }}>강세 {strongPct.toFixed(0)}%</span>
               </div>
             </div>
           );
@@ -3218,7 +3263,7 @@ function PortfolioApp() {
             <div style={{ padding: "0 16px 20px" }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: "#e7eaf0", marginBottom: 4 }}>강약챠트</div>
               <div style={{ fontSize: 10, color: "#5a6274", marginBottom: 10 }}>
-                각 캔들 밑의 점은 그 캔들의 저가~고가 범위 안에서 종가 위치로 강약을 근사 판정해요. <span style={{ color: "#4c8dff" }}>파란 점</span>=전강후약(종가가 하단권, 약세 마감), <span style={{ color: "#e8544b" }}>붉은 점</span>=전약후강(종가가 상단권, 강세 마감). 캔들 몸통 색은 상승(붉은색)·하락(파란색) 기준이에요. 최근 60개만 표시돼요.
+                각 캔들 밑의 점은 그 캔들의 저가~고가 범위 안에서 종가 위치로 강약을 근사 판정해요. <span style={{ color: "#4c8dff" }}>파란 점</span>=전강후약(종가가 하단권, 약세 마감), <span style={{ color: "#e8544b" }}>붉은 점</span>=전약후강(종가가 상단권, 강세 마감). 캔들 몸통 색은 상승(붉은색)·하락(파란색) 기준이에요. 5·20·60·120 이동평균선이 가는 선으로 겹쳐 나오고, 챠트 밑에 최근 60개 중 약세·강세 비중(%)이 표시돼요. 최근 60개 캔들만 표시돼요.
               </div>
               {strengthLoading && <div style={{ color: "#8993a6", fontSize: 12, textAlign: "center", padding: 16 }}>불러오는 중...</div>}
               {renderCandles("코스피", kospiCandles)}
