@@ -332,6 +332,7 @@ function PortfolioApp() {
   const [showRebalanceLog, setShowRebalanceLog] = useState(false);
   const [expandedStock, setExpandedStock] = useState(null);
   const [metricsStock, setMetricsStock] = useState(null); // "종목지표" 펼친 종목 id
+  const [candleStock, setCandleStock] = useState(null); // "강약챠트" 펼친 종목 id (보유종목 화면)
   const [extraFundamentalsData, setExtraFundamentalsData] = useState({}); // { [code]: { periods, divUsed } } — 매출액/당좌비율
   const [extraFundamentalsLoading, setExtraFundamentalsLoading] = useState({}); // { [code]: true }
   const [sectorMarket, setSectorMarket] = useState("kospi"); // 'kospi' | 'kosdaq'
@@ -1416,6 +1417,14 @@ function PortfolioApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded, metricsStock]);
 
+  useEffect(() => {
+    if (!loaded || !candleStock) return;
+    const stock = stocks.find((s) => s.id === candleStock);
+    if (!stock || !stock.code) return;
+    fetchStrengthForCode(stock.code, strengthPeriod);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, candleStock, strengthPeriod]);
+
   // EVA 탭을 열면, EVA 계산에 필요한 재무데이터(매출액/영업이익/총자산 등)를 보유종목 전체에 대해 한 번에 받아온다.
   useEffect(() => {
     if (!loaded || mainView !== "chart" || chartTab !== "eva") return;
@@ -1456,6 +1465,143 @@ function PortfolioApp() {
     fetchStrengthData(strengthPeriod);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded, mainView, strengthPeriod, stockCodes]);
+
+  // 보유종목 화면에서 개별 종목의 "강약챠트"를 펼치면, 그 종목 하나만 가볍게 받아온다.
+  const fetchStrengthForCode = useCallback(async (code, period) => {
+    if (!proxyUrl || !code) return;
+    const key = `${code}:${period}`;
+    if (strengthData[key]) return;
+    setStrengthLoading(true);
+    const base = proxyUrl.replace(/\/$/, "");
+    const headers = appSecret ? { "x-app-secret": appSecret } : {};
+    const days = period === "D" ? 400 : period === "W" ? 1500 : period === "M" ? 6000 : 7300;
+    try {
+      const r = await fetch(`${base}/stock-history/${code}?period=${period}&days=${days}`, { headers });
+      const d = r.ok ? await r.json() : null;
+      setStrengthData((prev) => ({ ...prev, [key]: d && Array.isArray(d.candles) ? d.candles : [] }));
+    } catch (e) {}
+    setStrengthLoading(false);
+  }, [proxyUrl, appSecret, strengthData]);
+
+  // 캔들 하나하나가 "전강후약"(장중 강했다가 종가는 약함=파란 점)인지 "전약후강"(장중 약했다가 종가는 강함=붉은 점)인지를
+  // 그 캔들의 저가~고가 범위 안에서 종가의 위치로 근사 판정한다. (분봉 데이터가 없어 캔들 자체의 고저 위치로 추정)
+  const dotColorFor = (c) => {
+    const h = num(c.high || c.close), l = num(c.low || c.close), cl = num(c.close);
+    const range = h - l;
+    if (range <= 0) return "#8993a6";
+    const closePos = (cl - l) / range;
+    return closePos < 0.5 ? "#4c8dff" : "#e8544b"; // 종가가 하단권=전강후약(파랑), 상단권=전약후강(빨강)
+  };
+  const computeSMA = (allCandles, period) => allCandles.map((c, idx) => {
+    if (idx < period - 1) return null;
+    const slice = allCandles.slice(idx - period + 1, idx + 1);
+    const sum = slice.reduce((a, cc) => a + num(cc.close), 0);
+    return sum / period;
+  });
+  const maLines = [
+    { period: 5, color: "#e7eaf0" },
+    { period: 20, color: "#c9974a" },
+    { period: 60, color: "#b06fdb" },
+    { period: 120, color: "#40b8c4" },
+  ];
+  // 캔들차트 하나를 그린다 (강약챠트 화면과 보유종목 안의 종목별 강약챠트에서 공용으로 씀).
+  const renderCandles = (title, candles) => {
+    if (!candles || candles.length === 0) {
+      return (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6, color: "#e7eaf0" }}>{title}</div>
+          <div style={{ fontSize: 11, color: "#5a6274", padding: 12, textAlign: "center", background: "#12151b", borderRadius: 8, border: "1px solid #262c37" }}>데이터 없음</div>
+        </div>
+      );
+    }
+    const recent = candles.slice(-60);
+    const recentStart = candles.length - recent.length;
+    const maSeries = maLines.map((m) => ({ ...m, values: computeSMA(candles, m.period).slice(recentStart) }));
+    const H = 170, padL = 38, padR = 8, padT = 8, padB = 16;
+    const candleGap = 10;
+    const W = Math.max(320, padL + padR + recent.length * candleGap);
+    const plotW = W - padL - padR, plotH = H - padT - padB;
+    const highs = recent.map((c) => num(c.high || c.close));
+    const lows = recent.map((c) => num(c.low || c.close));
+    const maVals = maSeries.flatMap((m) => m.values.filter((v) => v !== null));
+    let vMin = Math.min(...lows, ...(maVals.length ? maVals : lows)), vMax = Math.max(...highs, ...(maVals.length ? maVals : highs));
+    const vPad = Math.max((vMax - vMin) * 0.08, 1);
+    vMin -= vPad; vMax += vPad;
+    const xOf = (idx) => padL + (recent.length <= 1 ? plotW / 2 : (idx / Math.max(1, recent.length - 1)) * plotW);
+    const yOf = (v) => padT + (vMax === vMin ? plotH / 2 : ((vMax - v) / (vMax - vMin)) * plotH);
+    const candleW = Math.max(2, candleGap * 0.6);
+    const last = recent[recent.length - 1];
+    const lineOfVals = (vals) => {
+      const segs = [];
+      let cur = [];
+      vals.forEach((v, idx) => {
+        if (v === null) { if (cur.length > 1) segs.push(cur); cur = []; return; }
+        cur.push(`${xOf(idx)},${yOf(v)}`);
+      });
+      if (cur.length > 1) segs.push(cur);
+      return segs.map((s) => s.join(" "));
+    };
+    const weakCount = recent.filter((c) => dotColorFor(c) === "#4c8dff").length;
+    const strongCount = recent.filter((c) => dotColorFor(c) === "#e8544b").length;
+    const totalCounted = weakCount + strongCount;
+    const weakPct = totalCounted > 0 ? (weakCount / totalCounted) * 100 : 0;
+    const strongPct = totalCounted > 0 ? (strongCount / totalCounted) * 100 : 0;
+    return (
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#e7eaf0" }}>{title}</div>
+          {last && <div className="tnum" style={{ fontSize: 12, fontWeight: 700, color: "#8993a6" }}>{fmt(num(last.close))}</div>}
+        </div>
+        <div
+          style={{ overflowX: "auto" }}
+          ref={(el) => {
+            if (el && el.dataset.scrolled !== "1") {
+              el.dataset.scrolled = "1";
+              requestAnimationFrame(() => { el.scrollLeft = el.scrollWidth; });
+            }
+          }}
+        >
+          <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} preserveAspectRatio="none" style={{ background: "#12151b", borderRadius: 8, border: "1px solid #262c37", display: "block", minWidth: "100%" }}>
+            {[vMax, (vMax + vMin) / 2, vMin].map((v, vi) => (
+              <g key={vi}>
+                <line x1={padL} y1={yOf(v)} x2={W - padR} y2={yOf(v)} stroke="#1f2530" strokeWidth="1" />
+                <text x={padL - 4} y={yOf(v) + 3} fill="#5a6274" fontSize="8" textAnchor="end">{fmt(v)}</text>
+              </g>
+            ))}
+            {recent.map((c, idx) => {
+              const o = num(c.open || c.close), h = num(c.high || c.close), l = num(c.low || c.close), cl = num(c.close);
+              const x = xOf(idx);
+              const isUp = cl >= o;
+              const bodyColor = isUp ? "#e8544b" : "#4c8dff"; // 한국식: 상승 붉은색, 하락 파란색
+              const bodyTop = yOf(Math.max(o, cl)), bodyBot = yOf(Math.min(o, cl));
+              return (
+                <g key={idx}>
+                  <line x1={x} y1={yOf(h)} x2={x} y2={yOf(l)} stroke={bodyColor} strokeWidth="1" />
+                  <rect x={x - candleW / 2} y={bodyTop} width={candleW} height={Math.max(1, bodyBot - bodyTop)} fill={bodyColor} />
+                  <circle cx={x} cy={H - padB + 7} r="1.8" fill={dotColorFor(c)} />
+                </g>
+              );
+            })}
+            {maSeries.map((m) => lineOfVals(m.values).map((seg, idx) => (
+              <polyline key={`ma${m.period}-${idx}`} fill="none" stroke={m.color} strokeWidth="1" points={seg} />
+            )))}
+          </svg>
+        </div>
+        <div style={{ display: "flex", gap: 10, marginTop: 4, fontSize: 9, color: "#8993a6", flexWrap: "wrap" }}>
+          {maLines.map((m) => (
+            <span key={m.period} style={{ display: "flex", alignItems: "center", gap: 3 }}>
+              <svg width="10" height="3"><line x1="0" y1="1.5" x2="10" y2="1.5" stroke={m.color} strokeWidth="1" /></svg>
+              {m.period}
+            </span>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 10, marginTop: 4, fontSize: 11 }}>
+          {weakPct > 50 && <span style={{ color: "#4c8dff", fontWeight: 700 }}>약세 {weakPct.toFixed(0)}%</span>}
+          {strongPct > 50 && <span style={{ color: "#e8544b", fontWeight: 700 }}>강세 {strongPct.toFixed(0)}%</span>}
+        </div>
+      </div>
+    );
+  };
 
   // 종목챠트에서 종목을 탭하면, 그 종목의 주가·코스피·코스닥 월봉(5년 이상)을 받아서 겹쳐 그린다.
   useEffect(() => {
@@ -3128,127 +3274,6 @@ function PortfolioApp() {
       })()}
 
       {mainView === "strengthChart" && (() => {
-        // 캔들 하나하나가 "전강후약"(장중 강했다가 종가는 약함=파란 점)인지 "전약후강"(장중 약했다가 종가는 강함=붉은 점)인지를
-        // 그 캔들의 저가~고가 범위 안에서 종가의 위치로 근사 판정한다. (분봉 데이터가 없어 캔들 자체의 고저 위치로 추정)
-        const dotColorFor = (c) => {
-          const h = num(c.high || c.close), l = num(c.low || c.close), cl = num(c.close);
-          const range = h - l;
-          if (range <= 0) return "#8993a6";
-          const closePos = (cl - l) / range;
-          return closePos < 0.5 ? "#4c8dff" : "#e8544b"; // 종가가 하단권=전강후약(파랑), 상단권=전약후강(빨강)
-        };
-
-        const computeSMA = (allCandles, period) => allCandles.map((c, idx) => {
-          if (idx < period - 1) return null;
-          const slice = allCandles.slice(idx - period + 1, idx + 1);
-          const sum = slice.reduce((a, cc) => a + num(cc.close), 0);
-          return sum / period;
-        });
-        const maLines = [
-          { period: 5, color: "#e7eaf0" },
-          { period: 20, color: "#c9974a" },
-          { period: 60, color: "#b06fdb" },
-          { period: 120, color: "#40b8c4" },
-        ];
-
-        const renderCandles = (title, candles) => {
-          if (!candles || candles.length === 0) {
-            return (
-              <div style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6, color: "#e7eaf0" }}>{title}</div>
-                <div style={{ fontSize: 11, color: "#5a6274", padding: 12, textAlign: "center", background: "#12151b", borderRadius: 8, border: "1px solid #262c37" }}>데이터 없음</div>
-              </div>
-            );
-          }
-          const recent = candles.slice(-60);
-          const recentStart = candles.length - recent.length;
-          const maSeries = maLines.map((m) => ({ ...m, values: computeSMA(candles, m.period).slice(recentStart) }));
-          const H = 170, padL = 38, padR = 8, padT = 8, padB = 16;
-          const candleGap = 10;
-          const W = Math.max(320, padL + padR + recent.length * candleGap);
-          const plotW = W - padL - padR, plotH = H - padT - padB;
-          const highs = recent.map((c) => num(c.high || c.close));
-          const lows = recent.map((c) => num(c.low || c.close));
-          const maVals = maSeries.flatMap((m) => m.values.filter((v) => v !== null));
-          let vMin = Math.min(...lows, ...(maVals.length ? maVals : lows)), vMax = Math.max(...highs, ...(maVals.length ? maVals : highs));
-          const vPad = Math.max((vMax - vMin) * 0.08, 1);
-          vMin -= vPad; vMax += vPad;
-          const xOf = (idx) => padL + (recent.length <= 1 ? plotW / 2 : (idx / Math.max(1, recent.length - 1)) * plotW);
-          const yOf = (v) => padT + (vMax === vMin ? plotH / 2 : ((vMax - v) / (vMax - vMin)) * plotH);
-          const candleW = Math.max(2, candleGap * 0.6);
-          const last = recent[recent.length - 1];
-          const lineOfVals = (vals) => {
-            const segs = [];
-            let cur = [];
-            vals.forEach((v, idx) => {
-              if (v === null) { if (cur.length > 1) segs.push(cur); cur = []; return; }
-              cur.push(`${xOf(idx)},${yOf(v)}`);
-            });
-            if (cur.length > 1) segs.push(cur);
-            return segs.map((s) => s.join(" "));
-          };
-          const weakCount = recent.filter((c) => dotColorFor(c) === "#4c8dff").length;
-          const strongCount = recent.filter((c) => dotColorFor(c) === "#e8544b").length;
-          const totalCounted = weakCount + strongCount;
-          const weakPct = totalCounted > 0 ? (weakCount / totalCounted) * 100 : 0;
-          const strongPct = totalCounted > 0 ? (strongCount / totalCounted) * 100 : 0;
-          return (
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: "#e7eaf0" }}>{title}</div>
-                {last && <div className="tnum" style={{ fontSize: 12, fontWeight: 700, color: "#8993a6" }}>{fmt(num(last.close))}</div>}
-              </div>
-              <div
-                style={{ overflowX: "auto" }}
-                ref={(el) => {
-                  if (el && el.dataset.scrolled !== "1") {
-                    el.dataset.scrolled = "1";
-                    requestAnimationFrame(() => { el.scrollLeft = el.scrollWidth; });
-                  }
-                }}
-              >
-                <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} preserveAspectRatio="none" style={{ background: "#12151b", borderRadius: 8, border: "1px solid #262c37", display: "block", minWidth: "100%" }}>
-                  {[vMax, (vMax + vMin) / 2, vMin].map((v, vi) => (
-                    <g key={vi}>
-                      <line x1={padL} y1={yOf(v)} x2={W - padR} y2={yOf(v)} stroke="#1f2530" strokeWidth="1" />
-                      <text x={padL - 4} y={yOf(v) + 3} fill="#5a6274" fontSize="8" textAnchor="end">{fmt(v)}</text>
-                    </g>
-                  ))}
-                  {recent.map((c, idx) => {
-                    const o = num(c.open || c.close), h = num(c.high || c.close), l = num(c.low || c.close), cl = num(c.close);
-                    const x = xOf(idx);
-                    const isUp = cl >= o;
-                    const bodyColor = isUp ? "#e8544b" : "#4c8dff"; // 한국식: 상승 붉은색, 하락 파란색
-                    const bodyTop = yOf(Math.max(o, cl)), bodyBot = yOf(Math.min(o, cl));
-                    return (
-                      <g key={idx}>
-                        <line x1={x} y1={yOf(h)} x2={x} y2={yOf(l)} stroke={bodyColor} strokeWidth="1" />
-                        <rect x={x - candleW / 2} y={bodyTop} width={candleW} height={Math.max(1, bodyBot - bodyTop)} fill={bodyColor} />
-                        <circle cx={x} cy={H - padB + 7} r="1.8" fill={dotColorFor(c)} />
-                      </g>
-                    );
-                  })}
-                  {maSeries.map((m) => lineOfVals(m.values).map((seg, idx) => (
-                    <polyline key={`ma${m.period}-${idx}`} fill="none" stroke={m.color} strokeWidth="1" points={seg} />
-                  )))}
-                </svg>
-              </div>
-              <div style={{ display: "flex", gap: 10, marginTop: 4, fontSize: 9, color: "#8993a6", flexWrap: "wrap" }}>
-                {maLines.map((m) => (
-                  <span key={m.period} style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                    <svg width="10" height="3"><line x1="0" y1="1.5" x2="10" y2="1.5" stroke={m.color} strokeWidth="1" /></svg>
-                    {m.period}
-                  </span>
-                ))}
-              </div>
-              <div style={{ display: "flex", gap: 10, marginTop: 4, fontSize: 11 }}>
-                {weakPct > 50 && <span style={{ color: "#4c8dff", fontWeight: 700 }}>약세 {weakPct.toFixed(0)}%</span>}
-                {strongPct > 50 && <span style={{ color: "#e8544b", fontWeight: 700 }}>강세 {strongPct.toFixed(0)}%</span>}
-              </div>
-            </div>
-          );
-        };
-
         const kospiCandles = strengthData[`0001:${strengthPeriod}`] || [];
         const kosdaqCandles = strengthData[`1001:${strengthPeriod}`] || [];
 
@@ -3733,10 +3758,33 @@ function PortfolioApp() {
                 <button className="iconbtn" onClick={() => setExpandedStock(expanded ? null : r.id)} style={{ fontSize: 11, color: "#8993a6" }}>
                   상세 비중 {expanded ? "▴" : "▾"}
                 </button>
+                <button className="iconbtn" onClick={() => setCandleStock(candleStock === r.id ? null : r.id)} style={{ fontSize: 11, color: "#8993a6" }}>
+                  강약챠트 {candleStock === r.id ? "▴" : "▾"}
+                </button>
                 <button className="iconbtn" onClick={() => setMetricsStock(metricsStock === r.id ? null : r.id)} style={{ fontSize: 11, color: "#8993a6" }}>
                   재무데이터 {metricsStock === r.id ? "▴" : "▾"}
                 </button>
               </div>
+              {candleStock === r.id && (
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+                    {[["D", "일봉"], ["W", "주봉"], ["M", "월봉"], ["Y", "년봉"]].map(([code, label]) => (
+                      <button
+                        key={code}
+                        onClick={() => setStrengthPeriod(code)}
+                        className="iconbtn"
+                        style={{ flex: 1, padding: "5px 0", borderRadius: 8, border: strengthPeriod === code ? "1px solid #c9974a" : "1px solid #262c37", background: strengthPeriod === code ? "rgba(201,151,74,0.15)" : "#1a1f28", color: strengthPeriod === code ? "#c9974a" : "#8993a6", fontWeight: 700, fontSize: 11 }}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  {strengthLoading && !strengthData[`${r.code}:${strengthPeriod}`] && (
+                    <div style={{ color: "#8993a6", fontSize: 11, textAlign: "center", padding: 10 }}>불러오는 중...</div>
+                  )}
+                  {renderCandles(r.name, strengthData[`${r.code}:${strengthPeriod}`] || [])}
+                </div>
+              )}
               {metricsStock === r.id && (() => {
                 const f = r.code ? fundamentalsData[r.code] : null;
                 const ef = r.code ? extraFundamentalsData[r.code] : null;
