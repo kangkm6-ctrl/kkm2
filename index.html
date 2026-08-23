@@ -1595,6 +1595,11 @@ function PortfolioApp() {
     const totalCounted = weakCount + strongCount;
     const weakPct = totalCounted > 0 ? (weakCount / totalCounted) * 100 : 0;
     const strongPct = totalCounted > 0 ? (strongCount / totalCounted) * 100 : 0;
+    const hasVolume = recent.some((c) => c.volume !== undefined && c.volume !== null);
+    const VH = 40, vPadT = 2, vPadB = 2;
+    const vols = recent.map((c) => num(c.volume) || 0);
+    const volMax = Math.max(...vols, 1);
+    const volY = (v) => vPadT + (1 - v / volMax) * (VH - vPadT - vPadB);
     return (
       <div style={{ marginBottom: 16 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
@@ -1635,6 +1640,17 @@ function PortfolioApp() {
               <polyline key={`ma${m.period}-${idx}`} fill="none" stroke={m.color} strokeWidth="1" points={seg} />
             )))}
           </svg>
+          {hasVolume && (
+            <svg viewBox={`0 0 ${W} ${VH}`} width={W} height={VH} preserveAspectRatio="none" style={{ background: "#12151b", borderRadius: 8, border: "1px solid #262c37", display: "block", minWidth: "100%", marginTop: 4 }}>
+              {recent.map((c, idx) => {
+                const x = xOf(idx);
+                const v = vols[idx];
+                const prevV = idx > 0 ? vols[idx - 1] : null;
+                const barColor = prevV === null ? "#8993a6" : v > prevV ? "#e8544b" : v < prevV ? "#4c8dff" : "#8993a6"; // 전일(전 캔들) 대비 증가=붉은색, 감소=파란색
+                return <rect key={idx} x={x - candleW / 2} y={volY(v)} width={candleW} height={Math.max(1, VH - vPadB - volY(v))} fill={barColor} opacity="0.85" />;
+              })}
+            </svg>
+          )}
         </div>
         <div style={{ display: "flex", gap: 10, marginTop: 4, fontSize: 9, color: "#8993a6", flexWrap: "wrap" }}>
           {maLines.map((m) => (
@@ -1644,25 +1660,6 @@ function PortfolioApp() {
             </span>
           ))}
         </div>
-        {recent.some((c) => c.volume !== undefined && c.volume !== null) && (() => {
-          const VH = 40, vPadT = 2, vPadB = 2;
-          const vols = recent.map((c) => num(c.volume) || 0);
-          const volMax = Math.max(...vols, 1);
-          const volY = (v) => vPadT + (1 - v / volMax) * (VH - vPadT - vPadB);
-          return (
-            <div style={{ overflowX: "auto", marginTop: 4 }}>
-              <svg viewBox={`0 0 ${W} ${VH}`} width={W} height={VH} preserveAspectRatio="none" style={{ background: "#12151b", borderRadius: 8, border: "1px solid #262c37", display: "block", minWidth: "100%" }}>
-                {recent.map((c, idx) => {
-                  const x = xOf(idx);
-                  const v = vols[idx];
-                  const prevV = idx > 0 ? vols[idx - 1] : null;
-                  const barColor = prevV === null ? "#8993a6" : v > prevV ? "#e8544b" : v < prevV ? "#4c8dff" : "#8993a6"; // 전일(전 캔들) 대비 증가=붉은색, 감소=파란색
-                  return <rect key={idx} x={x - candleW / 2} y={volY(v)} width={candleW} height={Math.max(1, VH - vPadB - volY(v))} fill={barColor} opacity="0.85" />;
-                })}
-              </svg>
-            </div>
-          );
-        })()}
         <div style={{ display: "flex", gap: 10, marginTop: 4, fontSize: 11 }}>
           {weakPct > 50 && <span style={{ color: "#4c8dff", fontWeight: 700 }}>약세 {weakPct.toFixed(0)}%</span>}
           {strongPct > 50 && <span style={{ color: "#e8544b", fontWeight: 700 }}>강세 {strongPct.toFixed(0)}%</span>}
@@ -3823,6 +3820,9 @@ function PortfolioApp() {
                 );
               })()}
               <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
+                <button className="iconbtn" onClick={() => setManualCodeFor(manualCodeFor === r.id ? null : r.id)} style={{ fontSize: 11, color: "#8993a6" }}>
+                  코드 {manualCodeFor === r.id ? "▴" : "▾"}
+                </button>
                 <button className="iconbtn" onClick={() => setExpandedStock(expanded ? null : r.id)} style={{ fontSize: 11, color: "#8993a6" }}>
                   상세 비중 {expanded ? "▴" : "▾"}
                 </button>
@@ -3831,9 +3831,6 @@ function PortfolioApp() {
                 </button>
                 <button className="iconbtn" onClick={() => setMetricsStock(metricsStock === r.id ? null : r.id)} style={{ fontSize: 11, color: "#8993a6" }}>
                   재무데이터 {metricsStock === r.id ? "▴" : "▾"}
-                </button>
-                <button className="iconbtn" onClick={() => setManualCodeFor(manualCodeFor === r.id ? null : r.id)} style={{ fontSize: 11, color: "#8993a6" }}>
-                  코드 {manualCodeFor === r.id ? "▴" : "▾"}
                 </button>
               </div>
               {manualCodeFor === r.id && (
