@@ -156,7 +156,7 @@ const STOCK_CODE_MAP = {
   "우리금융지주":"316140","삼성생명":"032830","삼성화재":"000810","SK이노베이션":"096770","SK":"034730",
   "LG전자":"066570","LG":"003550","한화솔루션":"009830","한화에어로스페이스":"012450","두산에너빌리티":"034020",
   "두산밥캣":"241560","HD한국조선해양":"009540","삼성엔지니어링":"028050","현대건설":"000720","GS건설":"006360",
-  "에코프로":"086520","에코프로비엠":"247540","엘앤에프":"066970","포스코엠텍":"009520","고려아연":"010130",
+  "에코프로":"086520","에코프로비엠":"247540","엘앤에프":"066970","포스코엠텍":"009520","고려아연":"010130","코스모신소재":"005070","코스모화학":"005420",
   "SK아이이테크놀로지":"361610","SKC":"011790","솔브레인":"357780",
   "삼성전기":"009150","LG디스플레이":"034220","LG이노텍":"011070","삼성중공업":"010140","한국조선해양":"009540",
   "HMM":"011200","팬오션":"028670","대한항공":"003490","아시아나항공":"020560","제주항공":"089590",
@@ -360,6 +360,7 @@ function PortfolioApp() {
   const [lastRefreshedAt, setLastRefreshedAt] = useState(null);
   const [priceRefreshTick, setPriceRefreshTick] = useState(0);
   const [suggestFor, setSuggestFor] = useState(null);
+  const [manualCodeFor, setManualCodeFor] = useState(null); // 사전에 없는 종목의 코드를 직접 입력하는 칸을 펼친 종목 id
   const [snapshots, setSnapshots] = useState([]);
   const [rebalanceLog, setRebalanceLog] = useState([]);
   const [showSnapshotList, setShowSnapshotList] = useState(false);
@@ -1441,12 +1442,13 @@ function PortfolioApp() {
       const hh = c.time.slice(0, 2), mm = c.time.slice(2, 4);
       const bucketMin = Math.floor(Number(mm) / 5) * 5;
       const bucketKey = `${hh}${String(bucketMin).padStart(2, "0")}`;
-      if (!buckets[bucketKey]) buckets[bucketKey] = { date: bucketKey, open: c.open, high: c.high, low: c.low, close: c.close };
+      if (!buckets[bucketKey]) buckets[bucketKey] = { date: bucketKey, open: c.open, high: c.high, low: c.low, close: c.close, volume: num(c.volume) };
       else {
         const b = buckets[bucketKey];
         b.high = Math.max(num(b.high), num(c.high));
         b.low = Math.min(num(b.low), num(c.low));
         b.close = c.close; // 1분봉이 시간 오름차순이라, 마지막에 덮어쓴 값이 그 구간의 종가가 된다.
+        b.volume = num(b.volume) + num(c.volume);
       }
     });
     return Object.keys(buckets).sort().map((k) => buckets[k]);
@@ -1642,6 +1644,25 @@ function PortfolioApp() {
             </span>
           ))}
         </div>
+        {recent.some((c) => c.volume !== undefined && c.volume !== null) && (() => {
+          const VH = 40, vPadT = 2, vPadB = 2;
+          const vols = recent.map((c) => num(c.volume) || 0);
+          const volMax = Math.max(...vols, 1);
+          const volY = (v) => vPadT + (1 - v / volMax) * (VH - vPadT - vPadB);
+          return (
+            <div style={{ overflowX: "auto", marginTop: 4 }}>
+              <svg viewBox={`0 0 ${W} ${VH}`} width={W} height={VH} preserveAspectRatio="none" style={{ background: "#12151b", borderRadius: 8, border: "1px solid #262c37", display: "block", minWidth: "100%" }}>
+                {recent.map((c, idx) => {
+                  const x = xOf(idx);
+                  const v = vols[idx];
+                  const prevV = idx > 0 ? vols[idx - 1] : null;
+                  const barColor = prevV === null ? "#8993a6" : v > prevV ? "#e8544b" : v < prevV ? "#4c8dff" : "#8993a6"; // 전일(전 캔들) 대비 증가=붉은색, 감소=파란색
+                  return <rect key={idx} x={x - candleW / 2} y={volY(v)} width={candleW} height={Math.max(1, VH - vPadB - volY(v))} fill={barColor} opacity="0.85" />;
+                })}
+              </svg>
+            </div>
+          );
+        })()}
         <div style={{ display: "flex", gap: 10, marginTop: 4, fontSize: 11 }}>
           {weakPct > 50 && <span style={{ color: "#4c8dff", fontWeight: 700 }}>약세 {weakPct.toFixed(0)}%</span>}
           {strongPct > 50 && <span style={{ color: "#e8544b", fontWeight: 700 }}>강세 {strongPct.toFixed(0)}%</span>}
@@ -3344,7 +3365,7 @@ function PortfolioApp() {
             <div style={{ padding: "0 16px 20px" }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: "#e7eaf0", marginBottom: 4 }}>강약챠트</div>
               <div style={{ fontSize: 10, color: "#5a6274", marginBottom: 10 }}>
-                각 캔들 밑의 점은 그 캔들의 저가~고가 범위 안에서 종가 위치로 강약을 근사 판정해요. <span style={{ color: "#4c8dff" }}>파란 점</span>=전강후약(종가가 하단권, 약세 마감), <span style={{ color: "#e8544b" }}>붉은 점</span>=전약후강(종가가 상단권, 강세 마감). 캔들 몸통 색은 상승(붉은색)·하락(파란색) 기준이에요. 5·20·60·120 이동평균선이 가는 선으로 겹쳐 나오고, 챠트 밑에 최근 60개 중 약세·강세 비중(%)이 표시돼요. 최근 60개 캔들만 표시돼요. ⚠️ 5분봉은 개별 종목만 지원되고(코스피·코스닥은 데이터 없음), API 특성상 "오늘 하루"의 장중 데이터만 나와요.
+                각 캔들 밑의 점은 그 캔들의 저가~고가 범위 안에서 종가 위치로 강약을 근사 판정해요. <span style={{ color: "#4c8dff" }}>파란 점</span>=전강후약(종가가 하단권, 약세 마감), <span style={{ color: "#e8544b" }}>붉은 점</span>=전약후강(종가가 상단권, 강세 마감). 캔들 몸통 색은 상승(붉은색)·하락(파란색) 기준이에요. 5·20·60·120 이동평균선이 가는 선으로 겹쳐 나오고, 그 밑에 거래량 막대(전 캔들보다 늘면 붉은색·줄면 파란색), 챠트 밑에 최근 60개 중 약세·강세 비중(%)이 표시돼요. 최근 60개 캔들만 표시돼요. ⚠️ 5분봉은 개별 종목만 지원되고(코스피·코스닥은 데이터 없음), API 특성상 "오늘 하루"의 장중 데이터만 나와요.
               </div>
               {strengthLoading && <div style={{ color: "#8993a6", fontSize: 12, textAlign: "center", padding: 16 }}>불러오는 중...</div>}
               {renderCandles("코스피", kospiCandles)}
@@ -3811,7 +3832,21 @@ function PortfolioApp() {
                 <button className="iconbtn" onClick={() => setMetricsStock(metricsStock === r.id ? null : r.id)} style={{ fontSize: 11, color: "#8993a6" }}>
                   재무데이터 {metricsStock === r.id ? "▴" : "▾"}
                 </button>
+                <button className="iconbtn" onClick={() => setManualCodeFor(manualCodeFor === r.id ? null : r.id)} style={{ fontSize: 11, color: "#8993a6" }}>
+                  코드 {manualCodeFor === r.id ? "▴" : "▾"}
+                </button>
               </div>
+              {manualCodeFor === r.id && (
+                <div style={{ marginTop: 8 }}>
+                  <div className="lbl">종목명이 사전에 없어서 자동완성이 안 뜰 때, 종목코드를 직접 입력하세요 (예: 코스모신소재 005070)</div>
+                  <input
+                    placeholder="종목코드 6자리"
+                    defaultValue={r.code}
+                    onBlur={(e) => updateStock(r.id, "code", e.target.value.trim())}
+                    className="field"
+                  />
+                </div>
+              )}
               {candleStock === r.id && (
                 <div style={{ marginTop: 8 }}>
                   <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
