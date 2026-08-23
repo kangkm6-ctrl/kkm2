@@ -1434,12 +1434,12 @@ function PortfolioApp() {
   }, [loaded, mainView, chartTab, stockCodes]);
 
   // 강약챠트: 코스피/코스닥 지수 + 보유종목 전체의 일봉/주봉/월봉 캔들(OHLC)을 받아온다.
-  // 1분봉을 30분 단위로 묶는다. ⚠️ 원본 1분봉 API가 "오늘 하루"만 주기 때문에 30분봉도 오늘 장중 데이터만 나온다.
-  const aggregateToHalfHour = (minuteCandles) => {
+  // 1분봉을 5분 단위로 묶는다. ⚠️ 원본 1분봉 API가 "오늘 하루"만 주기 때문에 5분봉도 오늘 장중 데이터만 나온다.
+  const aggregateToFiveMin = (minuteCandles) => {
     const buckets = {};
     minuteCandles.forEach((c) => {
       const hh = c.time.slice(0, 2), mm = c.time.slice(2, 4);
-      const bucketMin = Math.floor(Number(mm) / 30) * 30;
+      const bucketMin = Math.floor(Number(mm) / 5) * 5;
       const bucketKey = `${hh}${String(bucketMin).padStart(2, "0")}`;
       if (!buckets[bucketKey]) buckets[bucketKey] = { date: bucketKey, open: c.open, high: c.high, low: c.low, close: c.close };
       else {
@@ -1457,15 +1457,15 @@ function PortfolioApp() {
     setStrengthLoading(true);
     const base = proxyUrl.replace(/\/$/, "");
     const headers = appSecret ? { "x-app-secret": appSecret } : {};
-    if (period === "30MIN") {
-      // ⚠️ 코스피/코스닥 분봉 API는 신뢰할 만한 출처를 못 찾아서, 30분봉은 개별 종목만 지원해요.
-      const targets = stockCodes.filter((c) => !strengthData[`${c}:30MIN`]).map((c) => ({ key: `${c}:30MIN`, code: c }));
+    if (period === "5MIN") {
+      // ⚠️ 코스피/코스닥 분봉 API는 신뢰할 만한 출처를 못 찾아서, 5분봉은 개별 종목만 지원해요.
+      const targets = stockCodes.filter((c) => !strengthData[`${c}:5MIN`]).map((c) => ({ key: `${c}:5MIN`, code: c }));
       if (targets.length === 0) { setStrengthLoading(false); return; }
       try {
         const results = await Promise.all(targets.map((t) =>
           fetch(`${base}/stock-minute-history/${t.code}`, { headers })
             .then((r) => (r.ok ? r.json() : null))
-            .then((d) => ({ key: t.key, candles: d && Array.isArray(d.minuteCandles) ? aggregateToHalfHour(d.minuteCandles) : [] }))
+            .then((d) => ({ key: t.key, candles: d && Array.isArray(d.minuteCandles) ? aggregateToFiveMin(d.minuteCandles) : [] }))
             .catch(() => ({ key: t.key, candles: [] }))
         ));
         setStrengthData((prev) => {
@@ -1512,11 +1512,11 @@ function PortfolioApp() {
     setStrengthLoading(true);
     const base = proxyUrl.replace(/\/$/, "");
     const headers = appSecret ? { "x-app-secret": appSecret } : {};
-    if (period === "30MIN") {
+    if (period === "5MIN") {
       try {
         const r = await fetch(`${base}/stock-minute-history/${code}`, { headers });
         const d = r.ok ? await r.json() : null;
-        setStrengthData((prev) => ({ ...prev, [key]: d && Array.isArray(d.minuteCandles) ? aggregateToHalfHour(d.minuteCandles) : [] }));
+        setStrengthData((prev) => ({ ...prev, [key]: d && Array.isArray(d.minuteCandles) ? aggregateToFiveMin(d.minuteCandles) : [] }));
       } catch (e) {}
       setStrengthLoading(false);
       return;
@@ -3330,7 +3330,7 @@ function PortfolioApp() {
               <button onClick={() => setMainView("home")} className="iconbtn" style={{ color: "#c9974a", fontWeight: 700, fontSize: 14 }}>← 뒤로</button>
             </div>
             <div style={{ display: "flex", gap: 6, padding: "0 16px 10px" }}>
-              {[["30MIN", "30분"], ["D", "일봉"], ["W", "주봉"], ["M", "월봉"], ["Y", "년봉"]].map(([code, label]) => (
+              {[["5MIN", "5분"], ["D", "일봉"], ["W", "주봉"], ["M", "월봉"], ["Y", "년봉"]].map(([code, label]) => (
                 <button
                   key={code}
                   onClick={() => setStrengthPeriod(code)}
@@ -3344,7 +3344,7 @@ function PortfolioApp() {
             <div style={{ padding: "0 16px 20px" }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: "#e7eaf0", marginBottom: 4 }}>강약챠트</div>
               <div style={{ fontSize: 10, color: "#5a6274", marginBottom: 10 }}>
-                각 캔들 밑의 점은 그 캔들의 저가~고가 범위 안에서 종가 위치로 강약을 근사 판정해요. <span style={{ color: "#4c8dff" }}>파란 점</span>=전강후약(종가가 하단권, 약세 마감), <span style={{ color: "#e8544b" }}>붉은 점</span>=전약후강(종가가 상단권, 강세 마감). 캔들 몸통 색은 상승(붉은색)·하락(파란색) 기준이에요. 5·20·60·120 이동평균선이 가는 선으로 겹쳐 나오고, 챠트 밑에 최근 60개 중 약세·강세 비중(%)이 표시돼요. 최근 60개 캔들만 표시돼요. ⚠️ 30분봉은 개별 종목만 지원되고(코스피·코스닥은 데이터 없음), API 특성상 "오늘 하루"의 장중 데이터만 나와요.
+                각 캔들 밑의 점은 그 캔들의 저가~고가 범위 안에서 종가 위치로 강약을 근사 판정해요. <span style={{ color: "#4c8dff" }}>파란 점</span>=전강후약(종가가 하단권, 약세 마감), <span style={{ color: "#e8544b" }}>붉은 점</span>=전약후강(종가가 상단권, 강세 마감). 캔들 몸통 색은 상승(붉은색)·하락(파란색) 기준이에요. 5·20·60·120 이동평균선이 가는 선으로 겹쳐 나오고, 챠트 밑에 최근 60개 중 약세·강세 비중(%)이 표시돼요. 최근 60개 캔들만 표시돼요. ⚠️ 5분봉은 개별 종목만 지원되고(코스피·코스닥은 데이터 없음), API 특성상 "오늘 하루"의 장중 데이터만 나와요.
               </div>
               {strengthLoading && <div style={{ color: "#8993a6", fontSize: 12, textAlign: "center", padding: 16 }}>불러오는 중...</div>}
               {renderCandles("코스피", kospiCandles)}
@@ -3815,7 +3815,7 @@ function PortfolioApp() {
               {candleStock === r.id && (
                 <div style={{ marginTop: 8 }}>
                   <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-                    {[["30MIN", "30분"], ["D", "일봉"], ["W", "주봉"], ["M", "월봉"], ["Y", "년봉"]].map(([code, label]) => (
+                    {[["5MIN", "5분"], ["D", "일봉"], ["W", "주봉"], ["M", "월봉"], ["Y", "년봉"]].map(([code, label]) => (
                       <button
                         key={code}
                         onClick={() => setStrengthPeriod(code)}
