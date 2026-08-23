@@ -328,7 +328,7 @@ function PortfolioApp() {
   const [importText, setImportText] = useState("");
   const [importMsg, setImportMsg] = useState("");
   const [showAnalysis, setShowAnalysis] = useState(false);
-  const [mainView, setMainView] = useState("home"); // 'home' | 'stocks' | 'cash' | 'settings' | 'view' | 'chart' | 'sectorChart' | 'strengthChart' ('chart'는 chartTab으로 eps/psr/roe/eva 세분화)
+  const [mainView, setMainView] = useState("home"); // 'home' | 'stocks' | 'cash' | 'settings' | 'view' | 'chart' | 'sectorChart' | 'strengthChart' | 'compareChart' ('chart'는 chartTab으로 eps/psr/roe/eva 세분화)
   const [showRebalanceLog, setShowRebalanceLog] = useState(false);
   const [expandedStock, setExpandedStock] = useState(null);
   const [metricsStock, setMetricsStock] = useState(null); // "종목지표" 펼친 종목 id
@@ -350,6 +350,8 @@ function PortfolioApp() {
   const [strengthPeriod, setStrengthPeriod] = useState("W"); // 강약챠트 탭: 'D' | 'W' | 'M'
   const [strengthData, setStrengthData] = useState({}); // { [key(코드:period)]: candles[] }
   const [strengthLoading, setStrengthLoading] = useState(false);
+  const [comparePeriod, setComparePeriod] = useState("W"); // 챠트비교 탭: '5MIN' | 'W' | 'M' | 'Y'
+  const [compareExcluded, setCompareExcluded] = useState({}); // { [stockId]: true } — 챠트비교에서 제외된 종목
   const [chartOverlay, setChartOverlay] = useState(null); // 종목챠트에서 탭한 종목의 주가/코스피/코스닥 월봉 (EPS성장률과 겹쳐 그림)
   const [chartOverlayLoading, setChartOverlayLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -1506,6 +1508,12 @@ function PortfolioApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded, mainView, strengthPeriod, stockCodes]);
 
+  useEffect(() => {
+    if (!loaded || mainView !== "compareChart") return;
+    fetchStrengthData(comparePeriod);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, mainView, comparePeriod, stockCodes]);
+
   // 보유종목 화면에서 개별 종목의 "강약챠트"를 펼치면, 그 종목 하나만 가볍게 받아온다.
   const fetchStrengthForCode = useCallback(async (code, period) => {
     if (!proxyUrl || !code) return;
@@ -1540,6 +1548,14 @@ function PortfolioApp() {
     if (range <= 0) return "#8993a6";
     const closePos = (cl - l) / range;
     return closePos < 0.5 ? "#4c8dff" : "#e8544b"; // 종가가 하단권=전강후약(파랑), 상단권=전약후강(빨강)
+  };
+  // 최근 60개 캔들 중 약세(전강후약)·강세(전약후강) 비중(%)을 계산한다. (강약챠트 목록·챠트비교 정렬에 공용으로 씀)
+  const computeStrengthPct = (candles) => {
+    const recent = (candles || []).slice(-60);
+    const weakCount = recent.filter((c) => dotColorFor(c) === "#4c8dff").length;
+    const strongCount = recent.filter((c) => dotColorFor(c) === "#e8544b").length;
+    const total = weakCount + strongCount;
+    return { weakPct: total > 0 ? (weakCount / total) * 100 : 0, strongPct: total > 0 ? (strongCount / total) * 100 : 0 };
   };
   const computeSMA = (allCandles, period) => allCandles.map((c, idx) => {
     if (idx < period - 1) return null;
@@ -1590,11 +1606,7 @@ function PortfolioApp() {
       if (cur.length > 1) segs.push(cur);
       return segs.map((s) => s.join(" "));
     };
-    const weakCount = recent.filter((c) => dotColorFor(c) === "#4c8dff").length;
-    const strongCount = recent.filter((c) => dotColorFor(c) === "#e8544b").length;
-    const totalCounted = weakCount + strongCount;
-    const weakPct = totalCounted > 0 ? (weakCount / totalCounted) * 100 : 0;
-    const strongPct = totalCounted > 0 ? (strongCount / totalCounted) * 100 : 0;
+    const { weakPct, strongPct } = computeStrengthPct(candles);
     const hasVolume = recent.some((c) => c.volume !== undefined && c.volume !== null);
     const VH = 40, vPadT = 2, vPadB = 2;
     const vols = recent.map((c) => num(c.volume) || 0);
@@ -1632,7 +1644,6 @@ function PortfolioApp() {
                 <g key={idx}>
                   <line x1={x} y1={yOf(h)} x2={x} y2={yOf(l)} stroke={bodyColor} strokeWidth="1" />
                   <rect x={x - candleW / 2} y={bodyTop} width={candleW} height={Math.max(1, bodyBot - bodyTop)} fill={bodyColor} />
-                  <circle cx={x} cy={H - padB + 7} r="1.8" fill={dotColorFor(c)} />
                 </g>
               );
             })}
@@ -1651,6 +1662,11 @@ function PortfolioApp() {
               })}
             </svg>
           )}
+          <svg viewBox={`0 0 ${W} 14`} width={W} height={14} preserveAspectRatio="none" style={{ display: "block", minWidth: "100%", marginTop: 2 }}>
+            {recent.map((c, idx) => (
+              <circle key={idx} cx={xOf(idx)} cy={7} r="1.8" fill={dotColorFor(c)} />
+            ))}
+          </svg>
         </div>
         <div style={{ display: "flex", gap: 10, marginTop: 4, fontSize: 9, color: "#8993a6", flexWrap: "wrap" }}>
           {maLines.map((m) => (
@@ -3377,6 +3393,134 @@ function PortfolioApp() {
         );
       })()}
 
+      {mainView === "compareChart" && (() => {
+        const toCumPct = (vals) => {
+          const firstIdx = vals.findIndex((v) => v !== null && v !== undefined);
+          if (firstIdx === -1) return vals.map(() => null);
+          const base = num(vals[firstIdx]);
+          return vals.map((v) => (v !== null && v !== undefined && base !== 0 ? ((num(v) - base) / base) * 100 : null));
+        };
+        const palette = ["#e8544b", "#3fbf7f", "#b06fdb", "#40b8c4", "#ee7fb0", "#e0b93c", "#7f8fd8", "#5fbf9f", "#4c8dff"];
+
+        const kospiCandles = strengthData[`0001:${comparePeriod}`] || [];
+        const kosdaqCandles = strengthData[`1001:${comparePeriod}`] || [];
+        const stockRows = stocks
+          .filter((s) => s.code && s.name)
+          .map((s, idx) => {
+            const candles = strengthData[`${s.code}:${comparePeriod}`] || [];
+            const { weakPct, strongPct } = computeStrengthPct(candles);
+            return { id: s.id, code: s.code, name: s.name, candles, strongPct, weakPct, color: palette[idx % palette.length] };
+          })
+          .sort((a, b) => b.strongPct - a.strongPct);
+
+        // 모든 시리즈(코스피/코스닥/포함된 종목들)를 같은 길이로 맞추기 위해, 가장 긴 시리즈의 길이를 기준으로 최근 60개를 쓴다.
+        const allSeries = [
+          { key: "kospi", label: "코스피", candles: kospiCandles, color: "#8993a6", dash: null },
+          { key: "kosdaq", label: "코스닥", candles: kosdaqCandles, color: "#6f7a90", dash: "4 3" },
+          ...stockRows.filter((r) => !compareExcluded[r.id]).map((r) => ({ key: r.id, label: r.name, candles: r.candles, color: r.color, dash: null })),
+        ].filter((s) => s.candles && s.candles.length > 0);
+
+        const maxLen = Math.max(60, ...allSeries.map((s) => Math.min(s.candles.length, 60)));
+        const W = 340, H = 220, padL = 40, padR = 8, padT = 10, padB = 18;
+        const plotW = W - padL - padR, plotH = H - padT - padB;
+        const xOf = (idx, len) => padL + (len <= 1 ? 0 : (idx / (len - 1)) * plotW);
+        const seriesPts = allSeries.map((s) => {
+          const recent = s.candles.slice(-60);
+          const closes = recent.map((c) => c.close);
+          return { ...s, pts: toCumPct(closes), len: recent.length };
+        });
+        const allVals = seriesPts.flatMap((s) => s.pts.filter((v) => v !== null));
+        let vMin = Math.min(...allVals, 0), vMax = Math.max(...allVals, 0);
+        const vPad = Math.max((vMax - vMin) * 0.08, 1);
+        vMin -= vPad; vMax += vPad;
+        const yOf = (v) => padT + (vMax === vMin ? plotH / 2 : ((vMax - v) / (vMax - vMin)) * plotH);
+        const lineOf = (pts, len) => {
+          const segs = [];
+          let cur = [];
+          pts.forEach((v, idx) => {
+            if (v === null) { if (cur.length > 1) segs.push(cur); cur = []; return; }
+            cur.push(`${xOf(idx, len)},${yOf(v)}`);
+          });
+          if (cur.length > 1) segs.push(cur);
+          return segs.map((s) => s.join(" "));
+        };
+
+        return (
+          <div style={{ padding: "calc(env(safe-area-inset-top, 0px) + 10px) 0 0" }}>
+            <div style={{ padding: "0 16px 10px", position: "sticky", top: "env(safe-area-inset-top, 0px)", zIndex: 20, background: "#12151b" }}>
+              <button onClick={() => setMainView("home")} className="iconbtn" style={{ color: "#c9974a", fontWeight: 700, fontSize: 14 }}>← 뒤로</button>
+            </div>
+            <div style={{ display: "flex", gap: 6, padding: "0 16px 10px" }}>
+              {[["5MIN", "5분"], ["D", "일봉"], ["W", "주봉"], ["M", "월봉"], ["Y", "년봉"]].map(([code, label]) => (
+                <button
+                  key={code}
+                  onClick={() => setComparePeriod(code)}
+                  className="iconbtn"
+                  style={{ flex: 1, padding: "6px 0", borderRadius: 8, border: comparePeriod === code ? "1px solid #c9974a" : "1px solid #262c37", background: comparePeriod === code ? "rgba(201,151,74,0.15)" : "#1a1f28", color: comparePeriod === code ? "#c9974a" : "#8993a6", fontWeight: 700, fontSize: 12 }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div style={{ padding: "0 16px 20px" }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#e7eaf0", marginBottom: 4 }}>챠트비교</div>
+              <div style={{ fontSize: 10, color: "#5a6274", marginBottom: 10 }}>
+                코스피·코스닥과 보유종목을 한 차트에 겹쳐서, 기간 시작 시점 대비 누적 변화율(%)로 비교해요. 아래 목록에서 종목을 빼거나 다시 넣을 수 있어요. 목록은 강세% 높은 순으로 정렬돼요. ⚠️ 5분봉은 오늘 장중 데이터만 나와요.
+              </div>
+              {strengthLoading && <div style={{ color: "#8993a6", fontSize: 12, textAlign: "center", padding: 16 }}>불러오는 중...</div>}
+              <div style={{ overflowX: "auto" }}>
+                <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} style={{ background: "#12151b", borderRadius: 8, border: "1px solid #262c37", display: "block", minWidth: "100%" }}>
+                  {[vMax, (vMax + vMin) / 2, vMin].map((v, vi) => (
+                    <g key={vi}>
+                      <line x1={padL} y1={yOf(v)} x2={W - padR} y2={yOf(v)} stroke="#1f2530" strokeWidth="1" />
+                      <text x={padL - 4} y={yOf(v) + 3} fill="#5a6274" fontSize="8" textAnchor="end">{v.toFixed(0)}%</text>
+                    </g>
+                  ))}
+                  {vMin < 0 && vMax > 0 && <line x1={padL} y1={yOf(0)} x2={W - padR} y2={yOf(0)} stroke="#3a4150" strokeWidth="1" strokeDasharray="3 3" />}
+                  {seriesPts.map((s) => lineOf(s.pts, s.len).map((seg, idx) => (
+                    <polyline key={`${s.key}-${idx}`} fill="none" stroke={s.color} strokeWidth={s.key === "kospi" || s.key === "kosdaq" ? 1.4 : 1.8} strokeDasharray={s.dash || undefined} strokeLinejoin="round" points={seg} />
+                  )))}
+                </svg>
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 8, fontSize: 10 }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 4, color: "#8993a6" }}>
+                  <svg width="14" height="3"><line x1="0" y1="1.5" x2="14" y2="1.5" stroke="#8993a6" strokeWidth="1.4" /></svg>
+                  코스피
+                </span>
+                <span style={{ display: "flex", alignItems: "center", gap: 4, color: "#8993a6" }}>
+                  <svg width="14" height="3"><line x1="0" y1="1.5" x2="14" y2="1.5" stroke="#6f7a90" strokeWidth="1.4" strokeDasharray="4 3" /></svg>
+                  코스닥
+                </span>
+              </div>
+
+              <div style={{ marginTop: 16, fontSize: 12, fontWeight: 700, color: "#e7eaf0", marginBottom: 6 }}>보유종목 (강세% 높은 순)</div>
+              {stockRows.length === 0 && (
+                <div style={{ color: "#5a6274", fontSize: 12, textAlign: "center", padding: 16 }}>표시할 종목이 없어요.</div>
+              )}
+              {stockRows.map((r) => {
+                const excluded = !!compareExcluded[r.id];
+                return (
+                  <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 4px", borderTop: "1px solid #1a1f28" }}>
+                    <span style={{ width: 10, height: 10, borderRadius: 5, background: excluded ? "#3a4150" : r.color, flexShrink: 0 }} />
+                    <span style={{ flex: 1, fontSize: 13, color: excluded ? "#5a6274" : "#e7eaf0", fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.name}</span>
+                    <span className="tnum" style={{ fontSize: 11, color: "#8993a6", flexShrink: 0 }}>
+                      {r.strongPct > 50 ? <span style={{ color: "#e8544b", fontWeight: 700 }}>강세 {r.strongPct.toFixed(0)}%</span> : r.weakPct > 50 ? <span style={{ color: "#4c8dff", fontWeight: 700 }}>약세 {r.weakPct.toFixed(0)}%</span> : "-"}
+                    </span>
+                    <button
+                      onClick={() => setCompareExcluded((prev) => ({ ...prev, [r.id]: !prev[r.id] }))}
+                      className="iconbtn"
+                      style={{ flexShrink: 0, fontSize: 11, padding: "4px 10px", borderRadius: 8, border: excluded ? "1px solid #262c37" : "1px solid #c9974a", background: excluded ? "#1a1f28" : "rgba(201,151,74,0.15)", color: excluded ? "#8993a6" : "#c9974a", fontWeight: 700 }}
+                    >
+                      {excluded ? "추가" : "제외"}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
       {mainView === "view" && (
         <div style={{ padding: "calc(env(safe-area-inset-top, 0px) + 10px) 0 0" }}>
           <div style={{ padding: "0 16px 10px", position: "sticky", top: "env(safe-area-inset-top, 0px)", zIndex: 20, background: "#12151b" }}>
@@ -4225,11 +4369,18 @@ function PortfolioApp() {
 
       <div style={{ padding: "0 16px 14px", display: "flex", gap: 6 }}>
         <button
-          onClick={() => { setSectorSelected(null); setMainView("sectorChart"); }}
+          onClick={() => { setStrengthPeriod("W"); setMainView("strengthChart"); }}
           className="iconbtn"
           style={{ flex: 1, padding: "8px 4px", borderRadius: 10, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 13, whiteSpace: "nowrap" }}
         >
-          🏭 업종챠트
+          📊 강약챠트
+        </button>
+        <button
+          onClick={() => { setComparePeriod("W"); setMainView("compareChart"); }}
+          className="iconbtn"
+          style={{ flex: 1, padding: "8px 4px", borderRadius: 10, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 13, whiteSpace: "nowrap" }}
+        >
+          📉 챠트비교
         </button>
         <button
           onClick={() => { setFundSelected(null); setChartTab("eps"); setMainView("chart"); }}
@@ -4239,11 +4390,11 @@ function PortfolioApp() {
           📈 종목챠트
         </button>
         <button
-          onClick={() => { setStrengthPeriod("W"); setMainView("strengthChart"); }}
+          onClick={() => { setSectorSelected(null); setMainView("sectorChart"); }}
           className="iconbtn"
           style={{ flex: 1, padding: "8px 4px", borderRadius: 10, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 13, whiteSpace: "nowrap" }}
         >
-          📊 강약챠트
+          🏭 업종챠트
         </button>
       </div>
       </>)}
