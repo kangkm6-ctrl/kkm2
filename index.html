@@ -4023,7 +4023,7 @@ function PortfolioApp() {
                     const mm = p.period.slice(4, 6);
                     if (!byYear[year] || mm >= byYear[year].mm) byYear[year] = { mm, value: p.value };
                   });
-                  return Object.keys(byYear).sort().slice(-5).map((year) => ({ year, value: byYear[year].value }));
+                  return Object.keys(byYear).sort().slice(-6).map((year) => ({ year, value: byYear[year].value }));
                 };
                 const buildFrom = (periods, field, transform) => deriveAnnual(
                   (periods || [])
@@ -4055,6 +4055,7 @@ function PortfolioApp() {
                 );
                 const revenueAnnual = buildFrom(ef && ef.periods, "revenue", (v) => v / 100); // 백만원 단위로 추정 → 억원으로 환산
                 const revenueGrowthAnnual = f ? deriveAnnual(f.periods.map((p) => ({ period: p.period, value: p.revenueGrowth !== null && p.revenueGrowth !== undefined ? num(p.revenueGrowth) : null })).filter((p) => p.value !== null)) : [];
+                const opProfitAnnual = buildFrom(ef && ef.periods, "opProfit", (v) => v / 100); // 백만원 단위로 추정 → 억원으로 환산
                 const opMarginAnnual = buildRatio2(ef && ef.periods, "opProfit", "revenue", 100);
                 const netMarginAnnual = buildRatio2(ef && ef.periods, "netIncome", "revenue", 100);
                 const epsAnnual = f ? buildFrom(f.periods, "eps") : [];
@@ -4146,6 +4147,7 @@ function PortfolioApp() {
                 const rows = [
                   ["매출액(억원)", revenueAnnual, (v) => fmt(v), null, null],
                   ["매출액성장률", revenueGrowthAnnual, (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`, tier4(0, 5, 15), "15%↑"],
+                  ["영업이익(억원)", opProfitAnnual, (v) => `${v >= 0 ? "+" : ""}${fmt(v)}`, null, null],
                   ["영업이익률", opMarginAnnual, (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`, opMarginTier, opMarginRange],
                   ["순이익률", netMarginAnnual, (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`, tier4(2, 5, 10), "10%↑"],
                   ["EPS", epsAnnual, (v) => fmt(v), null, null],
