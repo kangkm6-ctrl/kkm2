@@ -4164,20 +4164,20 @@ function PortfolioApp() {
                 const allYears = [...new Set(rows.flatMap(([, pts]) => pts.map((p) => p.year)))].sort().slice(-4);
 
                 return (
-                  <div style={{ marginTop: 6, fontSize: 11, color: "#5a6274" }}>
-                    <div style={{ marginBottom: 4, color: "#c9974a", fontWeight: 700 }}>기준선: {profileLabel}</div>
+                  <div style={{ marginTop: 4, fontSize: 11, color: "#5a6274" }}>
+                    <div style={{ marginBottom: 2, color: "#c9974a", fontWeight: 700 }}>기준선: {profileLabel}</div>
                     {allYears.length === 0 ? (
                       <div>표시할 데이터가 없어요.</div>
                     ) : (
                       <>
-                        <div style={{ display: "grid", gridTemplateColumns: `1fr repeat(${allYears.length}, 60px)`, gap: 4, marginBottom: 3, fontWeight: 700, color: "#8993a6" }}>
+                        <div style={{ display: "grid", gridTemplateColumns: `1fr repeat(${allYears.length}, 60px)`, gap: 4, marginBottom: 2, fontWeight: 700, color: "#8993a6" }}>
                           <div></div>
                           {allYears.map((y) => <div key={y} className="tnum" style={{ textAlign: "center", fontSize: 12 }}>{y + "년"}</div>)}
                         </div>
                         {rows.map(([label, pts, formatter, colorFn, excellentRange]) => {
                           const yoy = yoyColorFor(pts);
                           return (
-                            <div key={label} style={{ display: "grid", gridTemplateColumns: `1fr repeat(${allYears.length}, 60px)`, gap: 4, padding: "3px 0", borderTop: "1px solid #1a1f28" }}>
+                            <div key={label} style={{ display: "grid", gridTemplateColumns: `1fr repeat(${allYears.length}, 60px)`, gap: 4, padding: "1px 0", borderTop: "1px solid #1a1f28" }}>
                               <div style={{ color: "#8993a6", fontSize: 11, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                                 {label}
                                 {excellentRange && <span style={{ fontSize: 9, color: "#5a6274" }}> ({excellentRange})</span>}
@@ -4191,9 +4191,9 @@ function PortfolioApp() {
                                     key={y}
                                     className="tnum"
                                     style={{
-                                      textAlign: "center", fontWeight: 700, fontSize: 12, color, lineHeight: 1.2,
+                                      textAlign: "center", fontWeight: 700, fontSize: 12, color, lineHeight: 1.1,
                                       border: isExcellent ? "1px solid #e8544b" : "1px solid transparent",
-                                      borderRadius: 4, padding: "1px 3px",
+                                      borderRadius: 4, padding: "0px 3px",
                                     }}
                                   >
                                     {p ? formatter(p.value) : "-"}
@@ -4203,7 +4203,7 @@ function PortfolioApp() {
                             </div>
                           );
                         })}
-                        <div style={{ marginTop: 6, fontSize: 9 }}>
+                        <div style={{ marginTop: 4, fontSize: 9 }}>
                           당좌비율은 유동자산÷유동부채로 근사 계산했어요(재고자산 분리 불가). PER이 마이너스면 "극저", 100배 이상이면 "극고"로 표시돼요. 고정자산은 총자산-유동자산으로 계산하고, 전년 대비 증감으로 CAPEX(설비투자)를 근사한 값이에요(감가상각·자산처분 등은 반영 안 됨). 우선주는 본주 재무데이터를 사용해요. 색은 전년 대비 증가(붉은색)·감소(파란색)로만 표시되고, 그 수치가 "우수" 기준을 만족하면 <span style={{ border: "1px solid #e8544b", padding: "0 3px", borderRadius: 3 }}>테두리</span>가 추가돼요.
                           <br /><span style={{ color: "#e8544b" }}>●우수</span> <span style={{ color: "#e0b93c" }}>●양호</span> <span style={{ color: "#8993a6" }}>●보통/적정</span> <span style={{ color: "#4c8dff" }}>●주의</span> · 업종명을 인식해 반도체·게임·2차전지는 전용 기준선을, 그 외는 일반 기준선을 적용해요. 업종별로 기준이 없는 지표는 일반 기준을 그대로 써요.
                         </div>
