@@ -3963,17 +3963,49 @@ function PortfolioApp() {
                   </div>
                 );
               })()}
-              <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
-                <button className="iconbtn" onClick={() => setManualCodeFor(manualCodeFor === r.id ? null : r.id)} style={{ fontSize: 11, color: "#8993a6" }}>
+              <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+                <button
+                  className="iconbtn"
+                  onClick={() => {
+                    const opening = manualCodeFor !== r.id;
+                    setManualCodeFor(opening ? r.id : null);
+                    if (opening) { setExpandedStock(null); setCandleStock(null); setMetricsStock(null); }
+                  }}
+                  style={{ fontSize: 11, padding: "4px 8px", borderRadius: 8, border: manualCodeFor === r.id ? "1px solid #c9974a" : "1px solid transparent", background: manualCodeFor === r.id ? "rgba(201,151,74,0.15)" : "none", color: manualCodeFor === r.id ? "#c9974a" : "#8993a6", fontWeight: manualCodeFor === r.id ? 700 : 400 }}
+                >
                   코드 {manualCodeFor === r.id ? "▴" : "▾"}
                 </button>
-                <button className="iconbtn" onClick={() => setExpandedStock(expanded ? null : r.id)} style={{ fontSize: 11, color: "#8993a6" }}>
+                <button
+                  className="iconbtn"
+                  onClick={() => {
+                    const opening = !expanded;
+                    setExpandedStock(opening ? r.id : null);
+                    if (opening) { setManualCodeFor(null); setCandleStock(null); setMetricsStock(null); }
+                  }}
+                  style={{ fontSize: 11, padding: "4px 8px", borderRadius: 8, border: expanded ? "1px solid #c9974a" : "1px solid transparent", background: expanded ? "rgba(201,151,74,0.15)" : "none", color: expanded ? "#c9974a" : "#8993a6", fontWeight: expanded ? 700 : 400 }}
+                >
                   상세 비중 {expanded ? "▴" : "▾"}
                 </button>
-                <button className="iconbtn" onClick={() => setCandleStock(candleStock === r.id ? null : r.id)} style={{ fontSize: 11, color: "#8993a6" }}>
+                <button
+                  className="iconbtn"
+                  onClick={() => {
+                    const opening = candleStock !== r.id;
+                    setCandleStock(opening ? r.id : null);
+                    if (opening) { setManualCodeFor(null); setExpandedStock(null); setMetricsStock(null); }
+                  }}
+                  style={{ fontSize: 11, padding: "4px 8px", borderRadius: 8, border: candleStock === r.id ? "1px solid #c9974a" : "1px solid transparent", background: candleStock === r.id ? "rgba(201,151,74,0.15)" : "none", color: candleStock === r.id ? "#c9974a" : "#8993a6", fontWeight: candleStock === r.id ? 700 : 400 }}
+                >
                   강약챠트 {candleStock === r.id ? "▴" : "▾"}
                 </button>
-                <button className="iconbtn" onClick={() => setMetricsStock(metricsStock === r.id ? null : r.id)} style={{ fontSize: 11, color: "#8993a6" }}>
+                <button
+                  className="iconbtn"
+                  onClick={() => {
+                    const opening = metricsStock !== r.id;
+                    setMetricsStock(opening ? r.id : null);
+                    if (opening) { setManualCodeFor(null); setExpandedStock(null); setCandleStock(null); }
+                  }}
+                  style={{ fontSize: 11, padding: "4px 8px", borderRadius: 8, border: metricsStock === r.id ? "1px solid #c9974a" : "1px solid transparent", background: metricsStock === r.id ? "rgba(201,151,74,0.15)" : "none", color: metricsStock === r.id ? "#c9974a" : "#8993a6", fontWeight: metricsStock === r.id ? 700 : 400 }}
+                >
                   재무데이터 {metricsStock === r.id ? "▴" : "▾"}
                 </button>
               </div>
