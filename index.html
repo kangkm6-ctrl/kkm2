@@ -4066,6 +4066,11 @@ function PortfolioApp() {
                 const pbrAnnual = f ? buildFrom(f.periods, "bps", (v) => (v && price ? price / num(v) : null)) : [];
                 const debtRatioAnnual = f ? buildFrom(f.periods, "debtRatio") : [];
                 const quickRatioAnnual = buildFrom(ef && ef.periods, "quickRatio");
+                const fixedAssetsAnnual = buildFrom(ef && ef.periods, "fixedAssets", (v) => v / 100); // 억원 환산
+                // CAPEX 근사치 = 이번 해 고정자산 - 전년 고정자산 (감가상각 반영 안 된 근사치)
+                const capexAnnual = fixedAssetsAnnual.length > 1
+                  ? fixedAssetsAnnual.slice(1).map((p, idx) => ({ year: p.year, value: p.value - fixedAssetsAnnual[idx].value }))
+                  : [];
 
                 // 우수=붉은색, 양호=금색, 보통=회색, 위험=파란색 (한국 증시 관례: 붉은=좋음/저평가, 파란=나쁨/고평가)
                 const tier4 = (t1, t2, t3, reversed) => (v) => {
@@ -4152,6 +4157,7 @@ function PortfolioApp() {
                   ["PBR", pbrAnnual, (v) => `${v.toFixed(2)}배`, pbrColor, pbrRange],
                   ["부채비율", debtRatioAnnual, (v) => `${v.toFixed(1)}%`, debtTier, debtRange],
                   ["당좌비율", quickRatioAnnual, (v) => `${v.toFixed(1)}%`, quickRatioColor, "150%↑"],
+                  ["고정자산 증가액(억원)", capexAnnual, (v) => `${v >= 0 ? "+" : ""}${fmt(v)}`, null, null],
                 ];
                 const allYears = [...new Set(rows.flatMap(([, pts]) => pts.map((p) => p.year)))].sort().slice(-4);
 
@@ -4196,7 +4202,7 @@ function PortfolioApp() {
                           );
                         })}
                         <div style={{ marginTop: 6, fontSize: 9 }}>
-                          당좌비율은 유동자산÷유동부채로 근사 계산했어요(재고자산 분리 불가). PER이 마이너스면 "극저", 100배 이상이면 "극고"로 표시돼요. 우선주는 본주 재무데이터를 사용해요. 색은 전년 대비 증가(붉은색)·감소(파란색)로만 표시되고, 그 수치가 "우수" 기준을 만족하면 <span style={{ border: "1px solid #e8544b", padding: "0 3px", borderRadius: 3 }}>테두리</span>가 추가돼요.
+                          당좌비율은 유동자산÷유동부채로 근사 계산했어요(재고자산 분리 불가). PER이 마이너스면 "극저", 100배 이상이면 "극고"로 표시돼요. 고정자산 증가액은 전년 대비 고정자산 장부가액 증감으로 CAPEX(설비투자)를 근사한 값이에요(감가상각·자산처분 등은 반영 안 됨). 우선주는 본주 재무데이터를 사용해요. 색은 전년 대비 증가(붉은색)·감소(파란색)로만 표시되고, 그 수치가 "우수" 기준을 만족하면 <span style={{ border: "1px solid #e8544b", padding: "0 3px", borderRadius: 3 }}>테두리</span>가 추가돼요.
                           <br /><span style={{ color: "#e8544b" }}>●우수</span> <span style={{ color: "#e0b93c" }}>●양호</span> <span style={{ color: "#8993a6" }}>●보통/적정</span> <span style={{ color: "#4c8dff" }}>●주의</span> · 업종명을 인식해 반도체·게임·2차전지는 전용 기준선을, 그 외는 일반 기준선을 적용해요. 업종별로 기준이 없는 지표는 일반 기준을 그대로 써요.
                         </div>
                       </>
