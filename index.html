@@ -301,6 +301,214 @@ const KR_HOLIDAYS_2026 = [
   "2026-12-25", // 크리스마스
 ];
 
+// 캔들 하나가 "전강후약"(파랑)인지 "전약후강"(빨강)인지, 그 캔들의 저가~고가 범위 안에서 종가 위치로 근사 판정한다.
+const dotColorFor = (c) => {
+  const h = num(c.high || c.close), l = num(c.low || c.close), cl = num(c.close);
+  const range = h - l;
+  if (range <= 0) return "#8993a6";
+  const closePos = (cl - l) / range;
+  return closePos < 0.5 ? "#4c8dff" : "#e8544b"; // 종가가 하단권=전강후약(파랑), 상단권=전약후강(빨강)
+};
+// 최근 60개 캔들 중 약세(전강후약)·강세(전약후강) 비중(%)을 계산한다. (강약챠트 목록·챠트비교 정렬에 공용으로 씀)
+const computeStrengthPct = (candles) => {
+  const recent = (candles || []).slice(-60);
+  const weakCount = recent.filter((c) => dotColorFor(c) === "#4c8dff").length;
+  const strongCount = recent.filter((c) => dotColorFor(c) === "#e8544b").length;
+  const total = weakCount + strongCount;
+  return { weakPct: total > 0 ? (weakCount / total) * 100 : 0, strongPct: total > 0 ? (strongCount / total) * 100 : 0 };
+};
+const computeSMA = (allCandles, period) => allCandles.map((c, idx) => {
+  if (idx < period - 1) return null;
+  const slice = allCandles.slice(idx - period + 1, idx + 1);
+  const sum = slice.reduce((a, cc) => a + num(cc.close), 0);
+  return sum / period;
+});
+const MA_LINES = [
+  { period: 5, color: "#e7eaf0" },
+  { period: 20, color: "#c9974a" },
+  { period: 60, color: "#b06fdb" },
+  { period: 120, color: "#40b8c4" },
+];
+// 크로스헤어에 표시할 날짜/시간 문구를, 기간 종류에 맞춰 다르게 포맷한다.
+const formatCrosshairLabel = (c, period) => {
+  if (!c) return "";
+  const s = c.date || c.time || "";
+  if (period === "5MIN" || s.length === 4) return `${s.slice(0, 2)}:${s.slice(2, 4)}`;
+  if (s.length !== 8) return s;
+  const y = s.slice(0, 4), m = s.slice(4, 6), d = s.slice(6, 8);
+  if (period === "Y") return `${y}년`;
+  return `${y}.${m}.${d}`;
+};
+
+// 캔들차트 하나 (강약챠트 화면·보유종목 안의 종목별 강약챠트에서 공용으로 씀).
+// 손가락으로 탭하고 있으면 세로 점선(크로스헤어)이 나오고, 그 지점의 날짜/시간·가격이 표시된다.
+function CandleChart({ title, candles, period }) {
+  const [touchIdx, setTouchIdx] = useState(null);
+  const svgRef = useRef(null);
+  const draggingRef = useRef(false);
+
+  if (!candles || candles.length === 0) {
+    return (
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6, color: "#e7eaf0" }}>{title}</div>
+        <div style={{ fontSize: 11, color: "#5a6274", padding: 12, textAlign: "center", background: "#12151b", borderRadius: 8, border: "1px solid #262c37" }}>데이터 없음</div>
+      </div>
+    );
+  }
+  const recent = candles.slice(-60);
+  const recentStart = candles.length - recent.length;
+  const maSeries = MA_LINES.map((m) => ({ ...m, values: computeSMA(candles, m.period).slice(recentStart) }));
+  const H = 170, padL = 38, padR = 8, padT = 8, padB = 16;
+  const candleGap = 10;
+  const W = Math.max(320, padL + padR + recent.length * candleGap);
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const highs = recent.map((c) => num(c.high || c.close));
+  const lows = recent.map((c) => num(c.low || c.close));
+  const maVals = maSeries.flatMap((m) => m.values.filter((v) => v !== null));
+  let vMin = Math.min(...lows, ...(maVals.length ? maVals : lows)), vMax = Math.max(...highs, ...(maVals.length ? maVals : highs));
+  const vPad = Math.max((vMax - vMin) * 0.08, 1);
+  vMin -= vPad; vMax += vPad;
+  const xOf = (idx) => padL + (recent.length <= 1 ? plotW / 2 : (idx / Math.max(1, recent.length - 1)) * plotW);
+  const yOf = (v) => padT + (vMax === vMin ? plotH / 2 : ((vMax - v) / (vMax - vMin)) * plotH);
+  const candleW = Math.max(2, candleGap * 0.6);
+  const last = recent[recent.length - 1];
+  const lineOfVals = (vals) => {
+    const segs = [];
+    let cur = [];
+    vals.forEach((v, idx) => {
+      if (v === null) { if (cur.length > 1) segs.push(cur); cur = []; return; }
+      cur.push(`${xOf(idx)},${yOf(v)}`);
+    });
+    if (cur.length > 1) segs.push(cur);
+    return segs.map((s) => s.join(" "));
+  };
+  const { weakPct, strongPct } = computeStrengthPct(candles);
+  const hasVolume = recent.some((c) => c.volume !== undefined && c.volume !== null);
+  const VH = 40, vPadT = 2, vPadB = 2;
+  const vols = recent.map((c) => num(c.volume) || 0);
+  const volMax = Math.max(...vols, 1);
+  const volY = (v) => vPadT + (1 - v / volMax) * (VH - vPadT - vPadB);
+
+  const updateTouchFromClientX = (clientX) => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const rect = svg.getBoundingClientRect();
+    const relX = (clientX - rect.left) / rect.width;
+    const svgX = relX * W;
+    let closestIdx = 0, closestDist = Infinity;
+    recent.forEach((c, idx) => {
+      const dist = Math.abs(xOf(idx) - svgX);
+      if (dist < closestDist) { closestDist = dist; closestIdx = idx; }
+    });
+    setTouchIdx(closestIdx);
+  };
+  const handlePointerDown = (e) => {
+    draggingRef.current = true;
+    updateTouchFromClientX(e.clientX);
+  };
+  const handlePointerMove = (e) => {
+    if (!draggingRef.current) return;
+    updateTouchFromClientX(e.clientX);
+  };
+  const handlePointerEnd = () => {
+    draggingRef.current = false;
+    setTouchIdx(null);
+  };
+
+  const touched = touchIdx !== null ? recent[touchIdx] : null;
+  const crosshairX = touchIdx !== null ? xOf(touchIdx) : null;
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: "#e7eaf0" }}>{title}</div>
+        {last && <div className="tnum" style={{ fontSize: 12, fontWeight: 700, color: "#8993a6" }}>{fmt(num(last.close))}</div>}
+        {touched && (
+          <div className="tnum" style={{ fontSize: 11, fontWeight: 700, color: "#c9974a" }}>
+            {formatCrosshairLabel(touched, period)} · {fmt(num(touched.close))}
+          </div>
+        )}
+      </div>
+      <div
+        style={{ overflowX: "auto" }}
+        ref={(el) => {
+          if (el && el.dataset.scrolled !== "1") {
+            el.dataset.scrolled = "1";
+            requestAnimationFrame(() => { el.scrollLeft = el.scrollWidth; });
+          }
+        }}
+      >
+        <svg
+          ref={svgRef}
+          viewBox={`0 0 ${W} ${H}`} width={W} height={H} preserveAspectRatio="none"
+          style={{ background: "#12151b", borderRadius: 8, border: "1px solid #262c37", display: "block", minWidth: "100%", touchAction: "pan-y" }}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerEnd}
+          onPointerCancel={handlePointerEnd}
+          onPointerLeave={handlePointerEnd}
+        >
+          {[vMax, (vMax + vMin) / 2, vMin].map((v, vi) => (
+            <g key={vi}>
+              <line x1={padL} y1={yOf(v)} x2={W - padR} y2={yOf(v)} stroke="#1f2530" strokeWidth="1" />
+              <text x={padL - 4} y={yOf(v) + 3} fill="#5a6274" fontSize="8" textAnchor="end">{fmt(v)}</text>
+            </g>
+          ))}
+          {recent.map((c, idx) => {
+            const o = num(c.open || c.close), h = num(c.high || c.close), l = num(c.low || c.close), cl = num(c.close);
+            const x = xOf(idx);
+            const isUp = cl >= o;
+            const bodyColor = isUp ? "#e8544b" : "#4c8dff"; // 한국식: 상승 붉은색, 하락 파란색
+            const bodyTop = yOf(Math.max(o, cl)), bodyBot = yOf(Math.min(o, cl));
+            return (
+              <g key={idx}>
+                <line x1={x} y1={yOf(h)} x2={x} y2={yOf(l)} stroke={bodyColor} strokeWidth="1" />
+                <rect x={x - candleW / 2} y={bodyTop} width={candleW} height={Math.max(1, bodyBot - bodyTop)} fill={bodyColor} />
+              </g>
+            );
+          })}
+          {maSeries.map((m) => lineOfVals(m.values).map((seg, idx) => (
+            <polyline key={`ma${m.period}-${idx}`} fill="none" stroke={m.color} strokeWidth="1" points={seg} />
+          )))}
+          {crosshairX !== null && <line x1={crosshairX} y1={0} x2={crosshairX} y2={H} stroke="#c9974a" strokeWidth="1" strokeDasharray="3 2" />}
+        </svg>
+        {hasVolume && (
+          <svg viewBox={`0 0 ${W} ${VH}`} width={W} height={VH} preserveAspectRatio="none" style={{ background: "#12151b", borderRadius: 8, border: "1px solid #262c37", display: "block", minWidth: "100%", marginTop: 4, pointerEvents: "none" }}>
+            {recent.map((c, idx) => {
+              const x = xOf(idx);
+              const v = vols[idx];
+              const prevV = idx > 0 ? vols[idx - 1] : null;
+              const barColor = prevV === null ? "#8993a6" : v > prevV ? "#e8544b" : v < prevV ? "#4c8dff" : "#8993a6"; // 전일(전 캔들) 대비 증가=붉은색, 감소=파란색
+              return <rect key={idx} x={x - candleW / 2} y={volY(v)} width={candleW} height={Math.max(1, VH - vPadB - volY(v))} fill={barColor} opacity="0.85" />;
+            })}
+            {crosshairX !== null && <line x1={crosshairX} y1={0} x2={crosshairX} y2={VH} stroke="#c9974a" strokeWidth="1" strokeDasharray="3 2" />}
+          </svg>
+        )}
+        <svg viewBox={`0 0 ${W} 14`} width={W} height={14} preserveAspectRatio="none" style={{ display: "block", minWidth: "100%", marginTop: 2, pointerEvents: "none" }}>
+          {recent.map((c, idx) => (
+            <circle key={idx} cx={xOf(idx)} cy={7} r="1.8" fill={dotColorFor(c)} />
+          ))}
+        </svg>
+      </div>
+      <div style={{ display: "flex", gap: 10, marginTop: 4, fontSize: 9, color: "#8993a6", flexWrap: "wrap" }}>
+        {MA_LINES.map((m) => (
+          <span key={m.period} style={{ display: "flex", alignItems: "center", gap: 3 }}>
+            <svg width="10" height="3"><line x1="0" y1="1.5" x2="10" y2="1.5" stroke={m.color} strokeWidth="1" /></svg>
+            {m.period}
+          </span>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 10, marginTop: 4, fontSize: 11 }}>
+        {(weakPct > 0 || strongPct > 0) && (
+          strongPct >= weakPct
+            ? <span style={{ color: "#e8544b", fontWeight: 700 }}>강세 {strongPct.toFixed(0)}%</span>
+            : <span style={{ color: "#4c8dff", fontWeight: 700 }}>약세 {weakPct.toFixed(0)}%</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function PortfolioApp() {
   const [stocks, setStocks] = useState(seedStocks);
   const [cashAccounts, setCashAccounts] = useState(seedCash);
@@ -1542,151 +1750,6 @@ function PortfolioApp() {
 
   // 캔들 하나하나가 "전강후약"(장중 강했다가 종가는 약함=파란 점)인지 "전약후강"(장중 약했다가 종가는 강함=붉은 점)인지를
   // 그 캔들의 저가~고가 범위 안에서 종가의 위치로 근사 판정한다. (분봉 데이터가 없어 캔들 자체의 고저 위치로 추정)
-  const dotColorFor = (c) => {
-    const h = num(c.high || c.close), l = num(c.low || c.close), cl = num(c.close);
-    const range = h - l;
-    if (range <= 0) return "#8993a6";
-    const closePos = (cl - l) / range;
-    return closePos < 0.5 ? "#4c8dff" : "#e8544b"; // 종가가 하단권=전강후약(파랑), 상단권=전약후강(빨강)
-  };
-  // 최근 60개 캔들 중 약세(전강후약)·강세(전약후강) 비중(%)을 계산한다. (강약챠트 목록·챠트비교 정렬에 공용으로 씀)
-  const computeStrengthPct = (candles) => {
-    const recent = (candles || []).slice(-60);
-    const weakCount = recent.filter((c) => dotColorFor(c) === "#4c8dff").length;
-    const strongCount = recent.filter((c) => dotColorFor(c) === "#e8544b").length;
-    const total = weakCount + strongCount;
-    return { weakPct: total > 0 ? (weakCount / total) * 100 : 0, strongPct: total > 0 ? (strongCount / total) * 100 : 0 };
-  };
-  const computeSMA = (allCandles, period) => allCandles.map((c, idx) => {
-    if (idx < period - 1) return null;
-    const slice = allCandles.slice(idx - period + 1, idx + 1);
-    const sum = slice.reduce((a, cc) => a + num(cc.close), 0);
-    return sum / period;
-  });
-  const maLines = [
-    { period: 5, color: "#e7eaf0" },
-    { period: 20, color: "#c9974a" },
-    { period: 60, color: "#b06fdb" },
-    { period: 120, color: "#40b8c4" },
-  ];
-  // 캔들차트 하나를 그린다 (강약챠트 화면과 보유종목 안의 종목별 강약챠트에서 공용으로 씀).
-  const renderCandles = (title, candles) => {
-    if (!candles || candles.length === 0) {
-      return (
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6, color: "#e7eaf0" }}>{title}</div>
-          <div style={{ fontSize: 11, color: "#5a6274", padding: 12, textAlign: "center", background: "#12151b", borderRadius: 8, border: "1px solid #262c37" }}>데이터 없음</div>
-        </div>
-      );
-    }
-    const recent = candles.slice(-60);
-    const recentStart = candles.length - recent.length;
-    const maSeries = maLines.map((m) => ({ ...m, values: computeSMA(candles, m.period).slice(recentStart) }));
-    const H = 170, padL = 38, padR = 8, padT = 8, padB = 16;
-    const candleGap = 10;
-    const W = Math.max(320, padL + padR + recent.length * candleGap);
-    const plotW = W - padL - padR, plotH = H - padT - padB;
-    const highs = recent.map((c) => num(c.high || c.close));
-    const lows = recent.map((c) => num(c.low || c.close));
-    const maVals = maSeries.flatMap((m) => m.values.filter((v) => v !== null));
-    let vMin = Math.min(...lows, ...(maVals.length ? maVals : lows)), vMax = Math.max(...highs, ...(maVals.length ? maVals : highs));
-    const vPad = Math.max((vMax - vMin) * 0.08, 1);
-    vMin -= vPad; vMax += vPad;
-    const xOf = (idx) => padL + (recent.length <= 1 ? plotW / 2 : (idx / Math.max(1, recent.length - 1)) * plotW);
-    const yOf = (v) => padT + (vMax === vMin ? plotH / 2 : ((vMax - v) / (vMax - vMin)) * plotH);
-    const candleW = Math.max(2, candleGap * 0.6);
-    const last = recent[recent.length - 1];
-    const lineOfVals = (vals) => {
-      const segs = [];
-      let cur = [];
-      vals.forEach((v, idx) => {
-        if (v === null) { if (cur.length > 1) segs.push(cur); cur = []; return; }
-        cur.push(`${xOf(idx)},${yOf(v)}`);
-      });
-      if (cur.length > 1) segs.push(cur);
-      return segs.map((s) => s.join(" "));
-    };
-    const { weakPct, strongPct } = computeStrengthPct(candles);
-    const hasVolume = recent.some((c) => c.volume !== undefined && c.volume !== null);
-    const VH = 40, vPadT = 2, vPadB = 2;
-    const vols = recent.map((c) => num(c.volume) || 0);
-    const volMax = Math.max(...vols, 1);
-    const volY = (v) => vPadT + (1 - v / volMax) * (VH - vPadT - vPadB);
-    return (
-      <div style={{ marginBottom: 16 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#e7eaf0" }}>{title}</div>
-          {last && <div className="tnum" style={{ fontSize: 12, fontWeight: 700, color: "#8993a6" }}>{fmt(num(last.close))}</div>}
-        </div>
-        <div
-          style={{ overflowX: "auto" }}
-          ref={(el) => {
-            if (el && el.dataset.scrolled !== "1") {
-              el.dataset.scrolled = "1";
-              requestAnimationFrame(() => { el.scrollLeft = el.scrollWidth; });
-            }
-          }}
-        >
-          <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} preserveAspectRatio="none" style={{ background: "#12151b", borderRadius: 8, border: "1px solid #262c37", display: "block", minWidth: "100%" }}>
-            {[vMax, (vMax + vMin) / 2, vMin].map((v, vi) => (
-              <g key={vi}>
-                <line x1={padL} y1={yOf(v)} x2={W - padR} y2={yOf(v)} stroke="#1f2530" strokeWidth="1" />
-                <text x={padL - 4} y={yOf(v) + 3} fill="#5a6274" fontSize="8" textAnchor="end">{fmt(v)}</text>
-              </g>
-            ))}
-            {recent.map((c, idx) => {
-              const o = num(c.open || c.close), h = num(c.high || c.close), l = num(c.low || c.close), cl = num(c.close);
-              const x = xOf(idx);
-              const isUp = cl >= o;
-              const bodyColor = isUp ? "#e8544b" : "#4c8dff"; // 한국식: 상승 붉은색, 하락 파란색
-              const bodyTop = yOf(Math.max(o, cl)), bodyBot = yOf(Math.min(o, cl));
-              return (
-                <g key={idx}>
-                  <line x1={x} y1={yOf(h)} x2={x} y2={yOf(l)} stroke={bodyColor} strokeWidth="1" />
-                  <rect x={x - candleW / 2} y={bodyTop} width={candleW} height={Math.max(1, bodyBot - bodyTop)} fill={bodyColor} />
-                </g>
-              );
-            })}
-            {maSeries.map((m) => lineOfVals(m.values).map((seg, idx) => (
-              <polyline key={`ma${m.period}-${idx}`} fill="none" stroke={m.color} strokeWidth="1" points={seg} />
-            )))}
-          </svg>
-          {hasVolume && (
-            <svg viewBox={`0 0 ${W} ${VH}`} width={W} height={VH} preserveAspectRatio="none" style={{ background: "#12151b", borderRadius: 8, border: "1px solid #262c37", display: "block", minWidth: "100%", marginTop: 4 }}>
-              {recent.map((c, idx) => {
-                const x = xOf(idx);
-                const v = vols[idx];
-                const prevV = idx > 0 ? vols[idx - 1] : null;
-                const barColor = prevV === null ? "#8993a6" : v > prevV ? "#e8544b" : v < prevV ? "#4c8dff" : "#8993a6"; // 전일(전 캔들) 대비 증가=붉은색, 감소=파란색
-                return <rect key={idx} x={x - candleW / 2} y={volY(v)} width={candleW} height={Math.max(1, VH - vPadB - volY(v))} fill={barColor} opacity="0.85" />;
-              })}
-            </svg>
-          )}
-          <svg viewBox={`0 0 ${W} 14`} width={W} height={14} preserveAspectRatio="none" style={{ display: "block", minWidth: "100%", marginTop: 2 }}>
-            {recent.map((c, idx) => (
-              <circle key={idx} cx={xOf(idx)} cy={7} r="1.8" fill={dotColorFor(c)} />
-            ))}
-          </svg>
-        </div>
-        <div style={{ display: "flex", gap: 10, marginTop: 4, fontSize: 9, color: "#8993a6", flexWrap: "wrap" }}>
-          {maLines.map((m) => (
-            <span key={m.period} style={{ display: "flex", alignItems: "center", gap: 3 }}>
-              <svg width="10" height="3"><line x1="0" y1="1.5" x2="10" y2="1.5" stroke={m.color} strokeWidth="1" /></svg>
-              {m.period}
-            </span>
-          ))}
-        </div>
-        <div style={{ display: "flex", gap: 10, marginTop: 4, fontSize: 11 }}>
-          {(weakPct > 0 || strongPct > 0) && (
-            strongPct >= weakPct
-              ? <span style={{ color: "#e8544b", fontWeight: 700 }}>강세 {strongPct.toFixed(0)}%</span>
-              : <span style={{ color: "#4c8dff", fontWeight: 700 }}>약세 {weakPct.toFixed(0)}%</span>
-          )}
-        </div>
-      </div>
-    );
-  };
-
   // 종목챠트에서 종목을 탭하면, 그 종목의 주가·코스피·코스닥 월봉(5년 이상)을 받아서 겹쳐 그린다.
   useEffect(() => {
     if (!loaded || mainView !== "chart" || (chartTab !== "eps" && chartTab !== "eva") || !fundSelected || !proxyUrl) { setChartOverlay(null); return; }
@@ -3384,11 +3447,11 @@ function PortfolioApp() {
                 각 캔들 밑의 점은 그 캔들의 저가~고가 범위 안에서 종가 위치로 강약을 근사 판정해요. <span style={{ color: "#4c8dff" }}>파란 점</span>=전강후약(종가가 하단권, 약세 마감), <span style={{ color: "#e8544b" }}>붉은 점</span>=전약후강(종가가 상단권, 강세 마감). 캔들 몸통 색은 상승(붉은색)·하락(파란색) 기준이에요. 5·20·60·120 이동평균선이 가는 선으로 겹쳐 나오고, 그 밑에 거래량 막대(전 캔들보다 늘면 붉은색·줄면 파란색), 챠트 밑에 최근 60개 중 약세·강세 비중(%)이 표시돼요. 최근 60개 캔들만 표시돼요. ⚠️ 5분봉은 개별 종목만 지원되고(코스피·코스닥은 데이터 없음), API 특성상 "오늘 하루"의 장중 데이터만 나와요.
               </div>
               {strengthLoading && <div style={{ color: "#8993a6", fontSize: 12, textAlign: "center", padding: 16 }}>불러오는 중...</div>}
-              {renderCandles("코스피", kospiCandles)}
-              {renderCandles("코스닥", kosdaqCandles)}
+              <CandleChart title="코스피" candles={kospiCandles} period={strengthPeriod} />
+              <CandleChart title="코스닥" candles={kosdaqCandles} period={strengthPeriod} />
               {stocks.filter((s) => s.code && s.name).map((s) => (
                 <React.Fragment key={s.id}>
-                  {renderCandles(s.name, strengthData[`${s.code}:${strengthPeriod}`] || [])}
+                  <CandleChart title={s.name} candles={strengthData[`${s.code}:${strengthPeriod}`] || []} period={strengthPeriod} />
                 </React.Fragment>
               ))}
             </div>
@@ -4040,7 +4103,7 @@ function PortfolioApp() {
                   {strengthLoading && !strengthData[`${r.code}:${strengthPeriod}`] && (
                     <div style={{ color: "#8993a6", fontSize: 11, textAlign: "center", padding: 10 }}>불러오는 중...</div>
                   )}
-                  {renderCandles(r.name, strengthData[`${r.code}:${strengthPeriod}`] || [])}
+                  <CandleChart title={r.name} candles={strengthData[`${r.code}:${strengthPeriod}`] || []} period={strengthPeriod} />
                 </div>
               )}
               {metricsStock === r.id && (() => {
