@@ -430,7 +430,7 @@ function CandleChart({ title, candles, period }) {
         )}
       </div>
       <div
-        style={{ overflowX: "auto" }}
+        style={{ overflowX: "auto", WebkitUserSelect: "none", userSelect: "none", WebkitTouchCallout: "none" }}
         ref={(el) => {
           if (el && el.dataset.scrolled !== "1") {
             el.dataset.scrolled = "1";
@@ -441,7 +441,7 @@ function CandleChart({ title, candles, period }) {
         <svg
           ref={svgRef}
           viewBox={`0 0 ${W} ${H}`} width={W} height={H} preserveAspectRatio="none"
-          style={{ background: "#12151b", borderRadius: 8, border: "1px solid #262c37", display: "block", minWidth: "100%", touchAction: "pan-y" }}
+          style={{ background: "#12151b", borderRadius: 8, border: "1px solid #262c37", display: "block", minWidth: "100%", touchAction: "pan-y", WebkitUserSelect: "none", userSelect: "none", WebkitTouchCallout: "none" }}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerEnd}
@@ -470,7 +470,12 @@ function CandleChart({ title, candles, period }) {
           {maSeries.map((m) => lineOfVals(m.values).map((seg, idx) => (
             <polyline key={`ma${m.period}-${idx}`} fill="none" stroke={m.color} strokeWidth="1" points={seg} />
           )))}
-          {crosshairX !== null && <line x1={crosshairX} y1={0} x2={crosshairX} y2={H} stroke="#c9974a" strokeWidth="1" strokeDasharray="3 2" />}
+          {crosshairX !== null && (
+            <>
+              <line x1={crosshairX} y1={0} x2={crosshairX} y2={H} stroke="#c9974a" strokeWidth="1" strokeDasharray="3 2" />
+              {touched && <line x1={padL} y1={yOf(num(touched.close))} x2={W - padR} y2={yOf(num(touched.close))} stroke="#c9974a" strokeWidth="1" strokeDasharray="3 2" />}
+            </>
+          )}
         </svg>
         {hasVolume && (
           <svg viewBox={`0 0 ${W} ${VH}`} width={W} height={VH} preserveAspectRatio="none" style={{ background: "#12151b", borderRadius: 8, border: "1px solid #262c37", display: "block", minWidth: "100%", marginTop: 4, pointerEvents: "none" }}>
