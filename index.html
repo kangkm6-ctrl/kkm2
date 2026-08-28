@@ -404,6 +404,7 @@ function CandleChart({ title, candles, period }) {
   };
   const handlePointerDown = (e) => {
     draggingRef.current = true;
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) {}
     updateTouchFromClientX(e.clientX);
   };
   const handlePointerMove = (e) => {
