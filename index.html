@@ -4165,11 +4165,6 @@ function PortfolioApp() {
                 const pbrAnnual = f ? buildFrom(f.periods, "bps", (v) => (v && price ? price / num(v) : null)) : [];
                 const debtRatioAnnual = f ? buildFrom(f.periods, "debtRatio") : [];
                 const quickRatioAnnual = buildFrom(ef && ef.periods, "quickRatio");
-                const fixedAssetsAnnual = buildFrom(ef && ef.periods, "fixedAssets", (v) => v / 100); // 억원 환산
-                // CAPEX 근사치 = 이번 해 고정자산 - 전년 고정자산 (감가상각 반영 안 된 근사치)
-                const capexAnnual = fixedAssetsAnnual.length > 1
-                  ? fixedAssetsAnnual.slice(1).map((p, idx) => ({ year: p.year, value: p.value - fixedAssetsAnnual[idx].value }))
-                  : [];
 
                 // 우수=붉은색, 양호=금색, 보통=회색, 위험=파란색 (한국 증시 관례: 붉은=좋음/저평가, 파란=나쁨/고평가)
                 const tier4 = (t1, t2, t3, reversed) => (v) => {
@@ -4264,7 +4259,6 @@ function PortfolioApp() {
                   ["영업이익(억원)", opProfitAnnual, (v) => `${v >= 0 ? "+" : ""}${fmt(v)}`, null, null],
                   ["순이익(억원)", netIncomeAnnual, (v) => `${v >= 0 ? "+" : ""}${fmt(v)}`, null, null],
                   ["EVA(억원)", evaAnnual, (v) => `${v >= 0 ? "+" : ""}${fmt(v)}`, null, null],
-                  ["고정자산 증가액(억원)", capexAnnual, (v) => `${v >= 0 ? "+" : ""}${fmt(v)}`, null, null],
                   ["매출액성장률", revenueGrowthAnnual, (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`, tier4(0, 5, 15), "15%↑"],
                   ["영업이익률", opMarginAnnual, (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`, opMarginTier, opMarginRange],
                   ["순이익률", netMarginAnnual, (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`, tier4(2, 5, 10), "10%↑"],
@@ -4321,7 +4315,7 @@ function PortfolioApp() {
                           );
                         })}
                         <div style={{ marginTop: 4, fontSize: 9 }}>
-                          당좌비율은 유동자산÷유동부채로 근사 계산했어요(재고자산 분리 불가). PER이 마이너스면 "극저", 100배 이상이면 "극고"로 표시돼요. 고정자산은 총자산-유동자산으로 계산하고, 전년 대비 증감으로 CAPEX(설비투자)를 근사한 값이에요(감가상각·자산처분 등은 반영 안 됨). EVA는 세후영업이익-투하자본×WACC로 근사했어요(법인세율 22%·WACC는 업종별 고정 가정치). 우선주는 본주 재무데이터를 사용해요. 색은 전년 대비 증가(붉은색)·감소(파란색)로만 표시되고, 그 수치가 "우수" 기준을 만족하면 <span style={{ border: "1px solid #e8544b", padding: "0 3px", borderRadius: 3 }}>테두리</span>가 추가돼요.
+                          당좌비율은 유동자산÷유동부채로 근사 계산했어요(재고자산 분리 불가). PER이 마이너스면 "극저", 100배 이상이면 "극고"로 표시돼요. EVA는 세후영업이익-투하자본×WACC로 근사했어요(WACC는 업종별 고정 가정치). 우선주는 본주 재무데이터를 사용해요. 색은 전년 대비 증가(붉은색)·감소(파란색)로만 표시되고, 그 수치가 "우수" 기준을 만족하면 <span style={{ border: "1px solid #e8544b", padding: "0 3px", borderRadius: 3 }}>테두리</span>가 추가돼요.
                           <br /><span style={{ color: "#e8544b" }}>●우수</span> <span style={{ color: "#e0b93c" }}>●양호</span> <span style={{ color: "#8993a6" }}>●보통/적정</span> <span style={{ color: "#4c8dff" }}>●주의</span> · 업종명을 인식해 반도체·게임·2차전지는 전용 기준선을, 그 외는 일반 기준선을 적용해요. 업종별로 기준이 없는 지표는 일반 기준을 그대로 써요.
                         </div>
                       </>
