@@ -538,7 +538,7 @@ function CandleChart({ title, candles, period }) {
         }}
       >
         <svg
-          viewBox={`0 0 ${W} 24`} width={W} height={24} preserveAspectRatio="none"
+          viewBox={`0 0 ${W} 48`} width={W} height={48} preserveAspectRatio="none"
           style={{ background: "#12151b", borderRadius: 8, border: "1px solid #262c37", display: "block", minWidth: "100%", touchAction: "pan-y" }}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
@@ -546,15 +546,16 @@ function CandleChart({ title, candles, period }) {
           onPointerCancel={handlePointerEnd}
           onPointerLeave={handlePointerEnd}
         >
+          <line x1={0} y1={24} x2={W} y2={24} stroke="#3a4150" strokeWidth="0.5" strokeDasharray="2 2" />
           {rollingStrongPct.slice(1).map((v, i) => {
             const idx = i + 1;
             const x1p = xOf(idx - 1), x2p = xOf(idx);
-            const y1p = 2 + (1 - rollingStrongPct[idx - 1] / 100) * 20;
-            const y2p = 2 + (1 - v / 100) * 20;
+            const y1p = 4 + (1 - rollingStrongPct[idx - 1] / 100) * 40;
+            const y2p = 4 + (1 - v / 100) * 40;
             const color = v >= 50 ? "#e8544b" : "#4c8dff"; // 강세 50% 이상=붉은색, 미만=파란색
             return <line key={idx} x1={x1p} y1={y1p} x2={x2p} y2={y2p} stroke={color} strokeWidth="1.4" />;
           })}
-          {crosshairX !== null && <line x1={crosshairX} y1={0} x2={crosshairX} y2={24} stroke="#c9974a" strokeWidth="1" strokeDasharray="3 2" />}
+          {crosshairX !== null && <line x1={crosshairX} y1={0} x2={crosshairX} y2={48} stroke="#c9974a" strokeWidth="1" strokeDasharray="3 2" />}
         </svg>
         <svg
           viewBox={`0 0 ${W} 14`} width={W} height={14} preserveAspectRatio="none"
