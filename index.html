@@ -346,6 +346,21 @@ function CandleChart({ title, candles, period }) {
   const [touchIdx, setTouchIdx] = useState(null);
   const svgRef = useRef(null);
   const draggingRef = useRef(false);
+  const scrollRef1 = useRef(null);
+  const scrollRef2 = useRef(null);
+  const syncingRef = useRef(false);
+  const handleScroll1 = () => {
+    if (syncingRef.current || !scrollRef1.current || !scrollRef2.current) return;
+    syncingRef.current = true;
+    scrollRef2.current.scrollLeft = scrollRef1.current.scrollLeft;
+    syncingRef.current = false;
+  };
+  const handleScroll2 = () => {
+    if (syncingRef.current || !scrollRef1.current || !scrollRef2.current) return;
+    syncingRef.current = true;
+    scrollRef1.current.scrollLeft = scrollRef2.current.scrollLeft;
+    syncingRef.current = false;
+  };
 
   if (!candles || candles.length === 0) {
     return (
@@ -383,6 +398,16 @@ function CandleChart({ title, candles, period }) {
     return segs.map((s) => s.join(" "));
   };
   const { weakPct, strongPct } = computeStrengthPct(candles);
+  // 강약표시 챠트용: 최근 10개 캔들 기준 롤링 강세% (50% 이상=붉은색, 미만=파란색으로 선을 그린다)
+  const ROLL_WINDOW = 10;
+  const rollingStrongPct = recent.map((c, idx) => {
+    const start = Math.max(0, idx - ROLL_WINDOW + 1);
+    const slice = recent.slice(start, idx + 1);
+    const weak = slice.filter((cc) => dotColorFor(cc) === "#4c8dff").length;
+    const strong = slice.filter((cc) => dotColorFor(cc) === "#e8544b").length;
+    const total = weak + strong;
+    return total > 0 ? (strong / total) * 100 : 50;
+  });
   const hasVolume = recent.some((c) => c.volume !== undefined && c.volume !== null);
   const VH = 40, vPadT = 2, vPadB = 2;
   const vols = recent.map((c) => num(c.volume) || 0);
@@ -432,7 +457,9 @@ function CandleChart({ title, candles, period }) {
       </div>
       <div
         style={{ overflowX: "auto", WebkitUserSelect: "none", userSelect: "none", WebkitTouchCallout: "none" }}
+        onScroll={handleScroll1}
         ref={(el) => {
+          scrollRef1.current = el;
           if (el && el.dataset.scrolled !== "1") {
             el.dataset.scrolled = "1";
             requestAnimationFrame(() => { el.scrollLeft = el.scrollWidth; });
@@ -490,11 +517,6 @@ function CandleChart({ title, candles, period }) {
             {crosshairX !== null && <line x1={crosshairX} y1={0} x2={crosshairX} y2={VH} stroke="#c9974a" strokeWidth="1" strokeDasharray="3 2" />}
           </svg>
         )}
-        <svg viewBox={`0 0 ${W} 14`} width={W} height={14} preserveAspectRatio="none" style={{ display: "block", minWidth: "100%", marginTop: 2, pointerEvents: "none" }}>
-          {recent.map((c, idx) => (
-            <circle key={idx} cx={xOf(idx)} cy={7} r="1.8" fill={dotColorFor(c)} />
-          ))}
-        </svg>
       </div>
       <div style={{ display: "flex", gap: 10, marginTop: 4, fontSize: 9, color: "#8993a6", flexWrap: "wrap" }}>
         {MA_LINES.map((m) => (
@@ -503,6 +525,51 @@ function CandleChart({ title, candles, period }) {
             {m.period}
           </span>
         ))}
+      </div>
+      <div
+        style={{ overflowX: "auto", marginTop: 4, WebkitUserSelect: "none", userSelect: "none", WebkitTouchCallout: "none" }}
+        onScroll={handleScroll2}
+        ref={(el) => {
+          scrollRef2.current = el;
+          if (el && el.dataset.scrolled !== "1") {
+            el.dataset.scrolled = "1";
+            requestAnimationFrame(() => { el.scrollLeft = el.scrollWidth; });
+          }
+        }}
+      >
+        <svg
+          viewBox={`0 0 ${W} 24`} width={W} height={24} preserveAspectRatio="none"
+          style={{ background: "#12151b", borderRadius: 8, border: "1px solid #262c37", display: "block", minWidth: "100%", touchAction: "pan-y" }}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerEnd}
+          onPointerCancel={handlePointerEnd}
+          onPointerLeave={handlePointerEnd}
+        >
+          {rollingStrongPct.slice(1).map((v, i) => {
+            const idx = i + 1;
+            const x1p = xOf(idx - 1), x2p = xOf(idx);
+            const y1p = 2 + (1 - rollingStrongPct[idx - 1] / 100) * 20;
+            const y2p = 2 + (1 - v / 100) * 20;
+            const color = v >= 50 ? "#e8544b" : "#4c8dff"; // 강세 50% 이상=붉은색, 미만=파란색
+            return <line key={idx} x1={x1p} y1={y1p} x2={x2p} y2={y2p} stroke={color} strokeWidth="1.4" />;
+          })}
+          {crosshairX !== null && <line x1={crosshairX} y1={0} x2={crosshairX} y2={24} stroke="#c9974a" strokeWidth="1" strokeDasharray="3 2" />}
+        </svg>
+        <svg
+          viewBox={`0 0 ${W} 14`} width={W} height={14} preserveAspectRatio="none"
+          style={{ display: "block", minWidth: "100%", marginTop: 2, touchAction: "pan-y" }}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerEnd}
+          onPointerCancel={handlePointerEnd}
+          onPointerLeave={handlePointerEnd}
+        >
+          {recent.map((c, idx) => (
+            <circle key={idx} cx={xOf(idx)} cy={7} r="1.8" fill={dotColorFor(c)} />
+          ))}
+          {crosshairX !== null && <line x1={crosshairX} y1={0} x2={crosshairX} y2={14} stroke="#c9974a" strokeWidth="1" strokeDasharray="3 2" />}
+        </svg>
       </div>
       <div style={{ display: "flex", gap: 10, marginTop: 4, fontSize: 11 }}>
         {(weakPct > 0 || strongPct > 0) && (
