@@ -342,7 +342,7 @@ const formatCrosshairLabel = (c, period) => {
 
 // 캔들차트 하나 (강약챠트 화면·보유종목 안의 종목별 강약챠트에서 공용으로 씀).
 // 손가락으로 탭하고 있으면 세로 점선(크로스헤어)이 나오고, 그 지점의 날짜/시간·가격이 표시된다.
-function CandleChart({ title, candles, period }) {
+function CandleChart({ title, candles, period, subCandles }) {
   const [touchIdx, setTouchIdx] = useState(null);
   const svgRef = useRef(null);
   const draggingRef = useRef(false);
@@ -400,6 +400,36 @@ function CandleChart({ title, candles, period }) {
   const { weakPct, strongPct } = computeStrengthPct(candles);
   // 강약표시 챠트용: 도트와 똑같이, 그 캔들 하나만 보고 강세(100)/약세(0)로 표시한다.
   const pointStrength = recent.map((c) => (dotColorFor(c) === "#e8544b" ? 100 : 0));
+  // 각 지점의 강약%을, 그 안에 속한 하위 기간 캔들들의 평균으로 계산한다.
+  // 5분봉은 그 5분 안의 1분봉들, 주봉은 그 주 안의 일봉들, 월봉은 그 달 안의 주봉들, 년봉은 그 해 안의 월봉들의 평균.
+  // (일봉은 과거 5분봉 데이터가 없어서, 그 캔들 하나만 보는 방식으로 대체된다)
+  const todayStr = (() => {
+    const d = new Date();
+    return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+  })();
+  const finalStrengthPct = recent.map((c, idx) => {
+    if (period === "5MIN" && c.subCandles && c.subCandles.length > 0) {
+      const subs = c.subCandles;
+      const strong = subs.filter((s) => dotColorFor(s) === "#e8544b").length;
+      return (strong / subs.length) * 100;
+    }
+    // 일봉: "오늘" 날짜의 캔들만 원본 1분봉 평균으로 계산할 수 있다 (과거 날짜는 1분봉 API가 지원 안 함).
+    if (period === "D" && c.date === todayStr && subCandles && subCandles.length > 0) {
+      const strong = subCandles.filter((s) => dotColorFor(s) === "#e8544b").length;
+      return (strong / subCandles.length) * 100;
+    }
+    if (period !== "D" && subCandles && subCandles.length > 0) {
+      const startDate = c.date;
+      const nextC = recent[idx + 1];
+      const endDate = nextC ? nextC.date : null;
+      const inRange = subCandles.filter((s) => s.date >= startDate && (endDate === null || s.date < endDate));
+      if (inRange.length > 0) {
+        const strong = inRange.filter((s) => dotColorFor(s) === "#e8544b").length;
+        return (strong / inRange.length) * 100;
+      }
+    }
+    return pointStrength[idx]; // 폴백: 하위 데이터가 없으면(예: 과거 일봉) 그 캔들 하나만 본다.
+  });
   const hasVolume = recent.some((c) => c.volume !== undefined && c.volume !== null);
   const VH = 40, vPadT = 2, vPadB = 2;
   const vols = recent.map((c) => num(c.volume) || 0);
@@ -443,7 +473,7 @@ function CandleChart({ title, candles, period }) {
         {last && <div className="tnum" style={{ fontSize: 12, fontWeight: 700, color: "#8993a6" }}>{fmt(num(last.close))}</div>}
         {touched && (
           <div className="tnum" style={{ fontSize: 11, fontWeight: 700, color: "#c9974a" }}>
-            {formatCrosshairLabel(touched, period)} · {fmt(num(touched.close))} · <span style={{ color: pointStrength[touchIdx] === 100 ? "#e8544b" : "#4c8dff" }}>{pointStrength[touchIdx] === 100 ? "강세" : "약세"}</span>
+            {formatCrosshairLabel(touched, period)} · {fmt(num(touched.close))} · <span style={{ color: finalStrengthPct[touchIdx] >= 50 ? "#e8544b" : "#4c8dff" }}>{finalStrengthPct[touchIdx] >= 50 ? "강세" : "약세"} {(finalStrengthPct[touchIdx] >= 50 ? finalStrengthPct[touchIdx] : 100 - finalStrengthPct[touchIdx]).toFixed(0)}%</span>
           </div>
         )}
       </div>
@@ -539,12 +569,13 @@ function CandleChart({ title, candles, period }) {
           onPointerLeave={handlePointerEnd}
         >
           <line x1={0} y1={24} x2={W} y2={24} stroke="#3a4150" strokeWidth="0.5" strokeDasharray="2 2" />
-          {recent.map((c, idx) => {
-            const x = xOf(idx);
-            const isStrong = pointStrength[idx] === 100;
-            const y = isStrong ? 6 : 42;
-            const color = isStrong ? "#e8544b" : "#4c8dff";
-            return <line key={idx} x1={x - candleGap / 2} y1={y} x2={x + candleGap / 2} y2={y} stroke={color} strokeWidth="2.2" />;
+          {finalStrengthPct.slice(1).map((v, i) => {
+            const idx = i + 1;
+            const x1p = xOf(idx - 1), x2p = xOf(idx);
+            const y1p = 4 + (1 - finalStrengthPct[idx - 1] / 100) * 40;
+            const y2p = 4 + (1 - v / 100) * 40;
+            const color = v >= 50 ? "#e8544b" : "#4c8dff"; // 강세 50% 이상=붉은색, 미만=파란색
+            return <line key={idx} x1={x1p} y1={y1p} x2={x2p} y2={y2p} stroke={color} strokeWidth="1.6" />;
           })}
           {crosshairX !== null && <line x1={crosshairX} y1={0} x2={crosshairX} y2={48} stroke="#c9974a" strokeWidth="1" strokeDasharray="3 2" />}
         </svg>
@@ -1698,6 +1729,7 @@ function PortfolioApp() {
     const stock = stocks.find((s) => s.id === candleStock);
     if (!stock || !stock.code) return;
     fetchStrengthForCode(stock.code, strengthPeriod);
+    if (SUB_PERIOD_OF[strengthPeriod] && strengthPeriod !== "D") fetchStrengthForCode(stock.code, SUB_PERIOD_OF[strengthPeriod]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded, candleStock, strengthPeriod]);
 
@@ -1710,6 +1742,8 @@ function PortfolioApp() {
   }, [loaded, mainView, chartTab, stockCodes]);
 
   // 강약챠트: 코스피/코스닥 지수 + 보유종목 전체의 일봉/주봉/월봉 캔들(OHLC)을 받아온다.
+  // 상위 기간의 각 지점 강약%을 그 안의 하위 기간 평균으로 계산하기 위한 매핑. (일봉은 과거 5분봉이 없어서 제외)
+  const SUB_PERIOD_OF = { D: "1MINRAW", W: "D", M: "W", Y: "M" };
   // 1분봉을 5분 단위로 묶는다. ⚠️ 원본 1분봉 API가 "오늘 하루"만 주기 때문에 5분봉도 오늘 장중 데이터만 나온다.
   const aggregateToFiveMin = (minuteCandles) => {
     const buckets = {};
@@ -1717,13 +1751,14 @@ function PortfolioApp() {
       const hh = c.time.slice(0, 2), mm = c.time.slice(2, 4);
       const bucketMin = Math.floor(Number(mm) / 5) * 5;
       const bucketKey = `${hh}${String(bucketMin).padStart(2, "0")}`;
-      if (!buckets[bucketKey]) buckets[bucketKey] = { date: bucketKey, open: c.open, high: c.high, low: c.low, close: c.close, volume: num(c.volume) };
+      if (!buckets[bucketKey]) buckets[bucketKey] = { date: bucketKey, open: c.open, high: c.high, low: c.low, close: c.close, volume: num(c.volume), subCandles: [c] };
       else {
         const b = buckets[bucketKey];
         b.high = Math.max(num(b.high), num(c.high));
         b.low = Math.min(num(b.low), num(c.low));
         b.close = c.close; // 1분봉이 시간 오름차순이라, 마지막에 덮어쓴 값이 그 구간의 종가가 된다.
         b.volume = num(b.volume) + num(c.volume);
+        b.subCandles.push(c);
       }
     });
     return Object.keys(buckets).sort().map((k) => buckets[k]);
@@ -1761,23 +1796,45 @@ function PortfolioApp() {
       { key: `1001:${period}`, url: `${base}/index-history/1001?period=${period}&days=${days}` },
       ...stockCodes.map((c) => ({ key: `${c}:${period}`, url: `${base}/stock-history/${c}?period=${period}&days=${days}` })),
     ].filter((t) => !strengthData[t.key]);
-    if (targets.length === 0) { setStrengthLoading(false); return; }
-    try {
-      const results = await Promise.all(targets.map((t) =>
-        fetch(t.url, { headers }).then((r) => (r.ok ? r.json() : null)).then((d) => ({ key: t.key, candles: d && Array.isArray(d.candles) ? d.candles : [] })).catch(() => ({ key: t.key, candles: [] }))
-      ));
-      setStrengthData((prev) => {
-        const next = { ...prev };
-        results.forEach(({ key, candles }) => { next[key] = candles; });
-        return next;
-      });
-    } catch (e) {}
-    setStrengthLoading(false);
+    if (targets.length === 0) { setStrengthLoading(false); }
+    else {
+      try {
+        const results = await Promise.all(targets.map((t) =>
+          fetch(t.url, { headers }).then((r) => (r.ok ? r.json() : null)).then((d) => ({ key: t.key, candles: d && Array.isArray(d.candles) ? d.candles : [] })).catch(() => ({ key: t.key, candles: [] }))
+        ));
+        setStrengthData((prev) => {
+          const next = { ...prev };
+          results.forEach(({ key, candles }) => { next[key] = candles; });
+          return next;
+        });
+      } catch (e) {}
+      setStrengthLoading(false);
+    }
+    // 일봉을 볼 때는, 오늘 날짜 하나만이라도 1분봉 평균으로 강약%을 보여줄 수 있게 원본 1분봉도 받아온다. (과거 날짜는 API 자체가 지원 안 함)
+    if (period === "D") {
+      const rawTargets = stockCodes.filter((c) => !strengthData[`${c}:1MINRAW`]).map((c) => ({ key: `${c}:1MINRAW`, code: c }));
+      if (rawTargets.length > 0) {
+        try {
+          const rawResults = await Promise.all(rawTargets.map((t) =>
+            fetch(`${base}/stock-minute-history/${t.code}`, { headers })
+              .then((r) => (r.ok ? r.json() : null))
+              .then((d) => ({ key: t.key, candles: d && Array.isArray(d.minuteCandles) ? d.minuteCandles : [] }))
+              .catch(() => ({ key: t.key, candles: [] }))
+          ));
+          setStrengthData((prev) => {
+            const next = { ...prev };
+            rawResults.forEach(({ key, candles }) => { next[key] = candles; });
+            return next;
+          });
+        } catch (e) {}
+      }
+    }
   }, [proxyUrl, appSecret, stockCodes, strengthData]);
 
   useEffect(() => {
     if (!loaded || mainView !== "strengthChart") return;
     fetchStrengthData(strengthPeriod);
+    if (SUB_PERIOD_OF[strengthPeriod] && strengthPeriod !== "D") fetchStrengthData(SUB_PERIOD_OF[strengthPeriod]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded, mainView, strengthPeriod, stockCodes]);
 
@@ -1791,11 +1848,11 @@ function PortfolioApp() {
   const fetchStrengthForCode = useCallback(async (code, period) => {
     if (!proxyUrl || !code) return;
     const key = `${code}:${period}`;
-    if (strengthData[key]) return;
-    setStrengthLoading(true);
     const base = proxyUrl.replace(/\/$/, "");
     const headers = appSecret ? { "x-app-secret": appSecret } : {};
     if (period === "5MIN") {
+      if (strengthData[key]) return;
+      setStrengthLoading(true);
       try {
         const r = await fetch(`${base}/stock-minute-history/${code}`, { headers });
         const d = r.ok ? await r.json() : null;
@@ -1804,13 +1861,27 @@ function PortfolioApp() {
       setStrengthLoading(false);
       return;
     }
-    const days = period === "D" ? 400 : period === "W" ? 1500 : period === "M" ? 6000 : 7300;
-    try {
-      const r = await fetch(`${base}/stock-history/${code}?period=${period}&days=${days}`, { headers });
-      const d = r.ok ? await r.json() : null;
-      setStrengthData((prev) => ({ ...prev, [key]: d && Array.isArray(d.candles) ? d.candles : [] }));
-    } catch (e) {}
-    setStrengthLoading(false);
+    if (!strengthData[key]) {
+      setStrengthLoading(true);
+      const days = period === "D" ? 400 : period === "W" ? 1500 : period === "M" ? 6000 : 7300;
+      try {
+        const r = await fetch(`${base}/stock-history/${code}?period=${period}&days=${days}`, { headers });
+        const d = r.ok ? await r.json() : null;
+        setStrengthData((prev) => ({ ...prev, [key]: d && Array.isArray(d.candles) ? d.candles : [] }));
+      } catch (e) {}
+      setStrengthLoading(false);
+    }
+    // 일봉을 볼 때는, 오늘 날짜 하나만이라도 1분봉 평균으로 강약%을 보여줄 수 있게 원본 1분봉도 받아온다.
+    if (period === "D") {
+      const rawKey = `${code}:1MINRAW`;
+      if (!strengthData[rawKey]) {
+        try {
+          const r = await fetch(`${base}/stock-minute-history/${code}`, { headers });
+          const d = r.ok ? await r.json() : null;
+          setStrengthData((prev) => ({ ...prev, [rawKey]: d && Array.isArray(d.minuteCandles) ? d.minuteCandles : [] }));
+        } catch (e) {}
+      }
+    }
   }, [proxyUrl, appSecret, strengthData]);
 
   // 캔들 하나하나가 "전강후약"(장중 강했다가 종가는 약함=파란 점)인지 "전약후강"(장중 약했다가 종가는 강함=붉은 점)인지를
@@ -3509,14 +3580,14 @@ function PortfolioApp() {
             <div style={{ padding: "0 16px 20px" }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: "#e7eaf0", marginBottom: 4 }}>강약챠트</div>
               <div style={{ fontSize: 10, color: "#5a6274", marginBottom: 10 }}>
-                각 캔들 밑의 점은 그 캔들의 저가~고가 범위 안에서 종가 위치로 강약을 근사 판정해요. <span style={{ color: "#4c8dff" }}>파란 점</span>=전강후약(종가가 하단권, 약세 마감), <span style={{ color: "#e8544b" }}>붉은 점</span>=전약후강(종가가 상단권, 강세 마감). 캔들 몸통 색은 상승(붉은색)·하락(파란색) 기준이에요. 5·20·60·120 이동평균선이 가는 선으로 겹쳐 나오고, 그 밑에 거래량 막대(전 캔들보다 늘면 붉은색·줄면 파란색), 챠트 밑에 최근 60개 중 약세·강세 비중(%)이 표시돼요. 최근 60개 캔들만 표시돼요. ⚠️ 5분봉은 개별 종목만 지원되고(코스피·코스닥은 데이터 없음), API 특성상 "오늘 하루"의 장중 데이터만 나와요.
+                각 캔들 밑의 점은 그 캔들의 저가~고가 범위 안에서 종가 위치로 강약을 근사 판정해요. <span style={{ color: "#4c8dff" }}>파란 점</span>=전강후약(종가가 하단권, 약세 마감), <span style={{ color: "#e8544b" }}>붉은 점</span>=전약후강(종가가 상단권, 강세 마감). 캔들 몸통 색은 상승(붉은색)·하락(파란색) 기준이에요. 5·20·60·120 이동평균선이 가는 선으로 겹쳐 나오고, 강약표시 챠트는 5분봉=그 안의 1분봉, 주봉=그 주의 일봉, 월봉=그 달의 주봉, 년봉=그 해의 월봉 평균으로 %를 계산해요. 일봉은 "오늘" 날짜만 그 안의 1분봉 평균으로 계산되고, 나머지 과거 일봉은 그 캔들 하나만 봐요(1분봉 API가 과거 날짜는 지원 안 함). 최근 60개 캔들만 표시돼요. ⚠️ 5분봉·일봉의 1분봉 평균은 개별 종목만 지원되고(코스피·코스닥은 데이터 없음), API 특성상 "오늘 하루"의 장중 데이터만 나와요.
               </div>
               {strengthLoading && <div style={{ color: "#8993a6", fontSize: 12, textAlign: "center", padding: 16 }}>불러오는 중...</div>}
-              <CandleChart title="코스피" candles={kospiCandles} period={strengthPeriod} />
-              <CandleChart title="코스닥" candles={kosdaqCandles} period={strengthPeriod} />
+              <CandleChart title="코스피" candles={kospiCandles} period={strengthPeriod} subCandles={strengthData[`0001:${SUB_PERIOD_OF[strengthPeriod]}`]} />
+              <CandleChart title="코스닥" candles={kosdaqCandles} period={strengthPeriod} subCandles={strengthData[`1001:${SUB_PERIOD_OF[strengthPeriod]}`]} />
               {stocks.filter((s) => s.code && s.name).map((s) => (
                 <React.Fragment key={s.id}>
-                  <CandleChart title={s.name} candles={strengthData[`${s.code}:${strengthPeriod}`] || []} period={strengthPeriod} />
+                  <CandleChart title={s.name} candles={strengthData[`${s.code}:${strengthPeriod}`] || []} period={strengthPeriod} subCandles={strengthData[`${s.code}:${SUB_PERIOD_OF[strengthPeriod]}`]} />
                 </React.Fragment>
               ))}
             </div>
@@ -4168,7 +4239,7 @@ function PortfolioApp() {
                   {strengthLoading && !strengthData[`${r.code}:${strengthPeriod}`] && (
                     <div style={{ color: "#8993a6", fontSize: 11, textAlign: "center", padding: 10 }}>불러오는 중...</div>
                   )}
-                  <CandleChart title={r.name} candles={strengthData[`${r.code}:${strengthPeriod}`] || []} period={strengthPeriod} />
+                  <CandleChart title={r.name} candles={strengthData[`${r.code}:${strengthPeriod}`] || []} period={strengthPeriod} subCandles={strengthData[`${r.code}:${SUB_PERIOD_OF[strengthPeriod]}`]} />
                 </div>
               )}
               {metricsStock === r.id && (() => {
