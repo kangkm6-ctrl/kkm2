@@ -1824,8 +1824,20 @@ function PortfolioApp() {
       } catch (e) {}
       setStrengthLoading(false);
     }
-    // ⚠️ "오늘 일봉의 1분봉 평균" 기능은 여기(전체 종목을 한 번에 보여주는 강약챠트·챠트비교 화면)에서는 빼뒀다.
-    // 종목 수만큼 1분봉 요청이 한꺼번에 더 나가면 API 요청 제한에 걸릴 수 있어서다. 보유종목의 종목별 강약챠트(fetchStrengthForCode)에서만 지원한다.
+    // 일봉을 볼 때, 오늘 날짜 하나만이라도 1분봉 평균으로 강약%을 보여줄 수 있게 원본 1분봉을 받아온다.
+    // ⚠️ 한 번에 다 쏘면(Promise.all) API 요청 제한에 걸려서, 종목 하나씩 약간 텀을 두고 순서대로 받아온다 (조금 느리지만 안전하다).
+    if (period === "D") {
+      const rawTargets = stockCodes.filter((c) => !strengthData[`${c}:1MINRAW`]);
+      for (const code of rawTargets) {
+        try {
+          const r = await fetch(`${base}/stock-minute-history/${code}`, { headers });
+          const d = r.ok ? await r.json() : null;
+          const candles = d && Array.isArray(d.minuteCandles) ? d.minuteCandles : [];
+          setStrengthData((prev) => ({ ...prev, [`${code}:1MINRAW`]: candles }));
+        } catch (e) {}
+        await new Promise((resolve) => setTimeout(resolve, 250)); // 요청 사이 0.25초 텀
+      }
+    }
   }, [proxyUrl, appSecret, stockCodes, strengthData]);
 
   useEffect(() => {
@@ -3582,7 +3594,7 @@ function PortfolioApp() {
             <div style={{ padding: "0 16px 20px" }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: "#e7eaf0", marginBottom: 4 }}>강약챠트</div>
               <div style={{ fontSize: 10, color: "#5a6274", marginBottom: 10 }}>
-                각 캔들 밑의 점은 그 캔들의 저가~고가 범위 안에서 종가 위치로 강약을 근사 판정해요. <span style={{ color: "#4c8dff" }}>파란 점</span>=전강후약(종가가 하단권, 약세 마감), <span style={{ color: "#e8544b" }}>붉은 점</span>=전약후강(종가가 상단권, 강세 마감). 캔들 몸통 색은 상승(붉은색)·하락(파란색) 기준이에요. 5·20·60·120 이동평균선이 가는 선으로 겹쳐 나오고, 강약표시 챠트는 5분봉=그 안의 1분봉, 주봉=그 주의 일봉, 월봉=그 달의 주봉, 년봉=그 해의 월봉 평균으로 %를 계산해요. 일봉은 이 화면(전체 종목을 한 번에 보여줌)에서는 API 부하 때문에 그 캔들 하나만 봐요 — "오늘 일봉의 1분봉 평균"은 보유종목 안의 종목별 강약챠트(하나씩 볼 때)에서만 지원돼요. 최근 60개 캔들만 표시돼요. ⚠️ 5분봉은 개별 종목만 지원되고(코스피·코스닥은 데이터 없음), API 특성상 "오늘 하루"의 장중 데이터만 나와요.
+                각 캔들 밑의 점은 그 캔들의 저가~고가 범위 안에서 종가 위치로 강약을 근사 판정해요. <span style={{ color: "#4c8dff" }}>파란 점</span>=전강후약(종가가 하단권, 약세 마감), <span style={{ color: "#e8544b" }}>붉은 점</span>=전약후강(종가가 상단권, 강세 마감). 캔들 몸통 색은 상승(붉은색)·하락(파란색) 기준이에요. 5·20·60·120 이동평균선이 가는 선으로 겹쳐 나오고, 강약표시 챠트는 5분봉=그 안의 1분봉, 주봉=그 주의 일봉, 월봉=그 달의 주봉, 년봉=그 해의 월봉 평균으로 %를 계산해요. 일봉의 "오늘" 날짜는 그 안의 1분봉 평균으로 계산되는데, 종목별로 순서대로 조금씩 받아오다 보니 처음엔 그 캔들 하나만 보이다가 몇 초 후 하나씩 갱신될 수 있어요. 나머지 과거 일봉은 계속 그 캔들 하나만 봐요(1분봉 API가 과거 날짜는 지원 안 함). 최근 60개 캔들만 표시돼요. ⚠️ 5분봉·일봉의 1분봉 평균은 개별 종목만 지원되고(코스피·코스닥은 데이터 없음), API 특성상 "오늘 하루"의 장중 데이터만 나와요.
               </div>
               {strengthLoading && <div style={{ color: "#8993a6", fontSize: 12, textAlign: "center", padding: 16 }}>불러오는 중...</div>}
               <CandleChart title="코스피" candles={kospiCandles} period={strengthPeriod} subCandles={strengthData[`0001:${SUB_PERIOD_OF[strengthPeriod]}`]} />
