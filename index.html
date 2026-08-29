@@ -398,16 +398,8 @@ function CandleChart({ title, candles, period }) {
     return segs.map((s) => s.join(" "));
   };
   const { weakPct, strongPct } = computeStrengthPct(candles);
-  // 강약표시 챠트용: 최근 10개 캔들 기준 롤링 강세% (50% 이상=붉은색, 미만=파란색으로 선을 그린다)
-  const ROLL_WINDOW = 10;
-  const rollingStrongPct = recent.map((c, idx) => {
-    const start = Math.max(0, idx - ROLL_WINDOW + 1);
-    const slice = recent.slice(start, idx + 1);
-    const weak = slice.filter((cc) => dotColorFor(cc) === "#4c8dff").length;
-    const strong = slice.filter((cc) => dotColorFor(cc) === "#e8544b").length;
-    const total = weak + strong;
-    return total > 0 ? (strong / total) * 100 : 50;
-  });
+  // 강약표시 챠트용: 도트와 똑같이, 그 캔들 하나만 보고 강세(100)/약세(0)로 표시한다.
+  const pointStrength = recent.map((c) => (dotColorFor(c) === "#e8544b" ? 100 : 0));
   const hasVolume = recent.some((c) => c.volume !== undefined && c.volume !== null);
   const VH = 40, vPadT = 2, vPadB = 2;
   const vols = recent.map((c) => num(c.volume) || 0);
@@ -451,7 +443,7 @@ function CandleChart({ title, candles, period }) {
         {last && <div className="tnum" style={{ fontSize: 12, fontWeight: 700, color: "#8993a6" }}>{fmt(num(last.close))}</div>}
         {touched && (
           <div className="tnum" style={{ fontSize: 11, fontWeight: 700, color: "#c9974a" }}>
-            {formatCrosshairLabel(touched, period)} · {fmt(num(touched.close))} · <span style={{ color: rollingStrongPct[touchIdx] >= 50 ? "#e8544b" : "#4c8dff" }}>{rollingStrongPct[touchIdx] >= 50 ? "강세" : "약세"} {(rollingStrongPct[touchIdx] >= 50 ? rollingStrongPct[touchIdx] : 100 - rollingStrongPct[touchIdx]).toFixed(0)}%</span>
+            {formatCrosshairLabel(touched, period)} · {fmt(num(touched.close))} · <span style={{ color: pointStrength[touchIdx] === 100 ? "#e8544b" : "#4c8dff" }}>{pointStrength[touchIdx] === 100 ? "강세" : "약세"}</span>
           </div>
         )}
       </div>
@@ -547,13 +539,12 @@ function CandleChart({ title, candles, period }) {
           onPointerLeave={handlePointerEnd}
         >
           <line x1={0} y1={24} x2={W} y2={24} stroke="#3a4150" strokeWidth="0.5" strokeDasharray="2 2" />
-          {rollingStrongPct.slice(1).map((v, i) => {
-            const idx = i + 1;
-            const x1p = xOf(idx - 1), x2p = xOf(idx);
-            const y1p = 4 + (1 - rollingStrongPct[idx - 1] / 100) * 40;
-            const y2p = 4 + (1 - v / 100) * 40;
-            const color = v >= 50 ? "#e8544b" : "#4c8dff"; // 강세 50% 이상=붉은색, 미만=파란색
-            return <line key={idx} x1={x1p} y1={y1p} x2={x2p} y2={y2p} stroke={color} strokeWidth="1.4" />;
+          {recent.map((c, idx) => {
+            const x = xOf(idx);
+            const isStrong = pointStrength[idx] === 100;
+            const y = isStrong ? 6 : 42;
+            const color = isStrong ? "#e8544b" : "#4c8dff";
+            return <line key={idx} x1={x - candleGap / 2} y1={y} x2={x + candleGap / 2} y2={y} stroke={color} strokeWidth="2.2" />;
           })}
           {crosshairX !== null && <line x1={crosshairX} y1={0} x2={crosshairX} y2={48} stroke="#c9974a" strokeWidth="1" strokeDasharray="3 2" />}
         </svg>
