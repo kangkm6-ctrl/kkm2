@@ -309,13 +309,45 @@ const dotColorFor = (c) => {
   const closePos = (cl - l) / range;
   return closePos < 0.5 ? "#4c8dff" : "#e8544b"; // 종가가 하단권=전강후약(파랑), 상단권=전약후강(빨강)
 };
-// 최근 60개 캔들 중 약세(전강후약)·강세(전약후강) 비중(%)을 계산한다. (강약챠트 목록·챠트비교 정렬에 공용으로 씀)
-const computeStrengthPct = (candles) => {
+// 최근 60개 캔들 각 지점의 강약%을, 그 안에 속한 하위 기간 캔들들의 평균으로 계산한다.
+// 5분봉=그 안의 1분봉, 일봉="오늘"만 1분봉 평균(과거는 그 캔들 하나), 주봉=그 주의 일봉, 월봉=그 달의 주봉, 년봉=그 해의 월봉 평균.
+// (강약챠트 도트·강약표시 챠트·크로스헤어·챠트비교 정렬까지 전부 이 함수 하나로 공용으로 계산해서 항상 같은 기준을 쓴다)
+const computeFinalStrengthArr = (candles, period, subCandles) => {
   const recent = (candles || []).slice(-60);
-  const weakCount = recent.filter((c) => dotColorFor(c) === "#4c8dff").length;
-  const strongCount = recent.filter((c) => dotColorFor(c) === "#e8544b").length;
-  const total = weakCount + strongCount;
-  return { weakPct: total > 0 ? (weakCount / total) * 100 : 0, strongPct: total > 0 ? (strongCount / total) * 100 : 0 };
+  const pointStrength = recent.map((c) => (dotColorFor(c) === "#e8544b" ? 100 : 0));
+  const todayStr = (() => {
+    const d = new Date();
+    return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+  })();
+  return recent.map((c, idx) => {
+    if (period === "5MIN" && c.subCandles && c.subCandles.length > 0) {
+      const subs = c.subCandles;
+      const strong = subs.filter((s) => dotColorFor(s) === "#e8544b").length;
+      return (strong / subs.length) * 100;
+    }
+    if (period === "D" && c.date === todayStr && subCandles && subCandles.length > 0) {
+      const strong = subCandles.filter((s) => dotColorFor(s) === "#e8544b").length;
+      return (strong / subCandles.length) * 100;
+    }
+    if (period !== "D" && subCandles && subCandles.length > 0) {
+      const startDate = c.date;
+      const nextC = recent[idx + 1];
+      const endDate = nextC ? nextC.date : null;
+      const inRange = subCandles.filter((s) => s.date >= startDate && (endDate === null || s.date < endDate));
+      if (inRange.length > 0) {
+        const strong = inRange.filter((s) => dotColorFor(s) === "#e8544b").length;
+        return (strong / inRange.length) * 100;
+      }
+    }
+    return pointStrength[idx];
+  });
+};
+// 위 배열을 요약해서 약세/강세 %를 낸다. (강약챠트 목록·챠트비교 정렬에 공용으로 씀)
+const computeStrengthPct = (candles, period, subCandles) => {
+  const arr = computeFinalStrengthArr(candles, period, subCandles);
+  const strongCount = arr.filter((v) => v >= 50).length;
+  const total = arr.length;
+  return { weakPct: total > 0 ? ((total - strongCount) / total) * 100 : 0, strongPct: total > 0 ? (strongCount / total) * 100 : 0 };
 };
 const computeSMA = (allCandles, period) => allCandles.map((c, idx) => {
   if (idx < period - 1) return null;
@@ -397,39 +429,12 @@ function CandleChart({ title, candles, period, subCandles }) {
     if (cur.length > 1) segs.push(cur);
     return segs.map((s) => s.join(" "));
   };
-  const { weakPct, strongPct } = computeStrengthPct(candles);
-  // 강약표시 챠트용: 도트와 똑같이, 그 캔들 하나만 보고 강세(100)/약세(0)로 표시한다.
-  const pointStrength = recent.map((c) => (dotColorFor(c) === "#e8544b" ? 100 : 0));
-  // 각 지점의 강약%을, 그 안에 속한 하위 기간 캔들들의 평균으로 계산한다.
-  // 5분봉은 그 5분 안의 1분봉들, 주봉은 그 주 안의 일봉들, 월봉은 그 달 안의 주봉들, 년봉은 그 해 안의 월봉들의 평균.
-  // (일봉은 과거 5분봉 데이터가 없어서, 그 캔들 하나만 보는 방식으로 대체된다)
-  const todayStr = (() => {
-    const d = new Date();
-    return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
-  })();
-  const finalStrengthPct = recent.map((c, idx) => {
-    if (period === "5MIN" && c.subCandles && c.subCandles.length > 0) {
-      const subs = c.subCandles;
-      const strong = subs.filter((s) => dotColorFor(s) === "#e8544b").length;
-      return (strong / subs.length) * 100;
-    }
-    // 일봉: "오늘" 날짜의 캔들만 원본 1분봉 평균으로 계산할 수 있다 (과거 날짜는 1분봉 API가 지원 안 함).
-    if (period === "D" && c.date === todayStr && subCandles && subCandles.length > 0) {
-      const strong = subCandles.filter((s) => dotColorFor(s) === "#e8544b").length;
-      return (strong / subCandles.length) * 100;
-    }
-    if (period !== "D" && subCandles && subCandles.length > 0) {
-      const startDate = c.date;
-      const nextC = recent[idx + 1];
-      const endDate = nextC ? nextC.date : null;
-      const inRange = subCandles.filter((s) => s.date >= startDate && (endDate === null || s.date < endDate));
-      if (inRange.length > 0) {
-        const strong = inRange.filter((s) => dotColorFor(s) === "#e8544b").length;
-        return (strong / inRange.length) * 100;
-      }
-    }
-    return pointStrength[idx]; // 폴백: 하위 데이터가 없으면(예: 과거 일봉) 그 캔들 하나만 본다.
-  });
+  // 강약표시 챠트·도트·크로스헤어·밑의 %까지 전부 이 배열 하나로 공용 계산한다(챠트비교 정렬과도 같은 함수를 씀).
+  const finalStrengthPct = computeFinalStrengthArr(candles, period, subCandles);
+  const strongCountFinal = finalStrengthPct.filter((v) => v >= 50).length;
+  const weakCountFinal = finalStrengthPct.length - strongCountFinal;
+  const weakPct = finalStrengthPct.length > 0 ? (weakCountFinal / finalStrengthPct.length) * 100 : 0;
+  const strongPct = finalStrengthPct.length > 0 ? (strongCountFinal / finalStrengthPct.length) * 100 : 0;
   const hasVolume = recent.some((c) => c.volume !== undefined && c.volume !== null);
   const VH = 40, vPadT = 2, vPadB = 2;
   const vols = recent.map((c) => num(c.volume) || 0);
@@ -589,7 +594,7 @@ function CandleChart({ title, candles, period, subCandles }) {
           onPointerLeave={handlePointerEnd}
         >
           {recent.map((c, idx) => (
-            <circle key={idx} cx={xOf(idx)} cy={7} r="1.8" fill={dotColorFor(c)} />
+            <circle key={idx} cx={xOf(idx)} cy={7} r="1.8" fill={finalStrengthPct[idx] >= 50 ? "#e8544b" : "#4c8dff"} />
           ))}
           {crosshairX !== null && <line x1={crosshairX} y1={0} x2={crosshairX} y2={14} stroke="#c9974a" strokeWidth="1" strokeDasharray="3 2" />}
         </svg>
@@ -1841,6 +1846,7 @@ function PortfolioApp() {
   useEffect(() => {
     if (!loaded || mainView !== "compareChart") return;
     fetchStrengthData(comparePeriod);
+    if (SUB_PERIOD_OF[comparePeriod] && comparePeriod !== "D") fetchStrengthData(SUB_PERIOD_OF[comparePeriod]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded, mainView, comparePeriod, stockCodes]);
 
@@ -3610,7 +3616,8 @@ function PortfolioApp() {
           .filter((s) => s.code && s.name)
           .map((s, idx) => {
             const candles = strengthData[`${s.code}:${comparePeriod}`] || [];
-            const { weakPct, strongPct } = computeStrengthPct(candles);
+            const subCandlesForRank = strengthData[`${s.code}:${SUB_PERIOD_OF[comparePeriod]}`];
+            const { weakPct, strongPct } = computeStrengthPct(candles, comparePeriod, subCandlesForRank);
             return { id: s.id, code: s.code, name: s.name, candles, strongPct, weakPct, color: palette[idx % palette.length] };
           })
           .sort((a, b) => b.strongPct - a.strongPct);
