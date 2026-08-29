@@ -451,7 +451,7 @@ function CandleChart({ title, candles, period }) {
         {last && <div className="tnum" style={{ fontSize: 12, fontWeight: 700, color: "#8993a6" }}>{fmt(num(last.close))}</div>}
         {touched && (
           <div className="tnum" style={{ fontSize: 11, fontWeight: 700, color: "#c9974a" }}>
-            {formatCrosshairLabel(touched, period)} · {fmt(num(touched.close))}
+            {formatCrosshairLabel(touched, period)} · {fmt(num(touched.close))} · <span style={{ color: rollingStrongPct[touchIdx] >= 50 ? "#e8544b" : "#4c8dff" }}>{rollingStrongPct[touchIdx] >= 50 ? "강세" : "약세"} {(rollingStrongPct[touchIdx] >= 50 ? rollingStrongPct[touchIdx] : 100 - rollingStrongPct[touchIdx]).toFixed(0)}%</span>
           </div>
         )}
       </div>
