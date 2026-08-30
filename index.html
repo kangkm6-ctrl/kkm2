@@ -402,7 +402,9 @@ const formatCrosshairLabel = (c, period) => {
 
 // 캔들차트 하나 (강약챠트 화면·보유종목 안의 종목별 강약챠트에서 공용으로 씀).
 // 손가락으로 탭하고 있으면 세로 점선(크로스헤어)이 나오고, 그 지점의 날짜/시간·가격이 표시된다.
-function CandleChart({ title, candles, period, subCandles, archiveForCode }) {
+// React.memo로 감싸서, 강약챠트 화면처럼 여러 개(코스피·코스닥·종목별)가 동시에 떠 있을 때
+// 부모 쪽 상태(자물쇠, 다른 화면의 입력 등)가 바뀌어도 이 props가 그대로면 다시 계산하지 않는다.
+const CandleChart = React.memo(function CandleChart({ title, candles, period, subCandles, archiveForCode }) {
   const [touchIdx, setTouchIdx] = useState(null);
   const svgRef = useRef(null);
   const draggingRef = useRef(false);
@@ -696,7 +698,7 @@ function CandleChart({ title, candles, period, subCandles, archiveForCode }) {
       </div>
     </div>
   );
-}
+});
 
 function PortfolioApp() {
   const [stocks, setStocks] = useState(seedStocks);
