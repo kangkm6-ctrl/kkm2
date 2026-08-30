@@ -4912,6 +4912,10 @@ ReactDOM.createRoot(document.getElementById("root")).render(<PortfolioApp />);
   try {
     var src = document.getElementById('app-source').textContent;
     var out = Babel.transform(src, { presets: ['react'], filename: 'app.jsx' }).code;
+    // eval로 실행한 코드는 브라우저가 "어느 파일, 몇 번째 줄"인지 추적을 못 해서 오류가 나면
+    // "Script error."로만 뭉개져 나온다. sourceURL을 붙여주면 실제 파일처럼 취급돼서
+    // 이후 오류부터는 정확한 줄 번호가 화면에 표시된다.
+    out += '\n//# sourceURL=app-source.js';
     try {
       (0, eval)(out);
     } catch (runErr) {
