@@ -156,7 +156,7 @@ const STOCK_CODE_MAP = {
   "우리금융지주":"316140","삼성생명":"032830","삼성화재":"000810","SK이노베이션":"096770","SK":"034730",
   "LG전자":"066570","LG":"003550","한화솔루션":"009830","한화에어로스페이스":"012450","두산에너빌리티":"034020",
   "두산밥캣":"241560","HD한국조선해양":"009540","삼성엔지니어링":"028050","현대건설":"000720","GS건설":"006360",
-  "에코프로":"086520","에코프로비엠":"247540","엘앤에프":"066970","포스코엠텍":"009520","고려아연":"010130","코스모신소재":"005070","코스모화학":"005420",
+  "에코프로":"086520","에코프로비엠":"247540","엘앤에프":"066970","포스코엠텍":"009520","고려아연":"010130","코스모신소재":"005070","코스모화학":"005420","한미사이언스":"008930",
   "SK아이이테크놀로지":"361610","SKC":"011790","솔브레인":"357780",
   "삼성전기":"009150","LG디스플레이":"034220","LG이노텍":"011070","삼성중공업":"010140","한국조선해양":"009540",
   "HMM":"011200","팬오션":"028670","대한항공":"003490","아시아나항공":"020560","제주항공":"089590",
@@ -342,11 +342,15 @@ const computeFinalStrengthArr = (candles, period, subCandles, archive) => {
       const strong = subCandles.filter((s) => dotColorFor(s) === "#e8544b").length;
       return (strong / subCandles.length) * 100;
     }
+    // 주봉·월봉·년봉: 캔들의 날짜는 그 기간의 "마지막" 거래일이다(한투 API 기준).
+    // 그래서 "이전 캔들의 날짜(제외) ~ 이 캔들의 날짜(포함)" 구간이 이 캔들이 실제로 담고 있는 하위 기간이다.
+    // (이전엔 반대로 "이 캔들 ~ 다음 캔들" 구간을 썼는데, 그러면 다음 주의 날짜들을 끌어와 버리고
+    //  경계에 휴일이 겹치면 하루치만 걸려서 평균이 아니라 그날 하루의 등락만 그대로 나오는 문제가 있었다)
     if (period !== "D" && subCandles && subCandles.length > 0) {
-      const startDate = c.date;
-      const nextC = recent[idx + 1];
-      const endDate = nextC ? nextC.date : null;
-      const inRange = subCandles.filter((s) => s.date >= startDate && (endDate === null || s.date < endDate));
+      const prevC = recent[idx - 1];
+      const startDate = prevC ? prevC.date : "00000000";
+      const endDate = c.date;
+      const inRange = subCandles.filter((s) => s.date > startDate && s.date <= endDate);
       if (inRange.length > 0) {
         const strong = inRange.filter((s) => dotColorFor(s) === "#e8544b").length;
         return (strong / inRange.length) * 100;
@@ -391,6 +395,9 @@ function CandleChart({ title, candles, period, subCandles, archiveForCode }) {
   const [touchIdx, setTouchIdx] = useState(null);
   const svgRef = useRef(null);
   const draggingRef = useRef(false);
+  // 손가락 제스처를 "누르고 있기(크로스헤어)"와 "옆으로 밀기(가로 스크롤)"로 구분하기 위한 상태.
+  // pending: 누른 직후 판정 대기 / crosshair: 크로스헤어 추적 중 / scroll: 차트를 옆으로 미는 중 / vertical: 세로 스와이프라 페이지 스크롤에 맡김
+  const gestureRef = useRef({ mode: "none", startX: 0, startY: 0, startScrollLeft: 0, timer: null });
   const [scrollLeftSnap, setScrollLeftSnap] = useState(0);
   const scrollRef1 = useRef(null);
   const scrollRef2 = useRef(null);
@@ -469,18 +476,59 @@ function CandleChart({ title, candles, period, subCandles, archiveForCode }) {
     setTouchIdx(closestIdx);
     if (scrollRef1.current) setScrollLeftSnap(scrollRef1.current.scrollLeft);
   };
-  const handlePointerDown = (e) => {
+  // 손가락을 대자마자 크로스헤어가 튀어나오면 옆으로 스크롤하려는 손짓과 자꾸 부딪힌다.
+  // 그래서 살짝(130ms) 눌러서 기다리면 크로스헤어, 그 전에 옆으로 밀면 차트 스크롤로 자연스럽게 갈린다.
+  // (마우스는 그런 충돌이 없으니 기존처럼 누르자마자 바로 크로스헤어)
+  const beginCrosshair = (e, clientX) => {
+    gestureRef.current.mode = "crosshair";
     draggingRef.current = true;
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) {}
-    updateTouchFromClientX(e.clientX);
+    updateTouchFromClientX(clientX);
+  };
+  const handlePointerDown = (e) => {
+    const g = gestureRef.current;
+    g.startX = e.clientX;
+    g.startY = e.clientY;
+    const scrollEl = e.currentTarget.parentElement;
+    g.startScrollLeft = scrollEl ? scrollEl.scrollLeft : 0;
+    g.mode = "pending";
+    clearTimeout(g.timer);
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) {}
+    if (e.pointerType === "mouse") {
+      beginCrosshair(e, e.clientX);
+    } else {
+      g.timer = setTimeout(() => {
+        if (gestureRef.current.mode === "pending") beginCrosshair(e, e.clientX);
+      }, 130);
+    }
   };
   const handlePointerMove = (e) => {
-    if (!draggingRef.current) return;
-    updateTouchFromClientX(e.clientX);
+    const g = gestureRef.current;
+    if (g.mode === "none") return;
+    if (g.mode === "pending") {
+      const dx = e.clientX - g.startX, dy = e.clientY - g.startY;
+      if (Math.abs(dx) <= 6 && Math.abs(dy) <= 6) return; // 아직 판정 유예 구간
+      clearTimeout(g.timer);
+      g.mode = Math.abs(dx) >= Math.abs(dy) ? "scroll" : "vertical";
+    }
+    if (g.mode === "scroll") {
+      const scrollEl = e.currentTarget.parentElement;
+      if (scrollEl) scrollEl.scrollLeft = g.startScrollLeft - (e.clientX - g.startX);
+      return;
+    }
+    if (g.mode === "crosshair") {
+      updateTouchFromClientX(e.clientX);
+    }
   };
-  const handlePointerEnd = () => {
-    draggingRef.current = false;
-    setTouchIdx(null);
+  const handlePointerEnd = (e) => {
+    const g = gestureRef.current;
+    clearTimeout(g.timer);
+    if (g.mode === "crosshair") {
+      draggingRef.current = false;
+      setTouchIdx(null);
+    }
+    g.mode = "none";
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (err) {}
   };
 
   const touched = touchIdx !== null ? recent[touchIdx] : null;
@@ -1853,13 +1901,13 @@ function PortfolioApp() {
       try {
         const results = await Promise.all(targets.map((t) =>
           fetch(`${base}/stock-minute-history/${t.code}`, { headers })
-            .then((r) => (r.ok ? r.json() : null))
+            .then((r) => (r.ok ? r.json() : Promise.reject(new Error("fetch failed"))))
             .then((d) => ({ key: t.key, candles: d && Array.isArray(d.minuteCandles) ? aggregateToFiveMin(d.minuteCandles) : [] }))
-            .catch(() => ({ key: t.key, candles: [] }))
+            .catch(() => ({ key: t.key, candles: null })) // 요청 자체가 실패하면 null로 표시해서 캐시하지 않고 다음에 다시 시도하게 한다.
         ));
         setStrengthData((prev) => {
           const next = { ...prev };
-          results.forEach(({ key, candles }) => { next[key] = candles; });
+          results.forEach(({ key, candles }) => { if (candles !== null) next[key] = candles; });
           return next;
         });
       } catch (e) {}
@@ -1877,11 +1925,14 @@ function PortfolioApp() {
     else {
       try {
         const results = await Promise.all(targets.map((t) =>
-          fetch(t.url, { headers }).then((r) => (r.ok ? r.json() : null)).then((d) => ({ key: t.key, candles: d && Array.isArray(d.candles) ? d.candles : [] })).catch(() => ({ key: t.key, candles: [] }))
+          fetch(t.url, { headers })
+            .then((r) => (r.ok ? r.json() : Promise.reject(new Error("fetch failed"))))
+            .then((d) => ({ key: t.key, candles: d && Array.isArray(d.candles) ? d.candles : [] }))
+            .catch(() => ({ key: t.key, candles: null })) // 요청 자체가 실패하면 null로 표시해서 캐시하지 않고 다음에 다시 시도하게 한다.
         ));
         setStrengthData((prev) => {
           const next = { ...prev };
-          results.forEach(({ key, candles }) => { next[key] = candles; });
+          results.forEach(({ key, candles }) => { if (candles !== null) next[key] = candles; });
           return next;
         });
       } catch (e) {}
@@ -1894,17 +1945,19 @@ function PortfolioApp() {
       for (const code of rawTargets) {
         try {
           const r = await fetch(`${base}/stock-minute-history/${code}`, { headers });
-          const d = r.ok ? await r.json() : null;
-          const candles = d && Array.isArray(d.minuteCandles) ? d.minuteCandles : [];
-          setStrengthData((prev) => ({ ...prev, [`${code}:1MINRAW`]: candles }));
-          if (candles.length > 0) {
-            const todayStr = (() => {
-              const dt = new Date();
-              return `${dt.getFullYear()}${String(dt.getMonth() + 1).padStart(2, "0")}${String(dt.getDate()).padStart(2, "0")}`;
-            })();
-            const strong = candles.filter((c) => dotColorFor(c) === "#e8544b").length;
-            saveDailyStrengthArchive(code, todayStr, (strong / candles.length) * 100);
-          }
+          if (r.ok) {
+            const d = await r.json();
+            const candles = d && Array.isArray(d.minuteCandles) ? d.minuteCandles : [];
+            setStrengthData((prev) => ({ ...prev, [`${code}:1MINRAW`]: candles }));
+            if (candles.length > 0) {
+              const todayStr = (() => {
+                const dt = new Date();
+                return `${dt.getFullYear()}${String(dt.getMonth() + 1).padStart(2, "0")}${String(dt.getDate()).padStart(2, "0")}`;
+              })();
+              const strong = candles.filter((c) => dotColorFor(c) === "#e8544b").length;
+              saveDailyStrengthArchive(code, todayStr, (strong / candles.length) * 100);
+            }
+          } // r.ok가 false면 아무것도 저장 안 해서, 다음에 다시 시도할 수 있게 한다.
         } catch (e) {}
         await new Promise((resolve) => setTimeout(resolve, 250)); // 요청 사이 0.25초 텀
       }
@@ -1940,8 +1993,10 @@ function PortfolioApp() {
       setStrengthLoading(true);
       try {
         const r = await fetch(`${base}/stock-minute-history/${code}`, { headers });
-        const d = r.ok ? await r.json() : null;
-        setStrengthData((prev) => ({ ...prev, [key]: d && Array.isArray(d.minuteCandles) ? aggregateToFiveMin(d.minuteCandles) : [] }));
+        if (r.ok) {
+          const d = await r.json();
+          setStrengthData((prev) => ({ ...prev, [key]: d && Array.isArray(d.minuteCandles) ? aggregateToFiveMin(d.minuteCandles) : [] }));
+        } // r.ok가 false면 아무것도 저장 안 해서, 다음에 다시 시도할 수 있게 한다.
       } catch (e) {}
       setStrengthLoading(false);
       return;
@@ -1951,8 +2006,10 @@ function PortfolioApp() {
       const days = period === "D" ? 500 : period === "W" ? 2200 : period === "M" ? 7300 : 7300;
       try {
         const r = await fetch(`${base}/stock-history/${code}?period=${period}&days=${days}`, { headers });
-        const d = r.ok ? await r.json() : null;
-        setStrengthData((prev) => ({ ...prev, [key]: d && Array.isArray(d.candles) ? d.candles : [] }));
+        if (r.ok) {
+          const d = await r.json();
+          setStrengthData((prev) => ({ ...prev, [key]: d && Array.isArray(d.candles) ? d.candles : [] }));
+        }
       } catch (e) {}
       setStrengthLoading(false);
     }
@@ -1962,16 +2019,18 @@ function PortfolioApp() {
       if (!strengthData[rawKey]) {
         try {
           const r = await fetch(`${base}/stock-minute-history/${code}`, { headers });
-          const d = r.ok ? await r.json() : null;
-          const candles = d && Array.isArray(d.minuteCandles) ? d.minuteCandles : [];
-          setStrengthData((prev) => ({ ...prev, [rawKey]: candles }));
-          if (candles.length > 0) {
-            const todayStr = (() => {
-              const dt = new Date();
-              return `${dt.getFullYear()}${String(dt.getMonth() + 1).padStart(2, "0")}${String(dt.getDate()).padStart(2, "0")}`;
-            })();
-            const strong = candles.filter((c) => dotColorFor(c) === "#e8544b").length;
-            saveDailyStrengthArchive(code, todayStr, (strong / candles.length) * 100);
+          if (r.ok) {
+            const d = await r.json();
+            const candles = d && Array.isArray(d.minuteCandles) ? d.minuteCandles : [];
+            setStrengthData((prev) => ({ ...prev, [rawKey]: candles }));
+            if (candles.length > 0) {
+              const todayStr = (() => {
+                const dt = new Date();
+                return `${dt.getFullYear()}${String(dt.getMonth() + 1).padStart(2, "0")}${String(dt.getDate()).padStart(2, "0")}`;
+              })();
+              const strong = candles.filter((c) => dotColorFor(c) === "#e8544b").length;
+              saveDailyStrengthArchive(code, todayStr, (strong / candles.length) * 100);
+            }
           }
         } catch (e) {}
       }
