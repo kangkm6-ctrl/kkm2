@@ -1901,6 +1901,11 @@ function PortfolioApp() {
     }
     persistQuotes(investmentQuotes.map((q) => (q.id === id ? { ...q, text: value } : q)));
   };
+  // strengthData[key]가 "아직 한 번도 안 받아왔다"인지 "받아왔는데 하필 빈 배열이었다"인지 구분해서 씀.
+  // 원래는 둘 다 그냥 "있으면 안 받아옴"으로 취급했는데, 그러면 API가 어쩌다 한 번 빈 응답을 주면
+  // (요청은 성공(r.ok)했는데 데이터가 비어서 온 경우) 그 종목은 그 뒤로 영영 다시 안 받아오고
+  // "-"로 굳어버렸다. 이제 빈 배열은 "아직 못 받아온 것"과 똑같이 취급해서 다음에 화면을 열 때 다시 시도한다.
+  const isMissingStrengthData = (v) => !v || v.length === 0;
   // 1분봉을 5분 단위로 묶는다. ⚠️ 원본 1분봉 API가 "오늘 하루"만 주기 때문에 5분봉도 오늘 장중 데이터만 나온다.
   const aggregateToFiveMin = (minuteCandles) => {
     const buckets = {};
@@ -1928,7 +1933,7 @@ function PortfolioApp() {
     const headers = appSecret ? { "x-app-secret": appSecret } : {};
     if (period === "5MIN") {
       // ⚠️ 코스피/코스닥 분봉 API는 신뢰할 만한 출처를 못 찾아서, 5분봉은 개별 종목만 지원해요.
-      const targets = stockCodes.filter((c) => !strengthData[`${c}:5MIN`]).map((c) => ({ key: `${c}:5MIN`, code: c }));
+      const targets = stockCodes.filter((c) => isMissingStrengthData(strengthData[`${c}:5MIN`])).map((c) => ({ key: `${c}:5MIN`, code: c }));
       if (targets.length === 0) { setStrengthLoading(false); return; }
       try {
         const results = await Promise.all(targets.map((t) =>
@@ -1952,7 +1957,7 @@ function PortfolioApp() {
       { key: `0001:${period}`, url: `${base}/index-history/0001?period=${period}&days=${days}` },
       { key: `1001:${period}`, url: `${base}/index-history/1001?period=${period}&days=${days}` },
       ...stockCodes.map((c) => ({ key: `${c}:${period}`, url: `${base}/stock-history/${c}?period=${period}&days=${days}` })),
-    ].filter((t) => !strengthData[t.key]);
+    ].filter((t) => isMissingStrengthData(strengthData[t.key]));
     if (targets.length === 0) { setStrengthLoading(false); }
     else {
       try {
@@ -1973,7 +1978,7 @@ function PortfolioApp() {
     // 일봉을 볼 때, 오늘 날짜 하나만이라도 1분봉 평균으로 강약%을 보여줄 수 있게 원본 1분봉을 받아온다.
     // ⚠️ 한 번에 다 쏘면(Promise.all) API 요청 제한에 걸려서, 종목 하나씩 약간 텀을 두고 순서대로 받아온다 (조금 느리지만 안전하다).
     if (period === "D") {
-      const rawTargets = stockCodes.filter((c) => !strengthData[`${c}:1MINRAW`]);
+      const rawTargets = stockCodes.filter((c) => isMissingStrengthData(strengthData[`${c}:1MINRAW`]));
       for (const code of rawTargets) {
         try {
           const r = await fetch(`${base}/stock-minute-history/${code}`, { headers });
@@ -2021,7 +2026,7 @@ function PortfolioApp() {
     const base = proxyUrl.replace(/\/$/, "");
     const headers = appSecret ? { "x-app-secret": appSecret } : {};
     if (period === "5MIN") {
-      if (strengthData[key]) return;
+      if (!isMissingStrengthData(strengthData[key])) return;
       setStrengthLoading(true);
       try {
         const r = await fetch(`${base}/stock-minute-history/${code}`, { headers });
@@ -2033,7 +2038,7 @@ function PortfolioApp() {
       setStrengthLoading(false);
       return;
     }
-    if (!strengthData[key]) {
+    if (isMissingStrengthData(strengthData[key])) {
       setStrengthLoading(true);
       const days = period === "D" ? 500 : period === "W" ? 2200 : period === "M" ? 7300 : 7300;
       try {
@@ -2048,7 +2053,7 @@ function PortfolioApp() {
     // 일봉을 볼 때는, 오늘 날짜 하나만이라도 1분봉 평균으로 강약%을 보여줄 수 있게 원본 1분봉도 받아온다.
     if (period === "D") {
       const rawKey = `${code}:1MINRAW`;
-      if (!strengthData[rawKey]) {
+      if (isMissingStrengthData(strengthData[rawKey])) {
         try {
           const r = await fetch(`${base}/stock-minute-history/${code}`, { headers });
           if (r.ok) {
