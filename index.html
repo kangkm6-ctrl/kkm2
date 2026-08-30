@@ -318,12 +318,23 @@ const dotColorFor = (c) => {
   const closePos = (cl - l) / range;
   return closePos < 0.5 ? "#4c8dff" : "#e8544b"; // 종가가 하단권=전강후약(파랑), 상단권=전약후강(빨강)
 };
+// 캔들 하나의 저가~고가 범위 안에서 종가가 몇 %쯤 위치했는지(0~100, 하단=0 상단=100)를 연속값으로 낸다.
+// dotColorFor는 이걸 50%로 딱 잘라 파랑/빨강 색만 정하지만, 강약챠트의 %는 그렇게 자르지 않고
+// 이 연속값 그대로 써야 봉마다 부드럽게 이어진다(안 그러면 하위 데이터가 없는 지점마다 0% 아니면 100%로 뚝뚝 끊겨 보인다).
+const closePositionPct = (c) => {
+  const h = num(c.high || c.close), l = num(c.low || c.close), cl = num(c.close);
+  const range = h - l;
+  if (range <= 0) return 50;
+  return ((cl - l) / range) * 100;
+};
 // 최근 60개 캔들 각 지점의 강약%을, 그 안에 속한 하위 기간 캔들들의 평균으로 계산한다.
 // 5분봉=그 안의 1분봉, 일봉="오늘"만 1분봉 평균(과거는 그 캔들 하나), 주봉=그 주의 일봉, 월봉=그 달의 주봉, 년봉=그 해의 월봉 평균.
 // (강약챠트 도트·강약표시 챠트·크로스헤어·챠트비교 정렬까지 전부 이 함수 하나로 공용으로 계산해서 항상 같은 기준을 쓴다)
 const computeFinalStrengthArr = (candles, period, subCandles, archive) => {
   const recent = (candles || []).slice(-60);
-  const pointStrength = recent.map((c) => (dotColorFor(c) === "#e8544b" ? 100 : 0));
+  // 하위(분봉/일봉) 데이터가 없어서 그 캔들 하나만 봐야 할 때 쓰는 값. 예전엔 50% 기준으로 딱 잘라
+  // 0 아니면 100만 나왔는데, 그러면 하위 데이터가 있는 구간과 없는 구간의 그래프 결이 확 달라 보였다.
+  const pointStrength = recent.map((c) => closePositionPct(c));
   const todayStr = (() => {
     const d = new Date();
     return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
@@ -397,7 +408,7 @@ function CandleChart({ title, candles, period, subCandles, archiveForCode }) {
   const draggingRef = useRef(false);
   // 손가락 제스처를 "누르고 있기(크로스헤어)"와 "옆으로 밀기(가로 스크롤)"로 구분하기 위한 상태.
   // pending: 누른 직후 판정 대기 / crosshair: 크로스헤어 추적 중 / scroll: 차트를 옆으로 미는 중 / vertical: 세로 스와이프라 페이지 스크롤에 맡김
-  const gestureRef = useRef({ mode: "none", startX: 0, startY: 0, startScrollLeft: 0, timer: null });
+  const gestureRef = useRef({ mode: "none", startX: 0, startY: 0, startScrollLeft: 0, startWindowScrollTop: 0, timer: null });
   const [scrollLeftSnap, setScrollLeftSnap] = useState(0);
   const scrollRef1 = useRef(null);
   const scrollRef2 = useRef(null);
@@ -491,8 +502,12 @@ function CandleChart({ title, candles, period, subCandles, archiveForCode }) {
     g.startY = e.clientY;
     const scrollEl = e.currentTarget.parentElement;
     g.startScrollLeft = scrollEl ? scrollEl.scrollLeft : 0;
+    g.startWindowScrollTop = (document.scrollingElement || document.documentElement).scrollTop;
     g.mode = "pending";
     clearTimeout(g.timer);
+    // 브라우저가 세로 스와이프로 오인해서 제스처를 가로채 가면(touch-action: pan-y였을 때)
+    // pointercancel이 발생해 크로스헤어가 몇 칸 못 가고 끊겨버렸다. 이제 touch-action: none으로
+    // 세로 스크롤까지 전부 이 안에서 직접 처리해서, 브라우저가 중간에 제스처를 뺏어가지 못하게 한다.
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) {}
     if (e.pointerType === "mouse") {
       beginCrosshair(e, e.clientX);
@@ -514,6 +529,11 @@ function CandleChart({ title, candles, period, subCandles, archiveForCode }) {
     if (g.mode === "scroll") {
       const scrollEl = e.currentTarget.parentElement;
       if (scrollEl) scrollEl.scrollLeft = g.startScrollLeft - (e.clientX - g.startX);
+      return;
+    }
+    if (g.mode === "vertical") {
+      // touch-action: none이라 브라우저가 세로 스크롤을 대신 안 해주므로, 여기서 직접 페이지를 밀어준다.
+      (document.scrollingElement || document.documentElement).scrollTop = g.startWindowScrollTop - (e.clientY - g.startY);
       return;
     }
     if (g.mode === "crosshair") {
@@ -559,7 +579,7 @@ function CandleChart({ title, candles, period, subCandles, archiveForCode }) {
         <svg
           ref={svgRef}
           viewBox={`0 0 ${W} ${H}`} width={W} height={H} preserveAspectRatio="none"
-          style={{ background: "#12151b", borderRadius: 8, border: "1px solid #262c37", display: "block", minWidth: "100%", touchAction: "pan-y", WebkitUserSelect: "none", userSelect: "none", WebkitTouchCallout: "none" }}
+          style={{ background: "#12151b", borderRadius: 8, border: "1px solid #262c37", display: "block", minWidth: "100%", touchAction: "none", WebkitUserSelect: "none", userSelect: "none", WebkitTouchCallout: "none" }}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerEnd}
@@ -630,7 +650,7 @@ function CandleChart({ title, candles, period, subCandles, archiveForCode }) {
         >
           <svg
             viewBox={`0 0 ${W} 40`} width={W} height={40} preserveAspectRatio="none"
-            style={{ background: "#12151b", borderRadius: 8, border: "1px solid #262c37", display: "block", minWidth: "100%", touchAction: "pan-y" }}
+            style={{ background: "#12151b", borderRadius: 8, border: "1px solid #262c37", display: "block", minWidth: "100%", touchAction: "none" }}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerEnd}
@@ -650,7 +670,7 @@ function CandleChart({ title, candles, period, subCandles, archiveForCode }) {
           </svg>
           <svg
             viewBox={`0 0 ${W} 14`} width={W} height={14} preserveAspectRatio="none"
-            style={{ display: "block", minWidth: "100%", marginTop: 2, touchAction: "pan-y" }}
+            style={{ display: "block", minWidth: "100%", marginTop: 2, touchAction: "none" }}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerEnd}
