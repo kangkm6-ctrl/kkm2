@@ -353,15 +353,13 @@ const computeFinalStrengthArr = (candles, period, subCandles, archive) => {
       const strong = subCandles.filter((s) => dotColorFor(s) === "#e8544b").length;
       return (strong / subCandles.length) * 100;
     }
-    // 주봉·월봉·년봉: 캔들의 날짜는 그 기간의 "마지막" 거래일이다(한투 API 기준).
-    // 그래서 "이전 캔들의 날짜(제외) ~ 이 캔들의 날짜(포함)" 구간이 이 캔들이 실제로 담고 있는 하위 기간이다.
-    // (이전엔 반대로 "이 캔들 ~ 다음 캔들" 구간을 썼는데, 그러면 다음 주의 날짜들을 끌어와 버리고
-    //  경계에 휴일이 겹치면 하루치만 걸려서 평균이 아니라 그날 하루의 등락만 그대로 나오는 문제가 있었다)
+    // 주봉·월봉·년봉: 캔들의 날짜는 그 기간의 "시작" 거래일이다(한투 API 기준, 실측 확인됨).
+    // 그래서 "이 캔들의 날짜(포함) ~ 다음 캔들의 날짜(제외)" 구간이 이 캔들이 실제로 담고 있는 하위 기간이다.
     if (period !== "D" && subCandles && subCandles.length > 0) {
-      const prevC = recent[idx - 1];
-      const startDate = prevC ? prevC.date : "00000000";
-      const endDate = c.date;
-      const inRange = subCandles.filter((s) => s.date > startDate && s.date <= endDate);
+      const startDate = c.date;
+      const nextC = recent[idx + 1];
+      const endDate = nextC ? nextC.date : null;
+      const inRange = subCandles.filter((s) => s.date >= startDate && (endDate === null || s.date < endDate));
       if (inRange.length > 0) {
         const strong = inRange.filter((s) => dotColorFor(s) === "#e8544b").length;
         return (strong / inRange.length) * 100;
