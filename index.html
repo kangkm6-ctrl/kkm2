@@ -437,7 +437,8 @@ const CandleChart = React.memo(function CandleChart({ title, candles, period, su
   const recent = candles.slice(-60);
   const recentStart = candles.length - recent.length;
   const maSeries = MA_LINES.map((m) => ({ ...m, values: computeSMA(candles, m.period).slice(recentStart) }));
-  const H = 170, padL = 38, padR = 8, padT = 8, padB = 16;
+  // 키움증권 챠트처럼 가격 축(눈금)을 왼쪽이 아니라 오른쪽에 둔다.
+  const H = 170, padL = 4, padR = 42, padT = 8, padB = 16;
   const candleGap = 10;
   const W = Math.max(320, padL + padR + recent.length * candleGap);
   const plotW = W - padL - padR, plotH = H - padT - padB;
@@ -451,6 +452,8 @@ const CandleChart = React.memo(function CandleChart({ title, candles, period, su
   const yOf = (v) => padT + (vMax === vMin ? plotH / 2 : ((vMax - v) / (vMax - vMin)) * plotH);
   const candleW = Math.max(2, candleGap * 0.6);
   const last = recent[recent.length - 1];
+  const prevLast = recent.length > 1 ? recent[recent.length - 2] : null;
+  const lastUp = prevLast ? num(last.close) >= num(prevLast.close) : true;
   const lineOfVals = (vals) => {
     const segs = [];
     let cur = [];
@@ -589,7 +592,7 @@ const CandleChart = React.memo(function CandleChart({ title, candles, period, su
           {[vMax, (vMax + vMin) / 2, vMin].map((v, vi) => (
             <g key={vi}>
               <line x1={padL} y1={yOf(v)} x2={W - padR} y2={yOf(v)} stroke="#1f2530" strokeWidth="1" />
-              <text x={padL - 4} y={yOf(v) + 3} fill="#5a6274" fontSize="8" textAnchor="end">{fmt(v)}</text>
+              <text x={W - padR + 4} y={yOf(v) + 3} fill="#5a6274" fontSize="8" textAnchor="start">{fmt(v)}</text>
             </g>
           ))}
           {recent.map((c, idx) => {
@@ -608,11 +611,26 @@ const CandleChart = React.memo(function CandleChart({ title, candles, period, su
           {maSeries.map((m) => lineOfVals(m.values).map((seg, idx) => (
             <polyline key={`ma${m.period}-${idx}`} fill="none" stroke={m.color} strokeWidth="1" points={seg} />
           )))}
+          <text x={padL} y={H - 4} fill="#5a6274" fontSize="8" textAnchor="start">{formatCrosshairLabel(recent[0], period)}</text>
+          <text x={W - padR} y={H - 4} fill="#5a6274" fontSize="8" textAnchor="end">{formatCrosshairLabel(last, period)}</text>
           {crosshairX !== null && (
             <>
               <line x1={crosshairX} y1={0} x2={crosshairX} y2={H} stroke="#c9974a" strokeWidth="1" strokeDasharray="3 2" />
               {touched && <line x1={padL} y1={yOf(num(touched.close))} x2={W - padR} y2={yOf(num(touched.close))} stroke="#c9974a" strokeWidth="1" strokeDasharray="3 2" />}
             </>
+          )}
+          {/* 키움증권 챠트처럼, 오른쪽 가격축에 현재가(또는 크로스헤어로 짚은 가격)를 작은 태그로 표시 */}
+          {!touched && last && (
+            <g>
+              <rect x={W - padR} y={yOf(num(last.close)) - 6} width={padR} height="12" fill={lastUp ? "#e8544b" : "#4c8dff"} />
+              <text x={W - padR + 3} y={yOf(num(last.close)) + 3} fill="#12151b" fontSize="8" fontWeight="700" textAnchor="start">{fmt(num(last.close))}</text>
+            </g>
+          )}
+          {touched && (
+            <g>
+              <rect x={W - padR} y={yOf(num(touched.close)) - 6} width={padR} height="12" fill="#c9974a" />
+              <text x={W - padR + 3} y={yOf(num(touched.close)) + 3} fill="#12151b" fontSize="8" fontWeight="700" textAnchor="start">{fmt(num(touched.close))}</text>
+            </g>
           )}
         </svg>
         {hasVolume && (
