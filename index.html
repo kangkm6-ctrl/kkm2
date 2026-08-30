@@ -1880,8 +1880,20 @@ function PortfolioApp() {
     setNewQuoteNumber("");
     setNewQuoteText("");
   };
+  // 번호를 바꾸면, 그 번호 자리에 끼워 넣고 나머지(그 자리에 있던 것부터 뒤로)는 번호를 하나씩 밀어서
+  // 항상 1,2,3...으로 겹침 없이 이어지게 한다. (예: 3번을 1번으로 바꾸면 기존 1,2번이 2,3번으로 밀림)
   const updateQuoteNumber = (id, value) => {
-    persistQuotes(investmentQuotes.map((q) => (q.id === id ? { ...q, number: value } : q)));
+    const targetNum = Number(value);
+    if (value.trim() === "" || !Number.isFinite(targetNum)) {
+      // 아직 숫자로 확정 안 된 입력 중(지우는 중 등)은 재배치하지 않고 입력값만 그대로 둔다.
+      persistQuotes(investmentQuotes.map((q) => (q.id === id ? { ...q, number: value } : q)));
+      return;
+    }
+    const editedItem = investmentQuotes.find((q) => q.id === id);
+    const rest = investmentQuotes.filter((q) => q.id !== id).sort((a, b) => (num(a.number) || 0) - (num(b.number) || 0));
+    const insertAt = Math.max(0, Math.min(rest.length, Math.round(targetNum) - 1));
+    const reordered = [...rest.slice(0, insertAt), editedItem, ...rest.slice(insertAt)];
+    persistQuotes(reordered.map((q, idx) => ({ ...q, number: idx + 1 })));
   };
   // 내용을 다 지워서(공백) 비워지면 그 항목을 자동으로 삭제하고, 남은 항목들의 번호를 순서대로 다시 매긴다.
   const updateQuoteText = (id, value) => {
