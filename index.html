@@ -566,7 +566,7 @@ const CandleChart = React.memo(function CandleChart({ title, candles, period, su
             {fmt(num(last.close))}
             {adviceLabel && (
               <span style={{ color: adviceLabel === "buy" ? "#e8544b" : adviceLabel === "sell" ? "#4c8dff" : "#8993a6" }}>
-                {" "}({adviceLabel === "buy" ? "매수관점" : adviceLabel === "sell" ? "매도관점" : "중립관점"})
+                {" "}({adviceLabel === "buy" ? "매수" : adviceLabel === "sell" ? "매도" : "중립"})
               </span>
             )}
           </div>
