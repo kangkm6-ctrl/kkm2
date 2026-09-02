@@ -405,7 +405,7 @@ const formatCrosshairLabel = (c, period) => {
 // 손가락으로 탭하고 있으면 세로 점선(크로스헤어)이 나오고, 그 지점의 날짜/시간·가격이 표시된다.
 // React.memo로 감싸서, 강약챠트 화면처럼 여러 개(코스피·코스닥·종목별)가 동시에 떠 있을 때
 // 부모 쪽 상태(자물쇠, 다른 화면의 입력 등)가 바뀌어도 이 props가 그대로면 다시 계산하지 않는다.
-const CandleChart = React.memo(function CandleChart({ title, candles, period, subCandles, archiveForCode }) {
+const CandleChart = React.memo(function CandleChart({ title, candles, period, subCandles, archiveForCode, adviceLabel }) {
   const [touchIdx, setTouchIdx] = useState(null);
   const svgRef = useRef(null);
   const draggingRef = useRef(false);
@@ -561,7 +561,16 @@ const CandleChart = React.memo(function CandleChart({ title, candles, period, su
     <div style={{ marginBottom: 16 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: "#e7eaf0" }}>{title}</div>
-        {last && <div className="tnum" style={{ fontSize: 12, fontWeight: 700, color: "#8993a6" }}>{fmt(num(last.close))}</div>}
+        {last && (
+          <div className="tnum" style={{ fontSize: 12, fontWeight: 700, color: "#8993a6" }}>
+            {fmt(num(last.close))}
+            {adviceLabel && (
+              <span style={{ color: adviceLabel === "buy" ? "#e8544b" : adviceLabel === "sell" ? "#4c8dff" : "#8993a6" }}>
+                {" "}({adviceLabel === "buy" ? "매수관점" : adviceLabel === "sell" ? "매도관점" : "중립관점"})
+              </span>
+            )}
+          </div>
+        )}
         {touched && (
           <div className="tnum" style={{ fontSize: 11, fontWeight: 700, color: "#c9974a" }}>
             {formatCrosshairLabel(touched, period)} · {fmt(num(touched.close))} · <span style={{ color: finalStrengthPct[touchIdx] >= 50 ? "#e8544b" : "#4c8dff" }}>{finalStrengthPct[touchIdx] >= 50 ? "강세" : "약세"} {(finalStrengthPct[touchIdx] >= 50 ? finalStrengthPct[touchIdx] : 100 - finalStrengthPct[touchIdx]).toFixed(0)}%</span>
@@ -3862,14 +3871,14 @@ function PortfolioApp() {
               </div>
               {strengthLoading && <div style={{ color: "#8993a6", fontSize: 12, textAlign: "center", padding: 16 }}>불러오는 중...</div>}
               <div style={{ border: "1px solid #262c37", borderRadius: 12, padding: "10px 10px 4px", marginBottom: 12, background: "#161a22" }}>
-                <CandleChart title="코스피" candles={kospiCandles} period={strengthPeriod} subCandles={strengthData[`0001:${SUB_PERIOD_OF[strengthPeriod]}`]} />
+                <CandleChart title="코스피" candles={kospiCandles} period={strengthPeriod} subCandles={strengthData[`0001:${SUB_PERIOD_OF[strengthPeriod]}`]} adviceLabel={adviceMode.market.kospi} />
               </div>
               <div style={{ border: "1px solid #262c37", borderRadius: 12, padding: "10px 10px 4px", marginBottom: 12, background: "#161a22" }}>
-                <CandleChart title="코스닥" candles={kosdaqCandles} period={strengthPeriod} subCandles={strengthData[`1001:${SUB_PERIOD_OF[strengthPeriod]}`]} />
+                <CandleChart title="코스닥" candles={kosdaqCandles} period={strengthPeriod} subCandles={strengthData[`1001:${SUB_PERIOD_OF[strengthPeriod]}`]} adviceLabel={adviceMode.market.kosdaq} />
               </div>
               {stocks.filter((s) => s.code && s.name).map((s) => (
                 <div key={s.id} style={{ border: "1px solid #262c37", borderRadius: 12, padding: "10px 10px 4px", marginBottom: 12, background: "#161a22" }}>
-                  <CandleChart title={s.name} candles={strengthData[`${s.code}:${strengthPeriod}`] || []} period={strengthPeriod} subCandles={strengthData[`${s.code}:${SUB_PERIOD_OF[strengthPeriod]}`]} archiveForCode={dailyStrengthArchive[s.code]} />
+                  <CandleChart title={s.name} candles={strengthData[`${s.code}:${strengthPeriod}`] || []} period={strengthPeriod} subCandles={strengthData[`${s.code}:${SUB_PERIOD_OF[strengthPeriod]}`]} archiveForCode={dailyStrengthArchive[s.code]} adviceLabel={adviceMode.stocks[s.code]} />
                 </div>
               ))}
             </div>
@@ -4637,7 +4646,7 @@ function PortfolioApp() {
                   {strengthLoading && !strengthData[`${r.code}:${strengthPeriod}`] && (
                     <div style={{ color: "#8993a6", fontSize: 11, textAlign: "center", padding: 10 }}>불러오는 중...</div>
                   )}
-                  <CandleChart title={r.name} candles={strengthData[`${r.code}:${strengthPeriod}`] || []} period={strengthPeriod} subCandles={strengthData[`${r.code}:${SUB_PERIOD_OF[strengthPeriod]}`]} archiveForCode={dailyStrengthArchive[r.code]} />
+                  <CandleChart title={r.name} candles={strengthData[`${r.code}:${strengthPeriod}`] || []} period={strengthPeriod} subCandles={strengthData[`${r.code}:${SUB_PERIOD_OF[strengthPeriod]}`]} archiveForCode={dailyStrengthArchive[r.code]} adviceLabel={adviceMode.stocks[r.code]} />
                 </div>
               )}
               {metricsStock === r.id && (() => {
