@@ -413,21 +413,20 @@ const CandleChart = React.memo(function CandleChart({ title, candles, period, su
   // pending: 누른 직후 판정 대기 / crosshair: 크로스헤어 추적 중 / scroll: 차트를 옆으로 미는 중 / vertical: 세로 스와이프라 페이지 스크롤에 맡김
   const gestureRef = useRef({ mode: "none", startX: 0, startY: 0, startScrollLeft: 0, startWindowScrollTop: 0, timer: null });
   const [scrollLeftSnap, setScrollLeftSnap] = useState(0);
-  const scrollRef1 = useRef(null);
-  const scrollRef2 = useRef(null);
+  const scrollRef1 = useRef(null); // 캔들차트
+  const scrollRefVol = useRef(null); // 거래량 (선색 표시 카드를 캔들차트와 거래량 사이에 넣으려고 분리함)
+  const scrollRef2 = useRef(null); // 강약표시/도트
   const syncingRef = useRef(false);
-  const handleScroll1 = () => {
-    if (syncingRef.current || !scrollRef1.current || !scrollRef2.current) return;
+  const syncScroll = (sourceRef, ...targetRefs) => {
+    if (syncingRef.current || !sourceRef.current) return;
     syncingRef.current = true;
-    scrollRef2.current.scrollLeft = scrollRef1.current.scrollLeft;
+    const left = sourceRef.current.scrollLeft;
+    targetRefs.forEach((t) => { if (t.current) t.current.scrollLeft = left; });
     syncingRef.current = false;
   };
-  const handleScroll2 = () => {
-    if (syncingRef.current || !scrollRef1.current || !scrollRef2.current) return;
-    syncingRef.current = true;
-    scrollRef1.current.scrollLeft = scrollRef2.current.scrollLeft;
-    syncingRef.current = false;
-  };
+  const handleScroll1 = () => syncScroll(scrollRef1, scrollRefVol, scrollRef2);
+  const handleScrollVol = () => syncScroll(scrollRefVol, scrollRef1, scrollRef2);
+  const handleScroll2 = () => syncScroll(scrollRef2, scrollRef1, scrollRefVol);
 
   if (!candles || candles.length === 0) {
     return (
@@ -609,8 +608,6 @@ const CandleChart = React.memo(function CandleChart({ title, candles, period, su
           {maSeries.map((m) => lineOfVals(m.values).map((seg, idx) => (
             <polyline key={`ma${m.period}-${idx}`} fill="none" stroke={m.color} strokeWidth="1" points={seg} />
           )))}
-          <text x={padL} y={H - 4} fill="#5a6274" fontSize="8" textAnchor="start">{formatCrosshairLabel(recent[0], period)}</text>
-          <text x={W - padR} y={H - 4} fill="#5a6274" fontSize="8" textAnchor="end">{formatCrosshairLabel(last, period)}</text>
           {crosshairX !== null && (
             <>
               <line x1={crosshairX} y1={0} x2={crosshairX} y2={H} stroke="#c9974a" strokeWidth="1" strokeDasharray="3 2" />
@@ -618,8 +615,31 @@ const CandleChart = React.memo(function CandleChart({ title, candles, period, su
             </>
           )}
         </svg>
-        {hasVolume && (
-          <svg viewBox={`0 0 ${W} ${VH}`} width={W} height={VH} preserveAspectRatio="none" style={{ background: "#12151b", borderRadius: 8, border: "1px solid #262c37", display: "block", minWidth: "100%", marginTop: 4, pointerEvents: "none" }}>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 4, fontSize: 9, color: "#8993a6" }}>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          {MA_LINES.map((m) => (
+            <span key={m.period} style={{ display: "flex", alignItems: "center", gap: 3 }}>
+              <svg width="10" height="3"><line x1="0" y1="1.5" x2="10" y2="1.5" stroke={m.color} strokeWidth="1" /></svg>
+              {m.period}
+            </span>
+          ))}
+        </div>
+        <div>{formatCrosshairLabel(recent[0], period)} ~ {formatCrosshairLabel(last, period)}</div>
+      </div>
+      {hasVolume && (
+        <div
+          style={{ overflowX: "auto", marginTop: 4, WebkitUserSelect: "none", userSelect: "none", WebkitTouchCallout: "none" }}
+          onScroll={handleScrollVol}
+          ref={(el) => {
+            scrollRefVol.current = el;
+            if (el && el.dataset.scrolled !== "1") {
+              el.dataset.scrolled = "1";
+              requestAnimationFrame(() => { el.scrollLeft = el.scrollWidth; });
+            }
+          }}
+        >
+          <svg viewBox={`0 0 ${W} ${VH}`} width={W} height={VH} preserveAspectRatio="none" style={{ background: "#12151b", borderRadius: 8, border: "1px solid #262c37", display: "block", minWidth: "100%", pointerEvents: "none" }}>
             {recent.map((c, idx) => {
               const x = xOf(idx);
               const v = vols[idx];
@@ -629,17 +649,9 @@ const CandleChart = React.memo(function CandleChart({ title, candles, period, su
             })}
             {crosshairX !== null && <line x1={crosshairX} y1={0} x2={crosshairX} y2={VH} stroke="#c9974a" strokeWidth="1" strokeDasharray="3 2" />}
           </svg>
-        )}
-      </div>
-      <div style={{ position: "relative" }}>
-        <div style={{ display: "flex", gap: 10, marginTop: 4, fontSize: 9, color: "#8993a6", flexWrap: "wrap" }}>
-          {MA_LINES.map((m) => (
-            <span key={m.period} style={{ display: "flex", alignItems: "center", gap: 3 }}>
-              <svg width="10" height="3"><line x1="0" y1="1.5" x2="10" y2="1.5" stroke={m.color} strokeWidth="1" /></svg>
-              {m.period}
-            </span>
-          ))}
         </div>
+      )}
+      <div style={{ position: "relative" }}>
         <div
           style={{ overflowX: "auto", marginTop: 4, WebkitUserSelect: "none", userSelect: "none", WebkitTouchCallout: "none" }}
           onScroll={handleScroll2}
