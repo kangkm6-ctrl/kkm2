@@ -275,6 +275,9 @@ const LOCK_CRED_KEY = "portfolio-lock-credential-v1";
 const LOCK_PW_HASH_KEY = "portfolio-lock-pw-hash-v1";
 const WEEKLY_SIGNAL_STORE_KEY = "portfolio-weekly-signal-v1";
 const STOCK_WEEKLY_SIGNAL_STORE_KEY = "portfolio-stock-weekly-signal-v1";
+// 매수/매도관점은 한번 들어가면 "현금비중이 반대쪽 기준(10%/30%)에 닿을 때까지" 계속 유지되는 상태값이라
+// 새로고침·재계산과 별개로 별도 저장한다.
+const ADVICE_MODE_STORE_KEY = "portfolio-advice-mode-v1";
 const INVESTMENT_PRINCIPAL_KEY = "portfolio-investment-principal-standalone-v1";
 const DAILY_STRENGTH_ARCHIVE_KEY = "portfolio-daily-strength-archive-v1"; // 매일 오늘치 5분봉 기준 강약평균을 종목·날짜별로 저장해서, 나중에 그 날짜의 일봉을 볼 때 재사용한다.
 const INVESTMENT_QUOTES_KEY = "portfolio-investment-quotes-v1";
@@ -725,7 +728,7 @@ function PortfolioApp() {
   const [importText, setImportText] = useState("");
   const [importMsg, setImportMsg] = useState("");
   const [showAnalysis, setShowAnalysis] = useState(false);
-  const [mainView, setMainView] = useState("home"); // 'home' | 'stocks' | 'cash' | 'settings' | 'view' | 'chart' | 'sectorChart' | 'strengthChart' | 'compareChart' | 'investmentQuotes' ('chart'는 chartTab으로 eps/psr/roe/eva 세분화)
+  const [mainView, setMainView] = useState("home"); // 'home' | 'stocks' | 'cash' | 'settings' | 'view' | 'chart' | 'sectorChart' | 'strengthChart' | 'compareChart' | 'investmentQuotes' | 'adviceExplain' ('chart'는 chartTab으로 eps/psr/roe/eva 세분화)
   const [showRebalanceLog, setShowRebalanceLog] = useState(false);
   const [expandedStock, setExpandedStock] = useState(null);
   const [metricsStock, setMetricsStock] = useState(null); // "종목지표" 펼친 종목 id
@@ -768,6 +771,15 @@ function PortfolioApp() {
   const [marketIndices, setMarketIndices] = useState({ kospi: null, kosdaq: null });
   const [weeklySignal, setWeeklySignal] = useState({ kospi: null, kosdaq: null }); // { ma5Now, ma20Now, state: 'golden'|'dead'|null }
   const [stockWeeklySignal, setStockWeeklySignal] = useState({}); // { [code]: { state } }
+  // 매수관점 → 현금비중 10%가 될 때까지, 매도관점 → 현금비중 30%가 될 때까지 유지되는 상태값.
+  // { market: { kospi: 'buy'|'sell'|'neutral', kosdaq: ... }, stocks: { [code]: 'buy'|'sell'|'neutral' } }
+  const [adviceMode, setAdviceMode] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(ADVICE_MODE_STORE_KEY));
+      if (saved && saved.market && saved.stocks) return saved;
+    } catch (e) {}
+    return { market: { kospi: "neutral", kosdaq: "neutral" }, stocks: {} };
+  });
   const [refreshMsg, setRefreshMsg] = useState("");
   const [lastRefreshedAt, setLastRefreshedAt] = useState(null);
   const [priceRefreshTick, setPriceRefreshTick] = useState(0);
@@ -1623,9 +1635,10 @@ function PortfolioApp() {
     setMarketIndices({ kospi: kospiData, kosdaq: kosdaqData });
   }, [proxyUrl, stocks, appSecret]);
 
-  // 주봉 캔들(날짜+종가) 배열로 5주/20주 이동평균을 구해서 현재 상태(golden/dead)를 판단
+  // 주봉 5·20·60·120 이동평균의 "배열 상태"와 "5선이 20선을 막 돌파하는 순간(교차)"을 함께 판정한다.
+  // 역배열/정배열은 교차 "직전 주" 기준으로 판단한다 — "역배열된 상태에서 5선이 20선을 상향 돌파"는
+  // 돌파하기 전까지는 역배열(5<20<60<120)이었다가, 그 직후 5선이 20선 위로 올라오는 순간을 뜻하기 때문.
   // "이번 주(아직 마감 안 된 주)"인지는 마지막 캔들의 날짜가 이번 주(이번 주 월요일 이후)인지로 정확히 판별해서 제외한다.
-  // (기존에는 무조건 마지막 1개를 제외했는데, 서버가 이미 완결된 주까지만 줄 때도 있어서 그때는 실수로 진짜 완결주 하나를 더 빼버려 계산이 흔들렸음)
   const computeMaState = (candles) => {
     if (!Array.isArray(candles) || candles.length === 0) return null;
     const parsed = candles
@@ -1646,22 +1659,81 @@ function PortfolioApp() {
     // 마지막 캔들이 이번 주(월요일 이후) 것이면 아직 마감 안 된 주이므로 제외, 아니면 이미 다 완결된 주들이므로 그대로 사용
     const completed = lastDate >= mondayStr ? parsed.slice(0, -1) : parsed;
 
-    if (completed.length < 20) return null;
+    // 120주선을 "이번 주"와 "직전 주" 둘 다 구하려면 최소 121주(120+직전 1주)가 필요하다.
+    if (completed.length < 121) return null;
     const closes = completed.map((c) => c.close);
     const n = closes.length;
-    const ma5 = closes.slice(n - 5).reduce((a, b) => a + b, 0) / 5;
-    const ma20 = closes.slice(n - 20).reduce((a, b) => a + b, 0) / 20;
-    if (ma5 === ma20) return { ma5, ma20, state: null };
-    return { ma5, ma20, state: ma5 > ma20 ? "golden" : "dead" };
+    const maAt = (idx, period) => closes.slice(idx - period + 1, idx + 1).reduce((a, b) => a + b, 0) / period;
+    const maSetAt = (idx) => ({ ma5: maAt(idx, 5), ma20: maAt(idx, 20), ma60: maAt(idx, 60), ma120: maAt(idx, 120) });
+    const cur = maSetAt(n - 1);
+    const prev = maSetAt(n - 2);
+
+    const wasAlignedDown = prev.ma5 < prev.ma20 && prev.ma20 < prev.ma60 && prev.ma60 < prev.ma120; // 역배열(단기<장기)
+    const wasAlignedUp = prev.ma5 > prev.ma20 && prev.ma20 > prev.ma60 && prev.ma60 > prev.ma120;   // 정배열(단기>장기)
+    const goldenCross = prev.ma5 <= prev.ma20 && cur.ma5 > cur.ma20; // 5선이 20선을 상향 돌파하는 그 순간
+    const deadCross = prev.ma5 >= prev.ma20 && cur.ma5 < cur.ma20;   // 5선이 20선을 하향 돌파하는 그 순간
+
+    return { ...cur, wasAlignedDown, wasAlignedUp, goldenCross, deadCross };
   };
 
 
-  // 상태 + 현금비중(목표현금비중 대비)을 기준으로 매수/매도/중립 중 하나를 결정 (항상 셋 중 하나)
+  // 배열 상태 + 5/20선 교차 + 현금비중(고정 기준값)으로 매수/매도/중립 중 하나를 결정 (항상 셋 중 하나)
   const deriveAdviceLabel = (state) => {
-    if (state === "golden" && cashRatio <= targetCashRatio) return "sell"; // 골든크로스인데 현금이 목표 이하 → 매도관점(현금 확보)
-    if (state === "dead" && cashRatio >= targetCashRatio) return "buy";   // 데드크로스인데 현금이 목표 이상 → 매수관점(저가 매수)
+    if (!state) return "neutral";
+    // 역배열이었다가 5선이 20선을 상향 돌파 + 현금비중 30% 이상 → 매수관점
+    if (state.wasAlignedDown && state.goldenCross && cashRatio >= 0.3) return "buy";
+    // 정배열이었다가 5선이 20선을 하향 돌파 + 현금비중 10% 이하 → 매도관점
+    if (state.wasAlignedUp && state.deadCross && cashRatio <= 0.1) return "sell";
     return "neutral";
   };
+
+  // 매수관점 유지 중에 5선이 20선 밑으로 다시 내려가면(하향돌파) 표시만 중립으로 바꾸고,
+  // 다시 5선이 20선 위로 올라오면(상향돌파) 그대로 매수관점으로 돌아온다 — 캠페인 자체(campaign)는
+  // 현금비중이 10%/30%에 닿기 전까진 안 끝나고, 화면 표시(display)만 5/20 관계에 따라 껐다 켰다 한다.
+  const displayAdviceFor = (campaign, state) => {
+    if (campaign === "buy") return state && state.ma5 < state.ma20 ? "neutral" : "buy";
+    if (campaign === "sell") return state && state.ma5 > state.ma20 ? "neutral" : "sell";
+    return "neutral";
+  };
+
+  useEffect(() => {
+    if (!loaded) return;
+    try { localStorage.setItem(ADVICE_MODE_STORE_KEY, JSON.stringify(adviceMode)); } catch (e) {}
+  }, [adviceMode, loaded]);
+
+  // 매수관점은 현금비중이 10%가 될 때까지, 매도관점은 30%가 될 때까지 그대로 유지한다.
+  // (진입 조건은 새 주봉 신호가 나올 때만 확인하고, 유지 중엔 현금비중이 바뀔 때마다 "빠져나갈 때가 됐는지"만 본다)
+  useEffect(() => {
+    if (!loaded) return;
+    setAdviceMode((prev) => {
+      let changed = false;
+      const nextMarket = { ...prev.market };
+      for (const key of ["kospi", "kosdaq"]) {
+        const mode = nextMarket[key] || "neutral";
+        if (mode === "buy" && cashRatio <= 0.1) { nextMarket[key] = "neutral"; changed = true; }
+        else if (mode === "sell" && cashRatio >= 0.3) { nextMarket[key] = "neutral"; changed = true; }
+        else if (mode === "neutral") {
+          const triggered = deriveAdviceLabel(weeklySignal[key]);
+          if (triggered !== "neutral") { nextMarket[key] = triggered; changed = true; }
+        }
+      }
+      const nextStocks = {};
+      stockCodes.forEach((code) => {
+        const mode = prev.stocks[code] || "neutral";
+        if (mode === "buy" && cashRatio <= 0.1) { nextStocks[code] = "neutral"; changed = true; }
+        else if (mode === "sell" && cashRatio >= 0.3) { nextStocks[code] = "neutral"; changed = true; }
+        else if (mode === "neutral") {
+          const triggered = deriveAdviceLabel(stockWeeklySignal[code]);
+          nextStocks[code] = triggered;
+          if (triggered !== "neutral") changed = true;
+        } else {
+          nextStocks[code] = mode;
+        }
+      });
+      if (Object.keys(prev.stocks).length !== Object.keys(nextStocks).length) changed = true;
+      return changed ? { market: nextMarket, stocks: nextStocks } : prev;
+    });
+  }, [weeklySignal, stockWeeklySignal, cashRatio, stockCodes, loaded]);
 
   // 코스피/코스닥 주봉 데이터 조회 — 하루 1회 계산 후 localStorage에 고정 저장 (앱을 몇 번을 다시 열어도 그날 안엔 절대 안 바뀜)
   const fetchWeeklySignals = useCallback(async () => {
@@ -1678,8 +1750,8 @@ function PortfolioApp() {
     const headers = appSecret ? { "x-app-secret": appSecret } : {};
     try {
       const [kospiRes, kosdaqRes] = await Promise.all([
-        fetch(`${base}/index-history/0001`, { headers }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
-        fetch(`${base}/index-history/1001`, { headers }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+        fetch(`${base}/index-history/0001?period=W&days=2200`, { headers }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+        fetch(`${base}/index-history/1001?period=W&days=2200`, { headers }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
       ]);
       const toState = (histData) => {
         if (!histData || !Array.isArray(histData.candles)) return null;
@@ -1718,7 +1790,7 @@ function PortfolioApp() {
     try {
       const results = await Promise.all(
         codes.map((code) =>
-          fetch(`${base}/stock-history/${code}`, { headers })
+          fetch(`${base}/stock-history/${code}?period=W&days=2200`, { headers })
             .then((r) => (r.ok ? r.json() : null))
             .then((data) => ({ code, data }))
             .catch(() => ({ code, data: null }))
@@ -2185,17 +2257,17 @@ function PortfolioApp() {
   }, [loaded, proxyUrl]);
 
 
-  // 코스피/코스닥 각각 매수/매도/중립 라벨 (항상 표시)
+  // 코스피/코스닥 각각 매수/매도/중립 라벨 (항상 표시) — 캠페인은 유지하되, 5/20 관계에 따라 표시만 갱신.
   const marketAdviceList = useMemo(() => {
     return [["kospi", "코스피"], ["kosdaq", "코스닥"]].map(([key, label]) => {
-      const s = weeklySignal[key];
-      const adv = s ? deriveAdviceLabel(s.state) : "neutral";
-      const text = adv === "sell" ? `${label} 매도관점(현금 20%~30%)`
-        : adv === "buy" ? `${label} 매수관점(현금 10%~20%)`
-        : `${label} 중립관점(현금 20%)`;
+      const campaign = adviceMode.market[key] || "neutral";
+      const adv = displayAdviceFor(campaign, weeklySignal[key]);
+      const text = adv === "sell" ? `${label} 매도관점(현금 30%까지 유지)`
+        : adv === "buy" ? `${label} 매수관점(현금 10%까지 유지)`
+        : `${label} 중립관점`;
       return { key, label, type: adv, text };
     });
-  }, [weeklySignal, cashRatio, targetCashRatio]);
+  }, [adviceMode, weeklySignal]);
 
   // 새로고침이 실제로 반영된 다음(state 커밋 이후)에 정렬 재계산 — 타이밍 문제 없이 안전하게 동작
   useEffect(() => {
@@ -2567,13 +2639,22 @@ function PortfolioApp() {
           <div style={{ fontSize: 11, letterSpacing: 1, color: "#c9974a", fontWeight: 600 }}>PORTFOLIO</div>
           <div style={{ fontSize: 20, fontWeight: 700 }}>포트폴리오 리밸런싱</div>
         </div>
-        <button
-          onClick={() => setMainView("investmentQuotes")}
-          className="iconbtn"
-          style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 12, whiteSpace: "nowrap" }}
-        >
-          📜 투자 명언
-        </button>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button
+            onClick={() => setMainView("adviceExplain")}
+            className="iconbtn"
+            style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 12, whiteSpace: "nowrap" }}
+          >
+            📊 관점설명
+          </button>
+          <button
+            onClick={() => setMainView("investmentQuotes")}
+            className="iconbtn"
+            style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 12, whiteSpace: "nowrap" }}
+          >
+            📜 투자 명언
+          </button>
+        </div>
       </div>
       </>)}
 
@@ -3990,6 +4071,67 @@ function PortfolioApp() {
         </div>
       )}
 
+      {mainView === "adviceExplain" && (() => {
+        const Section = ({ title, children }) => (
+          <div style={{ marginBottom: 22 }}>
+            <div style={{ fontSize: 14, fontWeight: 800, color: "#c9974a", marginBottom: 8 }}>{title}</div>
+            <div style={{ fontSize: 13.5, color: "#c7cddb", lineHeight: 1.7 }}>{children}</div>
+          </div>
+        );
+        const Bullet = ({ children }) => (
+          <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+            <span style={{ color: "#5a6274", flexShrink: 0 }}>·</span>
+            <span>{children}</span>
+          </div>
+        );
+        return (
+          <div style={{ padding: "calc(env(safe-area-inset-top, 0px) + 10px) 0 0" }}>
+            <div style={{ padding: "0 16px 10px", position: "sticky", top: "env(safe-area-inset-top, 0px)", zIndex: 20, background: "#12151b" }}>
+              <button onClick={() => setMainView("home")} className="iconbtn" style={{ color: "#c9974a", fontWeight: 700, fontSize: 14 }}>← 뒤로</button>
+            </div>
+            <div style={{ padding: "0 20px 40px" }}>
+              <div style={{ fontSize: 22, fontWeight: 800, color: "#e7eaf0", marginBottom: 6, lineHeight: 1.4 }}>매수/매도/중립관점 기준</div>
+              <div style={{ fontSize: 12.5, color: "#8993a6", marginBottom: 24, lineHeight: 1.6 }}>코스피·코스닥과 보유종목 전부 같은 기준으로 판정돼요. 크게 "캠페인"(뒤에서 계속 유지되는 상태)과 "화면 표시"(지금 뭐라고 보여줄지) 두 층으로 나뉘어요.</div>
+
+              <Section title="1. 판정 재료 — 주봉 5·20·60·120 이동평균">
+                <Bullet>완결된 주봉(진행 중인 이번 주는 제외) 종가로 매주 계산해요.</Bullet>
+                <Bullet>120주선까지 보려면 최소 121주치 데이터가 필요해요.</Bullet>
+              </Section>
+
+              <Section title="2. 캠페인 진입 조건 (중립일 때만 확인)">
+                <div style={{ padding: "10px 12px", borderRadius: 8, background: "rgba(232,84,75,0.1)", border: "1px solid rgba(232,84,75,0.35)", marginBottom: 10 }}>
+                  <div style={{ color: "#e8544b", fontWeight: 700, marginBottom: 4 }}>매수 캠페인 시작</div>
+                  <div>직전 주에 <b>5선&lt;20선&lt;60선&lt;120선(역배열)</b>이었다가, 이번 주 5선이 20선을 <b>상향 돌파</b> + 현재 현금비중 <b>30% 이상</b></div>
+                </div>
+                <div style={{ padding: "10px 12px", borderRadius: 8, background: "rgba(76,141,255,0.1)", border: "1px solid rgba(76,141,255,0.35)" }}>
+                  <div style={{ color: "#4c8dff", fontWeight: 700, marginBottom: 4 }}>매도 캠페인 시작</div>
+                  <div>직전 주에 <b>5선&gt;20선&gt;60선&gt;120선(정배열)</b>이었다가, 이번 주 5선이 20선을 <b>하향 돌파</b> + 현재 현금비중 <b>10% 이하</b></div>
+                </div>
+                <div style={{ marginTop: 8, fontSize: 12, color: "#5a6274" }}>이미 매수/매도 캠페인이 진행 중이면 이 조건은 새로 검사하지 않아요.</div>
+              </Section>
+
+              <Section title="3. 캠페인 종료 조건 (오직 이것만으로 끝남)">
+                <Bullet>매수 캠페인 → 현금비중이 <b style={{ color: "#e7eaf0" }}>10%</b>가 되면 종료 → 중립으로 리셋</Bullet>
+                <Bullet>매도 캠페인 → 현금비중이 <b style={{ color: "#e7eaf0" }}>30%</b>가 되면 종료 → 중립으로 리셋</Bullet>
+                <div style={{ marginTop: 4, fontSize: 12, color: "#5a6274" }}>이 두 조건 외엔 캠페인이 절대 끝나지 않아요.</div>
+              </Section>
+
+              <Section title="4. 화면 표시 (캠페인 중에도 실시간으로 바뀜)">
+                <Bullet>매수 캠페인 중 + 지금 5선 &lt; 20선 → 화면엔 <b style={{ color: "#8993a6" }}>중립관점</b> (일시 정지)</Bullet>
+                <Bullet>매수 캠페인 중 + 지금 5선 &gt; 20선 → 화면엔 <b style={{ color: "#e8544b" }}>매수관점</b></Bullet>
+                <Bullet>매도 캠페인 중 + 지금 5선 &gt; 20선 → 화면엔 <b style={{ color: "#8993a6" }}>중립관점</b> (일시 정지)</Bullet>
+                <Bullet>매도 캠페인 중 + 지금 5선 &lt; 20선 → 화면엔 <b style={{ color: "#4c8dff" }}>매도관점</b></Bullet>
+                <div style={{ marginTop: 4, fontSize: 12, color: "#5a6274" }}>캠페인은 안 끝났지만, 5/20선 관계가 뒤집힐 때마다 표시만 껐다 켰다 해요.</div>
+              </Section>
+
+              <div style={{ marginTop: 4, padding: "12px 14px", borderRadius: 10, background: "#161a22", border: "1px solid #262c37", fontSize: 12.5, color: "#8993a6", lineHeight: 1.7 }}>
+                정리하면, 캠페인은 <b style={{ color: "#c9974a" }}>현금비중이 목표(10%/30%)에 도달</b>해야만 완전히 끝나고, 그 사이 5/20선이 오르락내리락하는 동안은 화면 표시만 따라 움직여요. 이 상태는 기기에 저장돼서 새로고침해도 유지돼요.
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {mainView === "view" && (
         <div style={{ padding: "calc(env(safe-area-inset-top, 0px) + 10px) 0 0" }}>
           <div style={{ padding: "0 16px 10px", position: "sticky", top: "env(safe-area-inset-top, 0px)", zIndex: 20, background: "#12151b" }}>
@@ -4422,8 +4564,8 @@ function PortfolioApp() {
                 </div>
               </div>
               {(() => {
-                const sig = r.code ? stockWeeklySignal[r.code] : null;
-                const adv = sig ? deriveAdviceLabel(sig.state) : "neutral";
+                const campaign = (r.code && adviceMode.stocks[r.code]) || "neutral";
+                const adv = displayAdviceFor(campaign, r.code ? stockWeeklySignal[r.code] : null);
                 const color = adv === "buy" ? "#e8544b" : adv === "sell" ? "#4c8dff" : "#8993a6";
                 const badgeText = adv === "buy" ? "매수관점" : adv === "sell" ? "매도관점" : "중립관점";
                 return (
