@@ -146,6 +146,25 @@ function rankDesc(arr) {
 let __idCounter = 0;
 const genId = () => `id-${Date.now()}-${__idCounter++}-${Math.random().toString(36).slice(2, 8)}`;
 
+// 투자 명언끼리 내용이 비슷한지 판단할 때 쓰는 함수. 공백을 지운 뒤 2글자씩(바이그램) 쪼개서
+// 자카드 유사도(겹치는 비율)를 구한다 — 한글은 띄어쓰기로 단어를 딱 나누기 애매해서, 형태소 분석 없이도
+// 어순이 조금 다르거나 토씨가 달라도 비슷하게 잡아내는 이 방식이 실용적이다.
+const textBigrams = (s) => {
+  const clean = String(s || "").replace(/\s+/g, "");
+  const set = new Set();
+  for (let i = 0; i < clean.length - 1; i++) set.add(clean.slice(i, i + 2));
+  if (set.size === 0 && clean.length > 0) set.add(clean); // 한두 글자짜리는 그 자체를 하나의 조각으로
+  return set;
+};
+const textSimilarity = (a, b) => {
+  const A = textBigrams(a), B = textBigrams(b);
+  if (A.size === 0 || B.size === 0) return 0;
+  let inter = 0;
+  A.forEach((g) => { if (B.has(g)) inter++; });
+  const union = A.size + B.size - inter;
+  return union === 0 ? 0 : inter / union;
+};
+
 // 주요 종목 이름 -> 코드 사전 (자동완성용, 전체 상장종목은 아니고 자주 쓰이는 종목 위주)
 const STOCK_CODE_MAP = {
   "삼성전자":"005930","삼성전자우":"005935","SK하이닉스":"000660","LG에너지솔루션":"373220",
@@ -784,6 +803,7 @@ function PortfolioApp() {
   });
   const [newQuoteNumber, setNewQuoteNumber] = useState("");
   const [newQuoteText, setNewQuoteText] = useState("");
+  const quotesFileInputRef = useRef(null);
   const [comparePeriod, setComparePeriod] = useState("W"); // 챠트비교 탭: '5MIN' | 'W' | 'M' | 'Y'
   const [compareExcluded, setCompareExcluded] = useState({}); // { [stockId]: true } — 챠트비교에서 제외된 종목
   const [chartOverlay, setChartOverlay] = useState(null); // 종목챠트에서 탭한 종목의 주가/코스피/코스닥 월봉 (EPS성장률과 겹쳐 그림)
@@ -1961,6 +1981,17 @@ function PortfolioApp() {
     setInvestmentQuotes(next);
     try { localStorage.setItem(INVESTMENT_QUOTES_KEY, JSON.stringify(next)); } catch (e) {}
   };
+  // 지금 새로 쓰고 있는 명언과 내용이 비슷한 기존 명언들을 찾는다 (0.25 이상 겹치면 "비슷하다"로 침 —
+  // 실제로 안 비슷한 문장끼리는 거의 0에 가깝게 나와서, 이 정도로 낮춰야 표현만 살짝 다른 것도 잡힌다).
+  const similarExistingQuotes = useMemo(() => {
+    const draft = newQuoteText.trim();
+    if (!draft) return [];
+    return investmentQuotes
+      .map((q) => ({ q, sim: textSimilarity(q.text, draft) }))
+      .filter(({ sim }) => sim >= 0.25)
+      .sort((a, b) => b.sim - a.sim)
+      .map(({ q }) => q);
+  }, [newQuoteText, investmentQuotes]);
   // 정렬된 순서 그대로 번호를 1,2,3...으로 다시 매긴다.
   const renumberQuotes = (list) => [...list]
     .sort((a, b) => (num(a.number) || 0) - (num(b.number) || 0))
@@ -2537,6 +2568,52 @@ function PortfolioApp() {
     XLSX.writeFile(wb, `PORTFOLIO_${y}${m}${d}.xlsx`);
   };
 
+  // 투자 명언만 따로 엑셀로 내려받는다 (번호 순 정렬).
+  const exportQuotesToExcel = () => {
+    const rows = [...investmentQuotes]
+      .sort((a, b) => (num(a.number) || 0) - (num(b.number) || 0))
+      .map((q) => ({ "번호": q.number, "명언": q.text }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.length ? rows : [{ "안내": "저장된 명언 없음" }]), "투자명언");
+    const today = new Date();
+    const y = String(today.getFullYear()).slice(2);
+    const m = String(today.getMonth() + 1).padStart(2, "0");
+    const d = String(today.getDate()).padStart(2, "0");
+    XLSX.writeFile(wb, `투자명언_${y}${m}${d}.xlsx`);
+  };
+  // 엑셀 파일(내려받기 때와 같은 "번호"/"명언" 열 형식)을 읽어서 기존 명언 뒤에 이어 붙인다.
+  // 기존 명언은 안 지우고 그대로 두고, 새로 들어온 것들만 추가한 뒤 전체를 1,2,3...으로 다시 매긴다.
+  const handleImportQuotesFile = (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = ""; // 같은 파일을 다시 골라도 onChange가 또 뜨도록 초기화
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const wb = XLSX.read(evt.target.result, { type: "array" });
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+        const imported = rows
+          .map((row) => {
+            const text = String(row["명언"] ?? row["내용"] ?? Object.values(row)[1] ?? "").trim();
+            const numberRaw = row["번호"] ?? Object.values(row)[0];
+            return { id: genId(), number: num(numberRaw) || 0, text };
+          })
+          .filter((q) => q.text);
+        if (imported.length === 0) {
+          alert("엑셀에서 읽을 수 있는 명언이 없어요. '번호'/'명언' 열이 있는지 확인해주세요.");
+          return;
+        }
+        const merged = [...investmentQuotes, ...imported].sort((a, b) => (num(a.number) || 0) - (num(b.number) || 0));
+        persistQuotes(merged.map((q, idx) => ({ ...q, number: idx + 1 })));
+        alert(`${imported.length}개 명언을 가져왔어요.`);
+      } catch (err) {
+        alert("엑셀 파일을 읽지 못했어요: " + (err.message || err));
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
   if (isObscured && lockEnabled && !isLocked) {
     return (
       <div style={{ background: "#12151b", minHeight: "100vh", color: "#e7eaf0", fontFamily: "'Pretendard','Apple SD Gothic Neo',sans-serif", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
@@ -2668,7 +2745,7 @@ function PortfolioApp() {
             className="iconbtn"
             style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 12, whiteSpace: "nowrap" }}
           >
-            📊 관점설명
+            💡 관점설명
           </button>
           <button
             onClick={() => setMainView("investmentQuotes")}
@@ -4033,8 +4110,19 @@ function PortfolioApp() {
 
       {mainView === "investmentQuotes" && (
         <div style={{ padding: "calc(env(safe-area-inset-top, 0px) + 10px) 0 0" }}>
-          <div style={{ padding: "0 16px 10px", position: "sticky", top: "env(safe-area-inset-top, 0px)", zIndex: 20, background: "#12151b" }}>
+          <div style={{ padding: "0 16px 10px", position: "sticky", top: "env(safe-area-inset-top, 0px)", zIndex: 20, background: "#12151b", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, flexWrap: "wrap" }}>
             <button onClick={() => setMainView("home")} className="iconbtn" style={{ color: "#c9974a", fontWeight: 700, fontSize: 14 }}>← 뒤로</button>
+            <div style={{ display: "flex", gap: 6 }}>
+              <input
+                type="file"
+                accept=".xlsx,.xls"
+                ref={quotesFileInputRef}
+                onChange={handleImportQuotesFile}
+                style={{ display: "none" }}
+              />
+              <button onClick={() => quotesFileInputRef.current && quotesFileInputRef.current.click()} className="iconbtn" style={{ padding: "6px 9px", borderRadius: 8, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 11.5, whiteSpace: "nowrap" }}>⬆ 가져오기</button>
+              <button onClick={exportQuotesToExcel} className="iconbtn" style={{ padding: "6px 9px", borderRadius: 8, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 11.5, whiteSpace: "nowrap" }}>⬇ 내려받기</button>
+            </div>
           </div>
           <div style={{ padding: "0 20px 40px" }}>
             <div style={{ fontSize: 22, fontWeight: 800, color: "#e7eaf0", marginBottom: 24, lineHeight: 1.4 }}>매번 세겨야할 명언</div>
@@ -4082,6 +4170,16 @@ function PortfolioApp() {
                   style={{ flex: 1, fontSize: 15, color: "#e7eaf0", lineHeight: 1.6, resize: "vertical" }}
                 />
               </div>
+              {similarExistingQuotes.length > 0 && (
+                <div style={{ marginTop: 10, padding: "10px 12px", borderRadius: 8, background: "rgba(201,151,74,0.1)", border: "1px solid rgba(201,151,74,0.35)" }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#c9974a", marginBottom: 6 }}>⚠️ 내용이 비슷한 명언이 이미 있어요</div>
+                  {similarExistingQuotes.map((q) => (
+                    <div key={q.id} style={{ fontSize: 12.5, color: "#c7cddb", lineHeight: 1.6, marginBottom: 4 }}>
+                      <span style={{ color: "#c9974a", fontWeight: 700 }}>{q.number}번</span> · {q.text.length > 40 ? q.text.slice(0, 40) + "…" : q.text}
+                    </div>
+                  ))}
+                </div>
+              )}
               <button
                 onClick={addInvestmentQuote}
                 className="iconbtn"
