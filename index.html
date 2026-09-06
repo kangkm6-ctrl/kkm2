@@ -146,25 +146,6 @@ function rankDesc(arr) {
 let __idCounter = 0;
 const genId = () => `id-${Date.now()}-${__idCounter++}-${Math.random().toString(36).slice(2, 8)}`;
 
-// 투자 명언끼리 내용이 비슷한지 판단할 때 쓰는 함수. 공백을 지운 뒤 2글자씩(바이그램) 쪼개서
-// 자카드 유사도(겹치는 비율)를 구한다 — 한글은 띄어쓰기로 단어를 딱 나누기 애매해서, 형태소 분석 없이도
-// 어순이 조금 다르거나 토씨가 달라도 비슷하게 잡아내는 이 방식이 실용적이다.
-const textBigrams = (s) => {
-  const clean = String(s || "").replace(/\s+/g, "");
-  const set = new Set();
-  for (let i = 0; i < clean.length - 1; i++) set.add(clean.slice(i, i + 2));
-  if (set.size === 0 && clean.length > 0) set.add(clean); // 한두 글자짜리는 그 자체를 하나의 조각으로
-  return set;
-};
-const textSimilarity = (a, b) => {
-  const A = textBigrams(a), B = textBigrams(b);
-  if (A.size === 0 || B.size === 0) return 0;
-  let inter = 0;
-  A.forEach((g) => { if (B.has(g)) inter++; });
-  const union = A.size + B.size - inter;
-  return union === 0 ? 0 : inter / union;
-};
-
 // 주요 종목 이름 -> 코드 사전 (자동완성용, 전체 상장종목은 아니고 자주 쓰이는 종목 위주)
 const STOCK_CODE_MAP = {
   "삼성전자":"005930","삼성전자우":"005935","SK하이닉스":"000660","LG에너지솔루션":"373220",
@@ -297,6 +278,8 @@ const STOCK_WEEKLY_SIGNAL_STORE_KEY = "portfolio-stock-weekly-signal-v1";
 // 매수/매도시점은 한번 들어가면 "현금비중이 반대쪽 기준(10%/30%)에 닿을 때까지" 계속 유지되는 상태값이라
 // 새로고침·재계산과 별개로 별도 저장한다.
 const ADVICE_MODE_STORE_KEY = "portfolio-advice-mode-v1";
+const LEARNED_COUNT_KEY = "portfolio-quotes-learned-count-v1";
+const BOOKMARK_QUOTE_ID_KEY = "portfolio-quotes-bookmark-id-v1";
 const INVESTMENT_PRINCIPAL_KEY = "portfolio-investment-principal-standalone-v1";
 const DAILY_STRENGTH_ARCHIVE_KEY = "portfolio-daily-strength-archive-v1"; // 매일 오늘치 5분봉 기준 강약평균을 종목·날짜별로 저장해서, 나중에 그 날짜의 일봉을 볼 때 재사용한다.
 const INVESTMENT_QUOTES_KEY = "portfolio-investment-quotes-v1";
@@ -802,6 +785,19 @@ function PortfolioApp() {
     } catch (e) { return seedInvestmentQuotes; }
   });
   const [newQuoteNumber, setNewQuoteNumber] = useState("");
+  const [quoteSearchQuery, setQuoteSearchQuery] = useState("");
+  // 몇 번까지 "익혔다"고 직접 등록해두는 값. 이 숫자보다 작은 번호로는 명언을 재배치 못 하게 막는 기준으로도 쓴다.
+  const [learnedCount, setLearnedCount] = useState(() => {
+    try {
+      const saved = Number(localStorage.getItem(LEARNED_COUNT_KEY));
+      return Number.isFinite(saved) && saved >= 0 ? saved : 0;
+    } catch (e) { return 0; }
+  });
+  const quoteRowRefs = useRef({}); // { [quoteId]: DOM node } — "그곳으로 바로가기"에서 스크롤 위치 찾을 때 씀
+  // 체크박스는 "책갈피" 역할이라 전체 명언 중 딱 하나만 표시될 수 있다 (여러 개 동시 체크 안 됨).
+  const [bookmarkQuoteId, setBookmarkQuoteId] = useState(() => {
+    try { return localStorage.getItem(BOOKMARK_QUOTE_ID_KEY) || null; } catch (e) { return null; }
+  });
   const [newQuoteText, setNewQuoteText] = useState("");
   const quotesFileInputRef = useRef(null);
   const [comparePeriod, setComparePeriod] = useState("W"); // 챠트비교 탭: '5MIN' | 'W' | 'M' | 'Y'
@@ -1745,6 +1741,19 @@ function PortfolioApp() {
     try { localStorage.setItem(ADVICE_MODE_STORE_KEY, JSON.stringify(adviceMode)); } catch (e) {}
   }, [adviceMode, loaded]);
 
+  useEffect(() => {
+    if (!loaded) return;
+    try { localStorage.setItem(LEARNED_COUNT_KEY, String(learnedCount)); } catch (e) {}
+  }, [learnedCount, loaded]);
+
+  useEffect(() => {
+    if (!loaded) return;
+    try {
+      if (bookmarkQuoteId) localStorage.setItem(BOOKMARK_QUOTE_ID_KEY, bookmarkQuoteId);
+      else localStorage.removeItem(BOOKMARK_QUOTE_ID_KEY);
+    } catch (e) {}
+  }, [bookmarkQuoteId, loaded]);
+
   // 매수시점은 현금비중이 10%가 될 때까지, 매도시점은 30%가 될 때까지 그대로 유지한다.
   // (진입 조건은 새 주봉 신호가 나올 때만 확인하고, 유지 중엔 현금비중이 바뀔 때마다 "빠져나갈 때가 됐는지"만 본다)
   useEffect(() => {
@@ -1981,17 +1990,6 @@ function PortfolioApp() {
     setInvestmentQuotes(next);
     try { localStorage.setItem(INVESTMENT_QUOTES_KEY, JSON.stringify(next)); } catch (e) {}
   };
-  // 지금 새로 쓰고 있는 명언과 내용이 비슷한 기존 명언들을 찾는다 (0.25 이상 겹치면 "비슷하다"로 침 —
-  // 실제로 안 비슷한 문장끼리는 거의 0에 가깝게 나와서, 이 정도로 낮춰야 표현만 살짝 다른 것도 잡힌다).
-  const similarExistingQuotes = useMemo(() => {
-    const draft = newQuoteText.trim();
-    if (!draft) return [];
-    return investmentQuotes
-      .map((q) => ({ q, sim: textSimilarity(q.text, draft) }))
-      .filter(({ sim }) => sim >= 0.25)
-      .sort((a, b) => b.sim - a.sim)
-      .map(({ q }) => q);
-  }, [newQuoteText, investmentQuotes]);
   // 정렬된 순서 그대로 번호를 1,2,3...으로 다시 매긴다.
   const renumberQuotes = (list) => [...list]
     .sort((a, b) => (num(a.number) || 0) - (num(b.number) || 0))
@@ -2009,17 +2007,28 @@ function PortfolioApp() {
   // 번호를 바꾸면, 그 번호 자리에 끼워 넣고 나머지(그 자리에 있던 것부터 뒤로)는 번호를 하나씩 밀어서
   // 항상 1,2,3...으로 겹침 없이 이어지게 한다. (예: 3번을 1번으로 바꾸면 기존 1,2번이 2,3번으로 밀림)
   const updateQuoteNumber = (id, value) => {
-    const targetNum = Number(value);
-    if (value.trim() === "" || !Number.isFinite(targetNum)) {
+    const parsed = Number(value);
+    if (value.trim() === "" || !Number.isFinite(parsed)) {
       // 아직 숫자로 확정 안 된 입력 중(지우는 중 등)은 재배치하지 않고 입력값만 그대로 둔다.
       persistQuotes(investmentQuotes.map((q) => (q.id === id ? { ...q, number: value } : q)));
       return;
     }
+    // "익힌 개수"로 등록해둔 수보다 앞자리로는 못 옮기게 막는다 (이미 익힌 구간이 흐트러지지 않도록).
+    const targetNum = Math.max(parsed, learnedCount);
     const editedItem = investmentQuotes.find((q) => q.id === id);
     const rest = investmentQuotes.filter((q) => q.id !== id).sort((a, b) => (num(a.number) || 0) - (num(b.number) || 0));
     const insertAt = Math.max(0, Math.min(rest.length, Math.round(targetNum) - 1));
     const reordered = [...rest.slice(0, insertAt), editedItem, ...rest.slice(insertAt)];
     persistQuotes(reordered.map((q, idx) => ({ ...q, number: idx + 1 })));
+  };
+  // 체크박스는 책갈피라서, 한 곳을 체크하면 다른 곳 체크는 자동으로 풀린다 (전체에 하나만 표시).
+  const toggleBookmark = (id) => {
+    setBookmarkQuoteId((prev) => (prev === id ? null : id));
+  };
+  // 책갈피가 꽂힌 위치로 화면을 스크롤한다.
+  const jumpToBookmark = () => {
+    const node = bookmarkQuoteId && quoteRowRefs.current[bookmarkQuoteId];
+    if (node) node.scrollIntoView({ behavior: "smooth", block: "center" });
   };
   // 내용을 다 지워서(공백) 비워지면 그 항목을 자동으로 삭제하고, 남은 항목들의 번호를 순서대로 다시 매긴다.
   const updateQuoteText = (id, value) => {
@@ -4148,37 +4157,28 @@ function PortfolioApp() {
               />
               <button onClick={() => quotesFileInputRef.current && quotesFileInputRef.current.click()} className="iconbtn" style={{ padding: "6px 9px", borderRadius: 8, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 11.5, whiteSpace: "nowrap" }}>⬆ 가져오기</button>
               <button onClick={exportQuotesToExcel} className="iconbtn" style={{ padding: "6px 9px", borderRadius: 8, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 11.5, whiteSpace: "nowrap" }}>⬇ 내려받기</button>
+              <button onClick={jumpToBookmark} className="iconbtn" style={{ padding: "6px 9px", borderRadius: 8, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 11.5, whiteSpace: "nowrap" }}>📍 책갈피로</button>
             </div>
           </div>
           <div style={{ padding: "0 20px 40px" }}>
-            <div style={{ fontSize: 22, fontWeight: 800, color: "#e7eaf0", marginBottom: 24, lineHeight: 1.4 }}>매번 세겨야 할 투자명언</div>
-
-            {[...investmentQuotes].sort((a, b) => (num(a.number) || 0) - (num(b.number) || 0)).map((q) => (
-              <div key={q.id} style={{ display: "flex", gap: 8, alignItems: "flex-start", marginBottom: 20 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 16 }}>
+              <div style={{ fontSize: 22, fontWeight: 800, color: "#e7eaf0", lineHeight: 1.4 }}>매번 세겨야 할 투자명언</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+                <span style={{ fontSize: 11, color: "#8993a6" }}>익힘</span>
                 <input
-                  value={q.number}
-                  onChange={(e) => updateQuoteNumber(q.id, e.target.value)}
+                  value={learnedCount}
+                  onChange={(e) => { const v = Number(e.target.value); setLearnedCount(Number.isFinite(v) && v >= 0 ? v : 0); }}
                   inputMode="numeric"
                   className="field"
-                  style={{ width: 32, flexShrink: 0, fontSize: 14, fontWeight: 700, color: "#c9974a", textAlign: "center", padding: "6px 0" }}
+                  style={{ width: 40, fontSize: 13, fontWeight: 700, color: "#c9974a", textAlign: "center", padding: "5px 2px" }}
                 />
-                <textarea
-                  ref={(el) => { if (el) { el.style.height = "auto"; el.style.height = el.scrollHeight + "px"; } }}
-                  value={q.text}
-                  onChange={(e) => {
-                    updateQuoteText(q.id, e.target.value);
-                    e.target.style.height = "auto";
-                    e.target.style.height = e.target.scrollHeight + "px";
-                  }}
-                  className="field"
-                  style={{ flex: 1, fontSize: 16, color: "#e7eaf0", lineHeight: 1.6, fontWeight: 600, resize: "none", overflow: "hidden", minHeight: 30 }}
-                />
+                <span style={{ fontSize: 11, color: "#8993a6" }}>번</span>
               </div>
-            ))}
+            </div>
 
-            <div style={{ marginTop: 20, paddingTop: 16, borderTop: "1px solid #262c37" }}>
-              <div style={{ fontSize: 12, color: "#8993a6", marginBottom: 8 }}>새 명언 추가 (번호를 안 넣으면 자동으로 다음 번호가 매겨져요) · 내용을 지워서 비우면 그 항목이 삭제되고 번호가 다시 매겨져요</div>
-              <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+            <div style={{ marginBottom: 24, paddingBottom: 20, borderBottom: "1px solid #262c37" }}>
+              <div style={{ fontSize: 12, color: "#8993a6", marginBottom: 8 }}>새 명언 추가 (번호를 안 넣으면 자동으로 다음 번호가 매겨져요)</div>
+              <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
                 <input
                   value={newQuoteNumber}
                   onChange={(e) => setNewQuoteNumber(e.target.value)}
@@ -4190,30 +4190,63 @@ function PortfolioApp() {
                 <textarea
                   value={newQuoteText}
                   onChange={(e) => setNewQuoteText(e.target.value)}
+                  onBlur={addInvestmentQuote}
                   placeholder="내용을 입력하거나 붙여넣으세요"
                   className="field"
                   rows={3}
                   style={{ flex: 1, fontSize: 15, color: "#e7eaf0", lineHeight: 1.6, resize: "vertical" }}
                 />
               </div>
-              {similarExistingQuotes.length > 0 && (
-                <div style={{ marginTop: 10, padding: "10px 12px", borderRadius: 8, background: "rgba(201,151,74,0.1)", border: "1px solid rgba(201,151,74,0.35)" }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: "#c9974a", marginBottom: 6 }}>⚠️ 내용이 비슷한 명언이 이미 있어요</div>
-                  {similarExistingQuotes.map((q) => (
-                    <div key={q.id} style={{ fontSize: 12.5, color: "#c7cddb", lineHeight: 1.6, marginBottom: 4 }}>
-                      <span style={{ color: "#c9974a", fontWeight: 700 }}>{q.number}번</span> · {q.text.length > 40 ? q.text.slice(0, 40) + "…" : q.text}
-                    </div>
-                  ))}
-                </div>
-              )}
-              <button
-                onClick={addInvestmentQuote}
-                className="iconbtn"
-                style={{ width: "100%", marginTop: 10, padding: "10px 0", borderRadius: 8, border: "1px solid #c9974a", background: "rgba(201,151,74,0.15)", color: "#c9974a", fontWeight: 700, fontSize: 14 }}
-              >
-                + 추가
-              </button>
             </div>
+
+            <div style={{ fontSize: 11.5, color: "#5a6274", marginBottom: 10 }}>내용을 지워서 비우면 그 항목이 삭제되고 번호가 다시 매겨져요</div>
+
+            <input
+              value={quoteSearchQuery}
+              onChange={(e) => setQuoteSearchQuery(e.target.value)}
+              placeholder="🔍 명언 검색 (번호 또는 내용)"
+              className="field"
+              style={{ marginBottom: 14, fontSize: 14, padding: "8px 10px" }}
+            />
+
+            {[...investmentQuotes]
+              .filter((q) => {
+                const query = quoteSearchQuery.trim().toLowerCase();
+                if (!query) return true;
+                return q.text.toLowerCase().includes(query) || String(q.number).includes(query);
+              })
+              .sort((a, b) => (num(a.number) || 0) - (num(b.number) || 0))
+              .map((q) => (
+              <div key={q.id} ref={(el) => { if (el) quoteRowRefs.current[q.id] = el; }} style={{ display: "flex", gap: 6, alignItems: "flex-start", marginBottom: 8, padding: "4px 8px", borderRadius: 8, background: q.id === bookmarkQuoteId ? "rgba(201,151,74,0.1)" : "transparent", boxSizing: "border-box" }}>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, flexShrink: 0 }}>
+                  <input
+                    value={q.number}
+                    onChange={(e) => updateQuoteNumber(q.id, e.target.value)}
+                    inputMode="numeric"
+                    className="field"
+                    style={{ width: 30, fontSize: 13, fontWeight: 700, color: "#c9974a", textAlign: "center", padding: "4px 0" }}
+                  />
+                  <input
+                    type="checkbox"
+                    checked={q.id === bookmarkQuoteId}
+                    onChange={() => toggleBookmark(q.id)}
+                    style={{ width: 16, height: 16, accentColor: "#c9974a", flexShrink: 0 }}
+                  />
+                </div>
+                <textarea
+                  ref={(el) => { if (el) { el.style.height = "auto"; el.style.height = el.scrollHeight + "px"; } }}
+                  value={q.text}
+                  onChange={(e) => {
+                    updateQuoteText(q.id, e.target.value);
+                    e.target.style.height = "auto";
+                    e.target.style.height = e.target.scrollHeight + "px";
+                  }}
+                  className="field"
+                  rows={1}
+                  style={{ flex: 1, fontSize: 16, color: "#e7eaf0", lineHeight: 1.5, fontWeight: 600, resize: "none", overflow: "hidden", minHeight: 0, padding: "4px 8px" }}
+                />
+              </div>
+            ))}
           </div>
         </div>
       )}
