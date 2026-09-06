@@ -2002,6 +2002,7 @@ function PortfolioApp() {
     const maxNum = investmentQuotes.reduce((m, q) => Math.max(m, num(q.number) || 0), 0);
     const number = newQuoteNumber.trim() ? num(newQuoteNumber) : maxNum + 1;
     persistQuotes([...investmentQuotes, { id: genId(), number, text }]);
+    quotesDirtyRef.current = true;
     setNewQuoteNumber("");
     setNewQuoteText("");
   };
@@ -2024,6 +2025,7 @@ function PortfolioApp() {
   const updateQuoteText = (id, value) => {
     if (value.trim() === "") {
       persistQuotes(renumberQuotes(investmentQuotes.filter((q) => q.id !== id)));
+      quotesDirtyRef.current = true;
       return;
     }
     persistQuotes(investmentQuotes.map((q) => (q.id === id ? { ...q, text: value } : q)));
@@ -2569,18 +2571,41 @@ function PortfolioApp() {
   };
 
   // 투자 명언만 따로 엑셀로 내려받는다 (번호 순 정렬).
-  const exportQuotesToExcel = () => {
-    const rows = [...investmentQuotes]
+  const investmentQuotesRef = useRef(investmentQuotes);
+  useEffect(() => { investmentQuotesRef.current = investmentQuotes; }, [investmentQuotes]);
+  const buildQuotesWorkbook = (list) => {
+    const rows = [...list]
       .sort((a, b) => (num(a.number) || 0) - (num(b.number) || 0))
       .map((q) => ({ "번호": q.number, "명언": q.text }));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.length ? rows : [{ "안내": "저장된 명언 없음" }]), "투자명언");
+    return wb;
+  };
+  const exportQuotesToExcel = () => {
     const today = new Date();
     const y = String(today.getFullYear()).slice(2);
     const m = String(today.getMonth() + 1).padStart(2, "0");
     const d = String(today.getDate()).padStart(2, "0");
-    XLSX.writeFile(wb, `투자명언_${y}${m}${d}.xlsx`);
+    XLSX.writeFile(buildQuotesWorkbook(investmentQuotes), `투자명언_${y}${m}${d}.xlsx`);
   };
+  // "매번 세겨야 할 투자명언" 탭에서 추가·삭제가 있었는지 기록해두는 값. 화면을 나갈 때 이게 true면
+  // 자동으로 엑셀을 내려받는다 (ref라서 effect의 cleanup 시점에도 항상 최신 값을 본다 — investmentQuotes도
+  // 마찬가지로 ref로 따로 들고 있어야, 탭에 들어온 뒤 바뀐 내용이 반영된 최신 목록으로 저장된다).
+  const quotesDirtyRef = useRef(false);
+  useEffect(() => {
+    if (mainView !== "investmentQuotes") return;
+    quotesDirtyRef.current = false; // 이 탭에 들어올 때마다 "아직 변경 없음"으로 초기화
+    return () => {
+      if (!quotesDirtyRef.current) return;
+      const today = new Date();
+      const y = String(today.getFullYear()).slice(2);
+      const m = String(today.getMonth() + 1).padStart(2, "0");
+      const d = String(today.getDate()).padStart(2, "0");
+      XLSX.writeFile(buildQuotesWorkbook(investmentQuotesRef.current), `매번 세겨야 할 투자명언(${y}${m}${d}).xlsx`);
+      quotesDirtyRef.current = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mainView]);
   // 엑셀 파일(내려받기 때와 같은 "번호"/"명언" 열 형식)을 읽어서 기존 명언 뒤에 이어 붙인다.
   // 기존 명언은 안 지우고 그대로 두고, 새로 들어온 것들만 추가한 뒤 전체를 1,2,3...으로 다시 매긴다.
   const handleImportQuotesFile = (e) => {
@@ -2606,6 +2631,7 @@ function PortfolioApp() {
         }
         const merged = [...investmentQuotes, ...imported].sort((a, b) => (num(a.number) || 0) - (num(b.number) || 0));
         persistQuotes(merged.map((q, idx) => ({ ...q, number: idx + 1 })));
+        quotesDirtyRef.current = true;
         alert(`${imported.length}개 명언을 가져왔어요.`);
       } catch (err) {
         alert("엑셀 파일을 읽지 못했어요: " + (err.message || err));
