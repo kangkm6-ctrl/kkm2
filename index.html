@@ -280,6 +280,7 @@ const STOCK_WEEKLY_SIGNAL_STORE_KEY = "portfolio-stock-weekly-signal-v1";
 const ADVICE_MODE_STORE_KEY = "portfolio-advice-mode-v1";
 const LEARNED_COUNT_KEY = "portfolio-quotes-learned-count-v1";
 const BOOKMARK_QUOTE_ID_KEY = "portfolio-quotes-bookmark-id-v1";
+const QUOTE_READ_DATE_KEY = "portfolio-quotes-read-date-v1";
 const INVESTMENT_PRINCIPAL_KEY = "portfolio-investment-principal-standalone-v1";
 const DAILY_STRENGTH_ARCHIVE_KEY = "portfolio-daily-strength-archive-v1"; // 매일 오늘치 5분봉 기준 강약평균을 종목·날짜별로 저장해서, 나중에 그 날짜의 일봉을 볼 때 재사용한다.
 const INVESTMENT_QUOTES_KEY = "portfolio-investment-quotes-v1";
@@ -786,6 +787,12 @@ function PortfolioApp() {
   });
   const [newQuoteNumber, setNewQuoteNumber] = useState("");
   const [quoteSearchQuery, setQuoteSearchQuery] = useState("");
+  const [quoteReadDate, setQuoteReadDate] = useState(() => {
+    try {
+      const saved = localStorage.getItem(QUOTE_READ_DATE_KEY);
+      return saved || new Date().toISOString().slice(0, 10);
+    } catch (e) { return new Date().toISOString().slice(0, 10); }
+  });
   // 몇 번까지 "익혔다"고 직접 등록해두는 값. 이 숫자보다 작은 번호로는 명언을 재배치 못 하게 막는 기준으로도 쓴다.
   const [learnedCount, setLearnedCount] = useState(() => {
     try {
@@ -1753,6 +1760,11 @@ function PortfolioApp() {
       else localStorage.removeItem(BOOKMARK_QUOTE_ID_KEY);
     } catch (e) {}
   }, [bookmarkQuoteId, loaded]);
+
+  useEffect(() => {
+    if (!loaded) return;
+    try { localStorage.setItem(QUOTE_READ_DATE_KEY, quoteReadDate); } catch (e) {}
+  }, [quoteReadDate, loaded]);
 
   // 매수시점은 현금비중이 10%가 될 때까지, 매도시점은 30%가 될 때까지 그대로 유지한다.
   // (진입 조건은 새 주봉 신호가 나올 때만 확인하고, 유지 중엔 현금비중이 바뀔 때마다 "빠져나갈 때가 됐는지"만 본다)
@@ -4160,11 +4172,21 @@ function PortfolioApp() {
               <button onClick={jumpToBookmark} className="iconbtn" style={{ padding: "6px 9px", borderRadius: 8, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 11.5, whiteSpace: "nowrap" }}>📍 책갈피로</button>
             </div>
           </div>
-          <div style={{ padding: "0 20px 40px" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 16 }}>
-              <div style={{ fontSize: 22, fontWeight: 800, color: "#e7eaf0", lineHeight: 1.4 }}>매번 세겨야 할 투자명언</div>
-              <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
-                <span style={{ fontSize: 11, color: "#8993a6" }}>익힘</span>
+          <div style={{ padding: "0 10px 40px" }}>
+            <div style={{ fontSize: 27, fontWeight: 800, color: "#e7eaf0", lineHeight: 1.4, marginBottom: 12 }}>매번 세겨야 할 투자명언</div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 18, marginBottom: 16, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontSize: 12, color: "#8993a6" }}>읽은날짜</span>
+                <input
+                  type="date"
+                  value={quoteReadDate}
+                  onChange={(e) => setQuoteReadDate(e.target.value)}
+                  className="field"
+                  style={{ width: 130, fontSize: 13, fontWeight: 700, color: "#c9974a", textAlign: "center", padding: "5px 6px" }}
+                />
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <span style={{ fontSize: 12, color: "#8993a6" }}>익힘</span>
                 <input
                   value={learnedCount}
                   onChange={(e) => { const v = Number(e.target.value); setLearnedCount(Number.isFinite(v) && v >= 0 ? v : 0); }}
@@ -4172,7 +4194,7 @@ function PortfolioApp() {
                   className="field"
                   style={{ width: 40, fontSize: 13, fontWeight: 700, color: "#c9974a", textAlign: "center", padding: "5px 2px" }}
                 />
-                <span style={{ fontSize: 11, color: "#8993a6" }}>번</span>
+                <span style={{ fontSize: 12, color: "#8993a6" }}>번</span>
               </div>
             </div>
 
@@ -4243,7 +4265,7 @@ function PortfolioApp() {
                   }}
                   className="field"
                   rows={1}
-                  style={{ flex: 1, fontSize: 16, color: "#e7eaf0", lineHeight: 1.5, fontWeight: 600, resize: "none", overflow: "hidden", minHeight: 0, padding: "4px 8px" }}
+                  style={{ flex: 1, fontSize: 18, color: "#e7eaf0", lineHeight: 1.55, fontWeight: 600, resize: "none", overflow: "hidden", minHeight: 0, padding: "4px 6px" }}
                 />
               </div>
             ))}
