@@ -1738,8 +1738,8 @@ function PortfolioApp() {
     if (!state) return "neutral";
     // 역배열 + 5선 저점이 높아짐 + 현금비중 30% 이상 → 매수시점
     if (state.alignedDown && state.higherLow && cashRatio >= 0.3) return "buy";
-    // 정배열 + 5선 고점이 낮아짐 + 현금비중 10% 이상 → 매도시점
-    if (state.alignedUp && state.lowerHigh && cashRatio >= 0.1) return "sell";
+    // 정배열 + 5선 고점이 낮아짐 + 현금비중 10% 이하 → 매도시점
+    if (state.alignedUp && state.lowerHigh && cashRatio <= 0.1) return "sell";
     return "neutral";
   };
 
@@ -2041,6 +2041,45 @@ function PortfolioApp() {
   const jumpToBookmark = () => {
     const node = bookmarkQuoteId && quoteRowRefs.current[bookmarkQuoteId];
     if (node) node.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
+  // 명언 박스를 왼쪽으로 스와이프하면 뒤에 숨어있던 "삭제" 버튼이 드러난다.
+  // 진짜 드래그(가로로 10px 이상 움직임)일 때만 스와이프로 잡아서, 텍스트 칸 탭/커서 이동과 안 겹치게 한다.
+  const swipeDragRef = useRef({ id: null, startX: 0, startOffset: 0, active: false });
+  const [swipeOffsets, setSwipeOffsets] = useState({});
+  const SWIPE_OPEN = -140;
+  const handleSwipeStart = (id, e) => {
+    swipeDragRef.current = { id, startX: e.clientX, startOffset: swipeOffsets[id] || 0, active: false };
+  };
+  const handleSwipeMove = (id, e) => {
+    const g = swipeDragRef.current;
+    if (g.id !== id) return;
+    const dx = e.clientX - g.startX;
+    if (!g.active) {
+      if (Math.abs(dx) < 10) return;
+      g.active = true;
+      // 다른 곳에 열려있던 스와이프는 새로 스와이프를 시작하면 닫는다 (한 번에 하나만).
+      setSwipeOffsets((prev) => {
+        const next = {};
+        Object.keys(prev).forEach((k) => { if (k !== id) next[k] = 0; });
+        return { ...next, [id]: prev[id] || 0 };
+      });
+    }
+    const next = Math.max(SWIPE_OPEN, Math.min(0, g.startOffset + dx));
+    setSwipeOffsets((prev) => ({ ...prev, [id]: next }));
+  };
+  const handleSwipeEnd = (id) => {
+    const g = swipeDragRef.current;
+    swipeDragRef.current = { id: null, startX: 0, startOffset: 0, active: false };
+    if (g.id !== id || !g.active) return;
+    setSwipeOffsets((prev) => ({ ...prev, [id]: (prev[id] || 0) < SWIPE_OPEN / 2 ? SWIPE_OPEN : 0 }));
+  };
+  const deleteQuoteRow = (id) => {
+    persistQuotes(renumberQuotes(investmentQuotes.filter((q) => q.id !== id)));
+    quotesDirtyRef.current = true;
+    setSwipeOffsets((prev) => { const next = { ...prev }; delete next[id]; return next; });
+  };
+  const closeSwipe = (id) => {
+    setSwipeOffsets((prev) => ({ ...prev, [id]: 0 }));
   };
   // 내용을 다 지워서(공백) 비워지면 그 항목을 자동으로 삭제하고, 남은 항목들의 번호를 순서대로 다시 매긴다.
   const updateQuoteText = (id, value) => {
@@ -4239,7 +4278,33 @@ function PortfolioApp() {
               })
               .sort((a, b) => (num(a.number) || 0) - (num(b.number) || 0))
               .map((q) => (
-              <div key={q.id} ref={(el) => { if (el) quoteRowRefs.current[q.id] = el; }} style={{ display: "flex", gap: 6, alignItems: "flex-start", marginBottom: 8, padding: "4px 8px", borderRadius: 8, background: q.id === bookmarkQuoteId ? "rgba(201,151,74,0.1)" : "transparent", boxSizing: "border-box" }}>
+              <div key={q.id} style={{ position: "relative", marginBottom: 8, borderRadius: 8, overflow: "hidden" }}>
+                <button
+                  onClick={() => closeSwipe(q.id)}
+                  style={{ position: "absolute", top: 0, right: 76, bottom: 0, width: 64, border: "none", background: "#2a303c", color: "#c7cddb", fontWeight: 700, fontSize: 13 }}
+                >
+                  취소
+                </button>
+                <button
+                  onClick={() => deleteQuoteRow(q.id)}
+                  style={{ position: "absolute", top: 0, right: 0, bottom: 0, width: 76, border: "none", background: "#c0392b", color: "#fff", fontWeight: 700, fontSize: 13 }}
+                >
+                  삭제
+                </button>
+                <div
+                  ref={(el) => { if (el) quoteRowRefs.current[q.id] = el; }}
+                  onPointerDown={(e) => handleSwipeStart(q.id, e)}
+                  onPointerMove={(e) => handleSwipeMove(q.id, e)}
+                  onPointerUp={() => handleSwipeEnd(q.id)}
+                  onPointerCancel={() => handleSwipeEnd(q.id)}
+                  style={{
+                    position: "relative", display: "flex", gap: 6, alignItems: "flex-start", padding: "4px 8px", boxSizing: "border-box",
+                    background: q.id === bookmarkQuoteId ? "rgba(201,151,74,0.1)" : "#12151b",
+                    transform: `translateX(${swipeOffsets[q.id] || 0}px)`,
+                    transition: swipeDragRef.current.active ? "none" : "transform 0.2s ease",
+                    touchAction: "pan-y",
+                  }}
+                >
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, flexShrink: 0 }}>
                   <input
                     value={q.number}
@@ -4267,6 +4332,7 @@ function PortfolioApp() {
                   rows={1}
                   style={{ flex: 1, fontSize: 18, color: "#e7eaf0", lineHeight: 1.55, fontWeight: 600, resize: "none", overflow: "hidden", minHeight: 0, padding: "4px 6px" }}
                 />
+                </div>
               </div>
             ))}
           </div>
@@ -4308,7 +4374,7 @@ function PortfolioApp() {
                 </div>
                 <div style={{ padding: "10px 12px", borderRadius: 8, background: "rgba(76,141,255,0.1)", border: "1px solid rgba(76,141,255,0.35)" }}>
                   <div style={{ color: "#4c8dff", fontWeight: 700, marginBottom: 4 }}>매도 캠페인 시작</div>
-                  <div><b>5선&gt;20선&gt;60선&gt;120선(정배열)</b> + <b>5선의 고점이 이전 고점보다 낮아짐</b> + 현재 현금비중 <b>10% 이상</b></div>
+                  <div><b>5선&gt;20선&gt;60선&gt;120선(정배열)</b> + <b>5선의 고점이 이전 고점보다 낮아짐</b> + 현재 현금비중 <b>10% 이하</b></div>
                 </div>
                 <div style={{ marginTop: 8, fontSize: 12, color: "#5a6274" }}>이미 매수/매도 캠페인이 진행 중이면 이 조건은 새로 검사하지 않아요.</div>
               </Section>
