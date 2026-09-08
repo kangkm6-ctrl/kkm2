@@ -1998,9 +1998,19 @@ function PortfolioApp() {
     });
   };
   // 투자 명언: 추가/번호변경/내용변경/삭제 전부 이 함수들로 처리하고, 매번 로컬 저장소에도 반영한다.
+  // 바뀌기 직전 상태를 최근 5개까지 쌓아뒀다가, "실행취소"를 누르면 하나씩 되돌린다.
+  const [quoteUndoStack, setQuoteUndoStack] = useState([]);
   const persistQuotes = (next) => {
+    setQuoteUndoStack((stack) => [...stack, investmentQuotes].slice(-5));
     setInvestmentQuotes(next);
     try { localStorage.setItem(INVESTMENT_QUOTES_KEY, JSON.stringify(next)); } catch (e) {}
+  };
+  const undoQuoteChange = () => {
+    if (quoteUndoStack.length === 0) return;
+    const prevState = quoteUndoStack[quoteUndoStack.length - 1];
+    setInvestmentQuotes(prevState);
+    try { localStorage.setItem(INVESTMENT_QUOTES_KEY, JSON.stringify(prevState)); } catch (e) {}
+    setQuoteUndoStack((stack) => stack.slice(0, -1));
   };
   // 정렬된 순서 그대로 번호를 1,2,3...으로 다시 매긴다.
   const renumberQuotes = (list) => [...list]
@@ -4209,6 +4219,15 @@ function PortfolioApp() {
               <button onClick={() => quotesFileInputRef.current && quotesFileInputRef.current.click()} className="iconbtn" style={{ padding: "6px 9px", borderRadius: 8, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 11.5, whiteSpace: "nowrap" }}>⬆ 가져오기</button>
               <button onClick={exportQuotesToExcel} className="iconbtn" style={{ padding: "6px 9px", borderRadius: 8, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 11.5, whiteSpace: "nowrap" }}>⬇ 내려받기</button>
               <button onClick={jumpToBookmark} className="iconbtn" style={{ padding: "6px 9px", borderRadius: 8, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 11.5, whiteSpace: "nowrap" }}>📍 책갈피로</button>
+              <button
+                onClick={undoQuoteChange}
+                disabled={quoteUndoStack.length === 0}
+                title={`실행취소 (${quoteUndoStack.length}단계 가능)`}
+                className="iconbtn"
+                style={{ padding: "6px 9px", borderRadius: 8, border: "1px solid #262c37", background: "#1a1f28", color: quoteUndoStack.length === 0 ? "#3a4150" : "#c9974a", fontWeight: 700, fontSize: 11.5, whiteSpace: "nowrap" }}
+              >
+                ↩️ 실행취소{quoteUndoStack.length > 0 ? ` (${quoteUndoStack.length})` : ""}
+              </button>
             </div>
           </div>
           <div style={{ padding: "0 10px 40px" }}>
