@@ -761,8 +761,8 @@ function PortfolioApp() {
   const [netWorthHistory, setNetWorthHistory] = useState(() => {
     try { return JSON.parse(localStorage.getItem(NET_WORTH_HISTORY_KEY)) || {}; } catch (e) { return {}; }
   });
-  const [performanceYear, setPerformanceYear] = useState(null); // null이면 연도 목록, 아니면 그 연도의 분기 목록
-  const [performanceQuarter, setPerformanceQuarter] = useState(null); // 'YYYY-Qn' — 그 분기의 월별 목록
+  const [perfQuarterKey, setPerfQuarterKey] = useState(null); // 월을 탭하면 그 월이 속한 분기 키('YYYY-Qn')가 들어감
+  const [perfYearKey, setPerfYearKey] = useState(null); // 분기를 탭하면 그 분기가 속한 연도가 들어감
   const [expandedChartKey, setExpandedChartKey] = useState(null); // 눌러서 펼친 구간의 key (그 구간 선그래프 표시)
   const [cashSettleLog, setCashSettleLog] = useState([]); // [{id, date, accountName, amount}]
   const [targetCashRatio, setTargetCashRatio] = useState(0.2);
@@ -4460,7 +4460,6 @@ function PortfolioApp() {
       })()}
 
       {mainView === "investmentPerformance" && (() => {
-        const yearStats = buildPeriodStats(netWorthHistory, yearKeyOf);
         // 펼쳤을 때 보여줄 선그래프. 그 구간에 속한 날짜별 자산가치를 순서대로 이어 그린다.
         const MiniLineChart = ({ filterFn }) => {
           const points = Object.keys(netWorthHistory).filter(filterFn).sort().map((d) => ({ d, v: netWorthHistory[d] }));
@@ -4537,13 +4536,14 @@ function PortfolioApp() {
             </div>
           );
         };
-        const backLabel = performanceQuarter ? "분기 목록" : performanceYear ? "연도 목록" : "뒤로";
+        const backLabel = perfYearKey ? "분기" : perfQuarterKey ? "월별 목록" : "뒤로";
         const goBack = () => {
-          if (performanceQuarter) setPerformanceQuarter(null);
-          else if (performanceYear) setPerformanceYear(null);
+          if (perfYearKey) setPerfYearKey(null);
+          else if (perfQuarterKey) setPerfQuarterKey(null);
           else setMainView("home");
           setExpandedChartKey(null);
         };
+        const monthStats = buildPeriodStats(netWorthHistory, monthKeyOf); // 전체 기간의 월별 목록(최상위 화면)
         return (
           <div style={{ padding: "calc(env(safe-area-inset-top, 0px) + 10px) 0 0" }}>
             <div style={{ padding: "0 16px 10px", position: "sticky", top: "env(safe-area-inset-top, 0px)", zIndex: 20, background: "#12151b" }}>
@@ -4552,52 +4552,49 @@ function PortfolioApp() {
             <div style={{ padding: "0 12px 40px" }}>
               <div style={{ fontSize: 30, fontWeight: 800, color: "#e7eaf0", marginBottom: 8 }}>투자성적</div>
               <div style={{ fontSize: 15, color: "#8993a6", marginBottom: 20, lineHeight: 1.6 }}>
-                {performanceQuarter
-                  ? `${performanceQuarter.slice(0, 4)}년 ${performanceQuarter.slice(5)}의 월별 성적이에요.`
-                  : performanceYear
-                    ? `${performanceYear}년의 분기별 성적이에요. 분기를 탭하면 그 분기의 월별로 들어가요.`
-                    : "매일 자산가치를 기록해서 연도별 시작~종료 금액과 수익률을 보여줘요. 아직 끝나지 않은 구간은 \"종료\" 값이 오늘까지의 최신 값으로 계속 바뀌다가, 그 구간이 지나면 그 값으로 확정돼요."}
+                {perfYearKey
+                  ? `${perfYearKey}년 전체 성적이에요.`
+                  : perfQuarterKey
+                    ? `${perfQuarterKey.slice(0, 4)}년 ${perfQuarterKey.slice(5)} 성적이에요. 탭하면 그 해 전체로 넘어가요.`
+                    : "월별 성적이에요. 탭하면 그 달이 속한 분기로, 거기서 한 번 더 탭하면 그 해 전체로 넘어가요."}
               </div>
 
-              {yearStats.length === 0 && (
+              {monthStats.length === 0 && (
                 <div style={{ fontSize: 16, color: "#5a6274", textAlign: "center", padding: "40px 0", lineHeight: 1.7 }}>아직 기록된 자산 데이터가 없어요.<br />오늘부터 매일 자동으로 쌓이기 시작해요.</div>
               )}
 
-              {!performanceYear && yearStats.map((s) => (
+              {!perfQuarterKey && monthStats.map((s) => (
                 <PerfRow
                   key={s.key}
-                  label={`${s.key}년`}
+                  label={`${s.key.slice(0, 4)}.${s.key.slice(5)}`}
                   s={s}
-                  onClick={() => { setPerformanceYear(s.key); setExpandedChartKey(null); }}
-                  filterFn={(d) => d.slice(0, 4) === s.key}
+                  onClick={() => { setPerfQuarterKey(quarterKeyOf(s.startDate)); setExpandedChartKey(null); }}
+                  filterFn={(d) => monthKeyOf(d) === s.key}
                 />
               ))}
 
-              {performanceYear && !performanceQuarter && (() => {
-                const yearHistory = Object.fromEntries(Object.entries(netWorthHistory).filter(([d]) => d.slice(0, 4) === performanceYear));
-                const quarterStats = buildPeriodStats(yearHistory, quarterKeyOf);
-                return quarterStats.map((s) => (
+              {perfQuarterKey && !perfYearKey && (() => {
+                const qHistory = Object.fromEntries(Object.entries(netWorthHistory).filter(([d]) => quarterKeyOf(d) === perfQuarterKey));
+                const s = buildPeriodStats(qHistory, quarterKeyOf)[0];
+                if (!s) return null;
+                return (
                   <PerfRow
                     key={s.key}
-                    label={s.key.slice(5)}
+                    label={s.key}
                     s={s}
-                    onClick={() => { setPerformanceQuarter(s.key); setExpandedChartKey(null); }}
+                    onClick={() => { setPerfYearKey(s.key.slice(0, 4)); setExpandedChartKey(null); }}
                     filterFn={(d) => quarterKeyOf(d) === s.key}
                   />
-                ));
+                );
               })()}
 
-              {performanceQuarter && (() => {
-                const qHistory = Object.fromEntries(Object.entries(netWorthHistory).filter(([d]) => quarterKeyOf(d) === performanceQuarter));
-                const monthStats = buildPeriodStats(qHistory, monthKeyOf);
-                return monthStats.map((s) => (
-                  <PerfRow
-                    key={s.key}
-                    label={`${Number(s.key.slice(5))}월`}
-                    s={s}
-                    filterFn={(d) => monthKeyOf(d) === s.key}
-                  />
-                ));
+              {perfYearKey && (() => {
+                const yHistory = Object.fromEntries(Object.entries(netWorthHistory).filter(([d]) => d.slice(0, 4) === perfYearKey));
+                const s = buildPeriodStats(yHistory, yearKeyOf)[0];
+                if (!s) return null;
+                return (
+                  <PerfRow key={s.key} label={`${s.key}년`} s={s} filterFn={(d) => d.slice(0, 4) === s.key} />
+                );
               })()}
             </div>
           </div>
@@ -4799,7 +4796,7 @@ function PortfolioApp() {
       <div className="card tnum" style={{ margin: "0 16px 8px", padding: "8px 16px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
           <div className="lbl">투자원금 (실제보유현금 포함)</div>
-          <button onClick={() => { setPerformanceYear(null); setPerformanceQuarter(null); setExpandedChartKey(null); setMainView("investmentPerformance"); }} className="iconbtn" style={{ padding: "4px 8px", borderRadius: 7, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 11, whiteSpace: "nowrap", flexShrink: 0 }}>📊 투자성적</button>
+          <button onClick={() => { setPerfQuarterKey(null); setPerfYearKey(null); setExpandedChartKey(null); setMainView("investmentPerformance"); }} className="iconbtn" style={{ padding: "4px 8px", borderRadius: 7, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 11, whiteSpace: "nowrap", flexShrink: 0 }}>📊 투자성적</button>
         </div>
         <div style={{ display: "flex", justifyContent: "space-between" }}>
           <div style={{ width: 235, flexShrink: 0 }}>
