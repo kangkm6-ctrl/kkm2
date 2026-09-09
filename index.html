@@ -101,6 +101,32 @@ const fmt = (n) => (n === null || n === undefined || isNaN(n)) ? "-" : Math.roun
 const fmtMarketCap = (eok) => (eok === null || eok === undefined || isNaN(eok)) ? "-" : (eok >= 10000 ? `${(eok / 10000).toFixed(1)}조원` : `${fmt(eok)}억원`);
 const fmtPct = (n) => (n === null || n === undefined || isNaN(n)) ? "-" : (n * 100).toFixed(1) + "%";
 
+// netWorthHistory({YYYYMMDD: 금액})를 연도/분기/월 단위로 묶어서, 각 구간의 "시작(그 구간에서 가장 오래된 기록)"과
+// "종료(그 구간에서 가장 최근 기록 — 아직 안 끝난 구간이면 오늘까지의 최신값, 끝난 구간이면 마지막 날 값으로 굳음)"를 구한다.
+// keyFn이 날짜를 어떤 구간 키로 묶을지 결정한다 (연도별/분기별/월별 각각 다른 keyFn을 넘겨서 재사용).
+const buildPeriodStats = (history, keyFn) => {
+  const dates = Object.keys(history).sort();
+  const buckets = {};
+  dates.forEach((d) => {
+    const key = keyFn(d);
+    if (!buckets[key]) buckets[key] = { startDate: d, startVal: history[d], endDate: d, endVal: history[d] };
+    else {
+      const b = buckets[key];
+      if (d < b.startDate) { b.startDate = d; b.startVal = history[d]; }
+      if (d > b.endDate) { b.endDate = d; b.endVal = history[d]; }
+    }
+  });
+  return Object.keys(buckets).sort().reverse().map((key) => {
+    const b = buckets[key];
+    const returnPct = b.startVal !== 0 ? ((b.endVal - b.startVal) / b.startVal) * 100 : null;
+    return { key, ...b, returnPct };
+  });
+};
+const yearKeyOf = (d) => d.slice(0, 4);
+const quarterKeyOf = (d) => `${d.slice(0, 4)}-Q${Math.floor((Number(d.slice(4, 6)) - 1) / 3) + 1}`;
+const monthKeyOf = (d) => `${d.slice(0, 4)}-${d.slice(4, 6)}`;
+const fmtYmd = (d) => (d && d.length === 8 ? `${d.slice(0, 4)}.${d.slice(4, 6)}.${d.slice(6, 8)}` : "-");
+
 const toDisplay = (v) => {
   if (v === "" || v === undefined || v === null) return "";
   // 아이폰 스마트 대시로 바뀐 –, —, − 등도 미리 표준 "-"로 바꿔준 다음 정리
@@ -281,6 +307,7 @@ const ADVICE_MODE_STORE_KEY = "portfolio-advice-mode-v1";
 const LEARNED_COUNT_KEY = "portfolio-quotes-learned-count-v1";
 const BOOKMARK_QUOTE_ID_KEY = "portfolio-quotes-bookmark-id-v1";
 const QUOTE_READ_DATE_KEY = "portfolio-quotes-read-date-v1";
+const NET_WORTH_HISTORY_KEY = "portfolio-net-worth-history-v1";
 const INVESTMENT_PRINCIPAL_KEY = "portfolio-investment-principal-standalone-v1";
 const DAILY_STRENGTH_ARCHIVE_KEY = "portfolio-daily-strength-archive-v1"; // 매일 오늘치 5분봉 기준 강약평균을 종목·날짜별로 저장해서, 나중에 그 날짜의 일봉을 볼 때 재사용한다.
 const INVESTMENT_QUOTES_KEY = "portfolio-investment-quotes-v1";
@@ -729,6 +756,14 @@ function PortfolioApp() {
   const [stocks, setStocks] = useState(seedStocks);
   const [cashAccounts, setCashAccounts] = useState(seedCash);
   const [investmentPrincipalBase, setInvestmentPrincipalBase] = useState(0); // "투자원금" — 주식/현금 합계 공식과 무관한 독립 값. 오직 사용한돈 정산 또는 직접입력으로만 바뀜
+  // 투자성적(연도별/분기별/월별 시작~종료 금액과 수익률) 계산용 — 날짜별 총평가금액을 매일 기록해둔다.
+  // 오늘 날짜의 값은 시세가 바뀔 때마다 계속 덮어써서 "그날의 마지막(최신) 값"이 되고, 날이 지나면 그 값으로 굳는다.
+  const [netWorthHistory, setNetWorthHistory] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(NET_WORTH_HISTORY_KEY)) || {}; } catch (e) { return {}; }
+  });
+  const [performanceYear, setPerformanceYear] = useState(null); // null이면 연도 목록, 아니면 그 연도의 분기 목록
+  const [performanceQuarter, setPerformanceQuarter] = useState(null); // 'YYYY-Qn' — 그 분기의 월별 목록
+  const [expandedChartKey, setExpandedChartKey] = useState(null); // 눌러서 펼친 구간의 key (그 구간 선그래프 표시)
   const [cashSettleLog, setCashSettleLog] = useState([]); // [{id, date, accountName, amount}]
   const [targetCashRatio, setTargetCashRatio] = useState(0.2);
   const [proxyUrl, setProxyUrl] = useState("");
@@ -752,7 +787,7 @@ function PortfolioApp() {
   const [importText, setImportText] = useState("");
   const [importMsg, setImportMsg] = useState("");
   const [showAnalysis, setShowAnalysis] = useState(false);
-  const [mainView, setMainView] = useState("home"); // 'home' | 'stocks' | 'cash' | 'settings' | 'view' | 'chart' | 'sectorChart' | 'strengthChart' | 'compareChart' | 'investmentQuotes' | 'adviceExplain' ('chart'는 chartTab으로 eps/psr/roe/eva 세분화)
+  const [mainView, setMainView] = useState("home"); // 'home' | 'stocks' | 'cash' | 'settings' | 'view' | 'chart' | 'sectorChart' | 'strengthChart' | 'compareChart' | 'investmentQuotes' | 'adviceExplain' | 'investmentPerformance' ('chart'는 chartTab으로 eps/psr/roe/eva 세분화)
   const [showRebalanceLog, setShowRebalanceLog] = useState(false);
   const [expandedStock, setExpandedStock] = useState(null);
   const [metricsStock, setMetricsStock] = useState(null); // "종목지표" 펼친 종목 id
@@ -1163,6 +1198,18 @@ function PortfolioApp() {
   const realAvailableCash = cashCalc.totalCash - S2;
   // 평가총금액 = 주식투자평가액 + 실제보유현금합계 (가상매수/매도 시뮬레이션과 무관하게 항상 실제 값 기준)
   const totalPortfolioValue = stockCalc.totalVal + cashCalc.totalCash;
+  // "투자성적" 화면에 쓸 날짜별 스냅샷. 오늘 날짜 칸은 시세가 바뀔 때마다 최신값으로 계속 덮어쓰고,
+  // 날짜가 넘어가면(다음 날 처음 열 때) 그 전날 마지막 값 그대로 굳어서 다시는 안 바뀐다.
+  useEffect(() => {
+    if (!loaded) return;
+    const todayKey = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    if (netWorthHistory[todayKey] === totalPortfolioValue) return;
+    setNetWorthHistory((prev) => {
+      const next = { ...prev, [todayKey]: totalPortfolioValue };
+      try { localStorage.setItem(NET_WORTH_HISTORY_KEY, JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
+  }, [totalPortfolioValue, loaded]);
   const cashRatio = totalPortfolioValue !== 0 ? realAvailableCash / totalPortfolioValue : 0;
   const investableCash = totalPortfolioValue * (cashRatio - targetCashRatio);
   // 주식 매입원가와 현금 둘 다 baseline(한 번 오른 뒤엔 절대 안 내려가는 값)을 사용
@@ -4412,6 +4459,151 @@ function PortfolioApp() {
         );
       })()}
 
+      {mainView === "investmentPerformance" && (() => {
+        const yearStats = buildPeriodStats(netWorthHistory, yearKeyOf);
+        // 펼쳤을 때 보여줄 선그래프. 그 구간에 속한 날짜별 자산가치를 순서대로 이어 그린다.
+        const MiniLineChart = ({ filterFn }) => {
+          const points = Object.keys(netWorthHistory).filter(filterFn).sort().map((d) => ({ d, v: netWorthHistory[d] }));
+          if (points.length < 2) {
+            return <div style={{ fontSize: 15, color: "#5a6274", textAlign: "center", padding: "18px 0" }}>그래프를 그리려면 기록이 2일 이상 필요해요.</div>;
+          }
+          const W = 300, H = 110, padX = 6, padY = 10;
+          const base = points[0].v; // 구간 시작값 = 수익률 0% 기준선
+          const vals = points.map((p) => p.v);
+          let vMin = Math.min(...vals), vMax = Math.max(...vals);
+          if (vMax === vMin) { vMax += 1; vMin -= 1; }
+          const xOf = (i) => padX + (i / (points.length - 1)) * (W - padX * 2);
+          const yOf = (v) => padY + ((vMax - v) / (vMax - vMin)) * (H - padY * 2);
+          const pctOf = (v) => (base !== 0 ? ((v - base) / base) * 100 : 0);
+          const line = points.map((p, i) => `${xOf(i)},${yOf(p.v)}`).join(" ");
+          const lastVal = points[points.length - 1].v;
+          const up = lastVal >= base;
+          const color = up ? "#e8544b" : "#4c8dff";
+          const showBaseline = base >= vMin && base <= vMax;
+          return (
+            <div style={{ padding: "10px 0 4px" }}>
+              <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", display: "block" }}>
+                {/* 수익률 0% 기준선 (구간 시작 금액) */}
+                {showBaseline && (
+                  <>
+                    <line x1={padX} y1={yOf(base)} x2={W - padX} y2={yOf(base)} stroke="#2a303c" strokeWidth="1" strokeDasharray="3 3" />
+                    <text x={padX} y={yOf(base) - 3} fill="#5a6274" fontSize="9">0%</text>
+                  </>
+                )}
+                {/* 구간 내 최고/최저 수익률 */}
+                <text x={W - padX} y={yOf(vMax) + 8} fill="#5a6274" fontSize="9" textAnchor="end">
+                  {pctOf(vMax) >= 0 ? "+" : ""}{pctOf(vMax).toFixed(1)}%
+                </text>
+                <text x={W - padX} y={yOf(vMin) - 3} fill="#5a6274" fontSize="9" textAnchor="end">
+                  {pctOf(vMin) >= 0 ? "+" : ""}{pctOf(vMin).toFixed(1)}%
+                </text>
+                <polyline fill="none" stroke={color} strokeWidth="2" points={line} />
+                <circle cx={xOf(points.length - 1)} cy={yOf(lastVal)} r="3" fill={color} />
+              </svg>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 14, color: "#5a6274", marginTop: 2 }}>
+                <span>{fmtYmd(points[0].d)}</span>
+                <span style={{ fontWeight: 800, fontSize: 16, color }}>
+                  {pctOf(lastVal) >= 0 ? "+" : ""}{pctOf(lastVal).toFixed(1)}%
+                </span>
+                <span>{fmtYmd(points[points.length - 1].d)}</span>
+              </div>
+            </div>
+          );
+        };
+        const PerfRow = ({ label, s, onClick, filterFn }) => {
+          const isOpen = expandedChartKey === s.key;
+          return (
+            <div style={{ borderRadius: 10, background: "#161a22", border: "1px solid #262c37", marginBottom: 10, overflow: "hidden" }}>
+              <div
+                onClick={onClick}
+                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", cursor: onClick ? "pointer" : "default" }}
+              >
+                <div style={{ fontSize: 21, fontWeight: 700, color: "#e7eaf0", width: 78, flexShrink: 0 }}>{label}</div>
+                <div style={{ flex: 1, fontSize: 14, color: "#8993a6", textAlign: "center" }}>
+                  <div>{fmtYmd(s.startDate)} → {fmtYmd(s.endDate)}</div>
+                  <div style={{ marginTop: 3, color: "#c7cddb" }}>{fmt(s.startVal)}원 → {fmt(s.endVal)}원</div>
+                </div>
+                <div style={{ width: 80, flexShrink: 0, textAlign: "right", fontSize: 21, fontWeight: 800, color: s.returnPct > 0 ? "#e8544b" : s.returnPct < 0 ? "#4c8dff" : "#8993a6" }}>
+                  {s.returnPct === null ? "-" : `${s.returnPct >= 0 ? "+" : ""}${s.returnPct.toFixed(1)}%`}
+                </div>
+              </div>
+              <div
+                onClick={() => setExpandedChartKey(isOpen ? null : s.key)}
+                style={{ padding: "4px 0 6px", textAlign: "center", fontSize: 14, color: "#5a6274", borderTop: "1px solid #1f2530", cursor: "pointer" }}
+              >
+                {isOpen ? "▲ 그래프 접기" : "▼ 눌러서 그래프 보기"}
+              </div>
+              {isOpen && <div style={{ padding: "0 14px 10px" }}><MiniLineChart filterFn={filterFn} /></div>}
+            </div>
+          );
+        };
+        const backLabel = performanceQuarter ? "분기 목록" : performanceYear ? "연도 목록" : "뒤로";
+        const goBack = () => {
+          if (performanceQuarter) setPerformanceQuarter(null);
+          else if (performanceYear) setPerformanceYear(null);
+          else setMainView("home");
+          setExpandedChartKey(null);
+        };
+        return (
+          <div style={{ padding: "calc(env(safe-area-inset-top, 0px) + 10px) 0 0" }}>
+            <div style={{ padding: "0 16px 10px", position: "sticky", top: "env(safe-area-inset-top, 0px)", zIndex: 20, background: "#12151b" }}>
+              <button onClick={goBack} className="iconbtn" style={{ color: "#c9974a", fontWeight: 700, fontSize: 18 }}>← {backLabel}</button>
+            </div>
+            <div style={{ padding: "0 12px 40px" }}>
+              <div style={{ fontSize: 30, fontWeight: 800, color: "#e7eaf0", marginBottom: 8 }}>투자성적</div>
+              <div style={{ fontSize: 15, color: "#8993a6", marginBottom: 20, lineHeight: 1.6 }}>
+                {performanceQuarter
+                  ? `${performanceQuarter.slice(0, 4)}년 ${performanceQuarter.slice(5)}의 월별 성적이에요.`
+                  : performanceYear
+                    ? `${performanceYear}년의 분기별 성적이에요. 분기를 탭하면 그 분기의 월별로 들어가요.`
+                    : "매일 자산가치를 기록해서 연도별 시작~종료 금액과 수익률을 보여줘요. 아직 끝나지 않은 구간은 \"종료\" 값이 오늘까지의 최신 값으로 계속 바뀌다가, 그 구간이 지나면 그 값으로 확정돼요."}
+              </div>
+
+              {yearStats.length === 0 && (
+                <div style={{ fontSize: 16, color: "#5a6274", textAlign: "center", padding: "40px 0", lineHeight: 1.7 }}>아직 기록된 자산 데이터가 없어요.<br />오늘부터 매일 자동으로 쌓이기 시작해요.</div>
+              )}
+
+              {!performanceYear && yearStats.map((s) => (
+                <PerfRow
+                  key={s.key}
+                  label={`${s.key}년`}
+                  s={s}
+                  onClick={() => { setPerformanceYear(s.key); setExpandedChartKey(null); }}
+                  filterFn={(d) => d.slice(0, 4) === s.key}
+                />
+              ))}
+
+              {performanceYear && !performanceQuarter && (() => {
+                const yearHistory = Object.fromEntries(Object.entries(netWorthHistory).filter(([d]) => d.slice(0, 4) === performanceYear));
+                const quarterStats = buildPeriodStats(yearHistory, quarterKeyOf);
+                return quarterStats.map((s) => (
+                  <PerfRow
+                    key={s.key}
+                    label={s.key.slice(5)}
+                    s={s}
+                    onClick={() => { setPerformanceQuarter(s.key); setExpandedChartKey(null); }}
+                    filterFn={(d) => quarterKeyOf(d) === s.key}
+                  />
+                ));
+              })()}
+
+              {performanceQuarter && (() => {
+                const qHistory = Object.fromEntries(Object.entries(netWorthHistory).filter(([d]) => quarterKeyOf(d) === performanceQuarter));
+                const monthStats = buildPeriodStats(qHistory, monthKeyOf);
+                return monthStats.map((s) => (
+                  <PerfRow
+                    key={s.key}
+                    label={`${Number(s.key.slice(5))}월`}
+                    s={s}
+                    filterFn={(d) => monthKeyOf(d) === s.key}
+                  />
+                ));
+              })()}
+            </div>
+          </div>
+        );
+      })()}
+
       {mainView === "view" && (
         <div style={{ padding: "calc(env(safe-area-inset-top, 0px) + 10px) 0 0" }}>
           <div style={{ padding: "0 16px 10px", position: "sticky", top: "env(safe-area-inset-top, 0px)", zIndex: 20, background: "#12151b" }}>
@@ -4605,9 +4797,12 @@ function PortfolioApp() {
 
       {mainView === "home" && (<>
       <div className="card tnum" style={{ margin: "0 16px 8px", padding: "8px 16px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+          <div className="lbl">투자원금 (실제보유현금 포함)</div>
+          <button onClick={() => { setPerformanceYear(null); setPerformanceQuarter(null); setExpandedChartKey(null); setMainView("investmentPerformance"); }} className="iconbtn" style={{ padding: "4px 8px", borderRadius: 7, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 11, whiteSpace: "nowrap", flexShrink: 0 }}>📊 투자성적</button>
+        </div>
         <div style={{ display: "flex", justifyContent: "space-between" }}>
           <div style={{ width: 235, flexShrink: 0 }}>
-            <div className="lbl">투자원금 (실제보유현금 포함)</div>
             <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 5, textAlign: "left" }}>{fmt(investmentPrincipal)}원</div>
             <div className="lbl">총평가금액(주식평가액+보유현금합계)</div>
             <div style={{ fontSize: 22, fontWeight: 700, textAlign: "left" }}>{fmt(totalPortfolioValue)}원</div>
