@@ -125,7 +125,7 @@ const buildPeriodStats = (history, keyFn) => {
 const yearKeyOf = (d) => d.slice(0, 4);
 const quarterKeyOf = (d) => `${d.slice(0, 4)}-Q${Math.floor((Number(d.slice(4, 6)) - 1) / 3) + 1}`;
 const monthKeyOf = (d) => `${d.slice(0, 4)}-${d.slice(4, 6)}`;
-const fmtYmd = (d) => (d && d.length === 8 ? `${d.slice(0, 4)}.${d.slice(4, 6)}.${d.slice(6, 8)}` : "-");
+const fmtYmd = (d) => (d && d.length === 8 ? `${Number(d.slice(4, 6))}월 ${Number(d.slice(6, 8))}일` : "-");
 
 const toDisplay = (v) => {
   if (v === "" || v === undefined || v === null) return "";
@@ -4486,22 +4486,22 @@ function PortfolioApp() {
                 {showBaseline && (
                   <>
                     <line x1={padX} y1={yOf(base)} x2={W - padX} y2={yOf(base)} stroke="#2a303c" strokeWidth="1" strokeDasharray="3 3" />
-                    <text x={padX} y={yOf(base) - 3} fill="#5a6274" fontSize="9">0%</text>
+                    <text x={padX} y={yOf(base) - 3} fill="#5a6274" fontSize="13.5">0%</text>
                   </>
                 )}
                 {/* 구간 내 최고/최저 수익률 */}
-                <text x={W - padX} y={yOf(vMax) + 8} fill="#5a6274" fontSize="9" textAnchor="end">
+                <text x={W - padX} y={yOf(vMax) + 8} fill="#5a6274" fontSize="13.5" textAnchor="end">
                   {pctOf(vMax) >= 0 ? "+" : ""}{pctOf(vMax).toFixed(1)}%
                 </text>
-                <text x={W - padX} y={yOf(vMin) - 3} fill="#5a6274" fontSize="9" textAnchor="end">
+                <text x={W - padX} y={yOf(vMin) - 3} fill="#5a6274" fontSize="13.5" textAnchor="end">
                   {pctOf(vMin) >= 0 ? "+" : ""}{pctOf(vMin).toFixed(1)}%
                 </text>
                 <polyline fill="none" stroke={color} strokeWidth="2" points={line} />
                 <circle cx={xOf(points.length - 1)} cy={yOf(lastVal)} r="3" fill={color} />
               </svg>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 14, color: "#5a6274", marginTop: 2 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 21, color: "#5a6274", marginTop: 2 }}>
                 <span>{fmtYmd(points[0].d)}</span>
-                <span style={{ fontWeight: 800, fontSize: 16, color }}>
+                <span style={{ fontWeight: 800, fontSize: 24, color }}>
                   {pctOf(lastVal) >= 0 ? "+" : ""}{pctOf(lastVal).toFixed(1)}%
                 </span>
                 <span>{fmtYmd(points[points.length - 1].d)}</span>
@@ -4511,24 +4511,28 @@ function PortfolioApp() {
         };
         const PerfRow = ({ label, s, onClick, filterFn }) => {
           const isOpen = expandedChartKey === s.key;
+          const profitAmt = s.endVal - s.startVal;
           return (
             <div style={{ borderRadius: 10, background: "#161a22", border: "1px solid #262c37", marginBottom: 10, overflow: "hidden" }}>
               <div
                 onClick={onClick}
                 style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", cursor: onClick ? "pointer" : "default" }}
               >
-                <div style={{ fontSize: 21, fontWeight: 700, color: "#e7eaf0", width: 78, flexShrink: 0 }}>{label}</div>
-                <div style={{ flex: 1, fontSize: 14, color: "#8993a6", textAlign: "center" }}>
+                <div style={{ fontSize: 31.5, fontWeight: 700, color: "#e7eaf0", width: 100, flexShrink: 0, lineHeight: 1.25 }}>{label}</div>
+                <div style={{ flex: 1, fontSize: 18, color: "#8993a6", textAlign: "center" }}>
                   <div>{fmtYmd(s.startDate)} → {fmtYmd(s.endDate)}</div>
                   <div style={{ marginTop: 3, color: "#c7cddb" }}>{fmt(s.startVal)}원 → {fmt(s.endVal)}원</div>
+                  <div style={{ marginTop: 3, fontWeight: 700, color: profitAmt > 0 ? "#e8544b" : profitAmt < 0 ? "#4c8dff" : "#8993a6" }}>
+                    {profitAmt >= 0 ? "+" : ""}{fmt(profitAmt)}원 &nbsp; ({s.returnPct === null ? "-" : `${s.returnPct >= 0 ? "+" : ""}${s.returnPct.toFixed(1)}%`})
+                  </div>
                 </div>
-                <div style={{ width: 80, flexShrink: 0, textAlign: "right", fontSize: 21, fontWeight: 800, color: s.returnPct > 0 ? "#e8544b" : s.returnPct < 0 ? "#4c8dff" : "#8993a6" }}>
+                <div style={{ width: 100, flexShrink: 0, textAlign: "right", fontSize: 31.5, fontWeight: 800, color: s.returnPct > 0 ? "#e8544b" : s.returnPct < 0 ? "#4c8dff" : "#8993a6" }}>
                   {s.returnPct === null ? "-" : `${s.returnPct >= 0 ? "+" : ""}${s.returnPct.toFixed(1)}%`}
                 </div>
               </div>
               <div
                 onClick={() => setExpandedChartKey(isOpen ? null : s.key)}
-                style={{ padding: "4px 0 6px", textAlign: "center", fontSize: 14, color: "#5a6274", borderTop: "1px solid #1f2530", cursor: "pointer" }}
+                style={{ padding: "4px 0 6px", textAlign: "center", fontSize: 21, color: "#5a6274", borderTop: "1px solid #1f2530", cursor: "pointer" }}
               >
                 {isOpen ? "▲ 그래프 접기" : "▼ 눌러서 그래프 보기"}
               </div>
@@ -4550,7 +4554,7 @@ function PortfolioApp() {
               <button onClick={goBack} className="iconbtn" style={{ color: "#c9974a", fontWeight: 700, fontSize: 18 }}>← {backLabel}</button>
             </div>
             <div style={{ padding: "0 12px 40px" }}>
-              <div style={{ fontSize: 30, fontWeight: 800, color: "#e7eaf0", marginBottom: 8 }}>투자성적</div>
+              <div style={{ fontSize: 45, fontWeight: 800, color: "#e7eaf0", marginBottom: 8 }}>투자성적</div>
               <div style={{ fontSize: 15, color: "#8993a6", marginBottom: 20, lineHeight: 1.6 }}>
                 {perfYearKey
                   ? `${perfYearKey}년 전체 성적이에요.`
@@ -4566,7 +4570,7 @@ function PortfolioApp() {
               {!perfQuarterKey && monthStats.map((s) => (
                 <PerfRow
                   key={s.key}
-                  label={`${s.key.slice(0, 4)}.${s.key.slice(5)}`}
+                  label={<>{s.key.slice(0, 4)}<br />{Number(s.key.slice(5))}월</>}
                   s={s}
                   onClick={() => { setPerfQuarterKey(quarterKeyOf(s.startDate)); setExpandedChartKey(null); }}
                   filterFn={(d) => monthKeyOf(d) === s.key}
