@@ -4526,9 +4526,6 @@ function PortfolioApp() {
                     {profitAmt >= 0 ? "+" : ""}{fmt(profitAmt)}원 &nbsp; ({s.returnPct === null ? "-" : `${s.returnPct >= 0 ? "+" : ""}${s.returnPct.toFixed(1)}%`})
                   </div>
                 </div>
-                <div style={{ width: 100, flexShrink: 0, textAlign: "right", fontSize: 31.5, fontWeight: 800, color: s.returnPct > 0 ? "#e8544b" : s.returnPct < 0 ? "#4c8dff" : "#8993a6" }}>
-                  {s.returnPct === null ? "-" : `${s.returnPct >= 0 ? "+" : ""}${s.returnPct.toFixed(1)}%`}
-                </div>
               </div>
               <div
                 onClick={() => setExpandedChartKey(isOpen ? null : s.key)}
