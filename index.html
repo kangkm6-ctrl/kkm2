@@ -5131,19 +5131,30 @@ function PortfolioApp() {
                 if (!f && !ef) return <div style={{ marginTop: 6, fontSize: 11, color: "#5a6274" }}>{r.code ? "데이터 없음" : "종목코드가 필요해요"}</div>;
 
                 // 분기 포인트를 연도별로 묶어서(그 해 마지막 분기 값), 5개년을 쓴다 (표시는 최근 4개년만, 1년 더 받는 건 첫 해의 "전년 대비" 색을 매기기 위함).
-                const deriveAnnual = (periodPts) => {
+                // 매출액·영업이익·순이익·EPS처럼 "누적치"인 지표는, 당해년(아직 12월 결산 전) 이면 지금까지의
+                // 누적치를 연환산(4/지난 분기수)해서 "예상 연간치"로 보여준다 — annualize=true일 때만 적용.
+                const thisYearStr = String(new Date().getFullYear());
+                const deriveAnnual = (periodPts, annualize) => {
                   const byYear = {};
                   periodPts.forEach((p) => {
                     const year = p.period.slice(0, 4);
                     const mm = p.period.slice(4, 6);
                     if (!byYear[year] || mm >= byYear[year].mm) byYear[year] = { mm, value: p.value };
                   });
-                  return Object.keys(byYear).sort().slice(-6).map((year) => ({ year, value: byYear[year].value }));
+                  return Object.keys(byYear).sort().slice(-6).map((year) => {
+                    const { mm, value } = byYear[year];
+                    if (annualize && year === thisYearStr && mm !== "12" && value !== null) {
+                      const quartersElapsed = Math.max(1, Math.min(4, Math.round(Number(mm) / 3)));
+                      return { year, value: value * (4 / quartersElapsed), estimated: true };
+                    }
+                    return { year, value };
+                  });
                 };
-                const buildFrom = (periods, field, transform) => deriveAnnual(
+                const buildFrom = (periods, field, transform, annualize) => deriveAnnual(
                   (periods || [])
                     .map((p) => ({ period: p.period, value: p[field] !== null && p[field] !== undefined ? (transform ? transform(p[field], p) : num(p[field])) : null }))
-                    .filter((p) => p.value !== null && !isNaN(p.value))
+                    .filter((p) => p.value !== null && !isNaN(p.value)),
+                  annualize
                 );
                 const buildGrowth = (periods, field) => {
                   const raw = (periods || [])
@@ -5168,15 +5179,15 @@ function PortfolioApp() {
                     })
                     .filter((p) => p.value !== null && !isNaN(p.value))
                 );
-                const revenueAnnual = buildFrom(ef && ef.periods, "revenue", (v) => v); // 이미 억원 단위로 옴 (백만원→억원 재환산 불필요, 실제 값과 대조해 확인함)
+                const revenueAnnual = buildFrom(ef && ef.periods, "revenue", (v) => v, true); // 이미 억원 단위로 옴 (백만원→억원 재환산 불필요, 실제 값과 대조해 확인함)
                 const revenueGrowthAnnual = f ? deriveAnnual(f.periods.map((p) => ({ period: p.period, value: p.revenueGrowth !== null && p.revenueGrowth !== undefined ? num(p.revenueGrowth) : null })).filter((p) => p.value !== null)) : [];
-                const opProfitAnnual = buildFrom(ef && ef.periods, "opProfit", (v) => v); // 이미 억원 단위로 옴
+                const opProfitAnnual = buildFrom(ef && ef.periods, "opProfit", (v) => v, true); // 이미 억원 단위로 옴
                 const opMarginAnnual = buildRatio2(ef && ef.periods, "opProfit", "revenue", 100);
                 const netMarginAnnual = buildRatio2(ef && ef.periods, "netIncome", "revenue", 100);
-                const epsAnnual = f ? buildFrom(f.periods, "eps") : [];
+                const epsAnnual = f ? buildFrom(f.periods, "eps", null, true) : [];
                 const epsGrowthAnnual = f ? buildGrowth(f.periods, "eps") : [];
                 const bpsAnnual = f ? buildFrom(f.periods, "bps") : [];
-                const perAnnual = f ? buildFrom(f.periods, "eps", (v) => (v && price ? price / num(v) : null)) : [];
+                const perAnnual = f ? buildFrom(f.periods, "eps", (v) => (v && price ? price / num(v) : null), true) : [];
                 const roeAnnual = f ? buildFrom(f.periods, "roe") : [];
                 const psrAnnual = f ? buildFrom(f.periods, "sps", (v) => (v && price ? price / num(v) : null)) : [];
                 const pbrAnnual = f ? buildFrom(f.periods, "bps", (v) => (v && price ? price / num(v) : null)) : [];
@@ -5209,7 +5220,7 @@ function PortfolioApp() {
                 const isGame = /오락|문화|게임/.test(industryName);
                 const isBattery = /화학/.test(industryName);
 
-                const netIncomeAnnual = buildFrom(ef && ef.periods, "netIncome", (v) => v); // 이미 억원 단위로 옴
+                const netIncomeAnnual = buildFrom(ef && ef.periods, "netIncome", (v) => v, true); // 이미 억원 단위로 옴
                 // EVA(경제적 부가가치) 근사 계산: NOPAT(세후영업이익) - 투하자본×WACC. ⚠️ 법인세율 22%·WACC는 업종별 고정 가정치.
                 const TAX_RATE = 0.22;
                 const wacc = isSemi ? 0.09 : isGame ? 0.10 : isBattery ? 0.085 : 0.08;
@@ -5217,7 +5228,15 @@ function PortfolioApp() {
                   (ef && ef.periods ? ef.periods : [])
                     .map((p) => {
                       if (p.opProfit === null || p.opProfit === undefined || p.totalAssets === null || p.totalAssets === undefined || p.curLblt === null || p.curLblt === undefined) return { period: p.period, value: null };
-                      const nopat = p.opProfit * (1 - TAX_RATE);
+                      // 당해년(12월 결산 전)이면 영업이익만 연환산해서 NOPAT을 구한다 — 자본비용(투하자본×WACC)은
+                      // 이미 연율 기준이라 그대로 두고, 누적치인 영업이익 쪽만 보정해야 EVA가 과소평가되지 않는다.
+                      const year = p.period.slice(0, 4), mm = p.period.slice(4, 6);
+                      let opProfitForCalc = p.opProfit;
+                      if (year === thisYearStr && mm !== "12") {
+                        const q = Math.max(1, Math.min(4, Math.round(Number(mm) / 3)));
+                        opProfitForCalc = p.opProfit * (4 / q);
+                      }
+                      const nopat = opProfitForCalc * (1 - TAX_RATE);
                       const investedCapital = p.totalAssets - p.curLblt;
                       if (investedCapital <= 0) return { period: p.period, value: null };
                       return { period: p.period, value: nopat - investedCapital * wacc }; // opProfit·totalAssets 모두 이미 억원 단위라 추가 환산 불필요
@@ -5324,7 +5343,7 @@ function PortfolioApp() {
                                       borderRadius: 4, padding: "0px 3px",
                                     }}
                                   >
-                                    {p ? formatter(p.value) : "-"}
+                                    {p ? formatter(p.value) : "-"}{p && p.estimated ? <span style={{ color: "#c9974a" }}>*</span> : ""}
                                   </div>
                                 );
                               })}
@@ -5332,7 +5351,7 @@ function PortfolioApp() {
                           );
                         })}
                         <div style={{ marginTop: 4, fontSize: 9 }}>
-                          당좌비율은 유동자산÷유동부채로 근사 계산했어요(재고자산 분리 불가). PER이 마이너스면 "극저", 100배 이상이면 "극고"로 표시돼요. EVA는 세후영업이익-투하자본×WACC로 근사했어요(WACC는 업종별 고정 가정치). 우선주는 본주 재무데이터를 사용해요. 색은 전년 대비 증가(붉은색)·감소(파란색)로만 표시되고, 그 수치가 "우수" 기준을 만족하면 <span style={{ border: "1px solid #e8544b", padding: "0 3px", borderRadius: 3 }}>테두리</span>가 추가돼요.
+                          <span style={{ color: "#c9974a" }}>*</span> 당해년 매출액·영업이익·순이익·EPS·PER·EVA는 아직 결산 전이라, 지금까지 발표된 누적치를 연환산(4÷지난 분기수)한 예상치예요. 당좌비율은 유동자산÷유동부채로 근사 계산했어요(재고자산 분리 불가). PER이 마이너스면 "극저", 100배 이상이면 "극고"로 표시돼요. EVA는 세후영업이익-투하자본×WACC로 근사했어요(WACC는 업종별 고정 가정치). 우선주는 본주 재무데이터를 사용해요. 색은 전년 대비 증가(붉은색)·감소(파란색)로만 표시되고, 그 수치가 "우수" 기준을 만족하면 <span style={{ border: "1px solid #e8544b", padding: "0 3px", borderRadius: 3 }}>테두리</span>가 추가돼요.
                           <br /><span style={{ color: "#e8544b" }}>●우수</span> <span style={{ color: "#e0b93c" }}>●양호</span> <span style={{ color: "#8993a6" }}>●보통/적정</span> <span style={{ color: "#4c8dff" }}>●주의</span> · 업종명을 인식해 반도체·게임·2차전지는 전용 기준선을, 그 외는 일반 기준선을 적용해요. 업종별로 기준이 없는 지표는 일반 기준을 그대로 써요.
                         </div>
                       </>
