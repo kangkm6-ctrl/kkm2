@@ -328,20 +328,6 @@ const SNAPSHOTS_KEY = "portfolio-snapshots-v1";
 const REBALANCE_LOG_KEY = "portfolio-rebalance-log-v1";
 const LAUNCH_BACKUP_KEY = "portfolio-launch-backups-v1";
 const AUTOSAVE_KEY = "portfolio-autosave-date-v1";
-// 대한민국 법정 공휴일 (2026년 기준, 대체공휴일 포함). 해가 바뀌면 갱신이 필요합니다.
-const KR_HOLIDAYS_2026 = [
-  "2026-01-01", // 신정
-  "2026-02-16", "2026-02-17", "2026-02-18", // 설날 연휴
-  "2026-03-01", "2026-03-02", // 삼일절 (대체공휴일)
-  "2026-05-05", // 어린이날
-  "2026-05-24", "2026-05-25", // 부처님오신날 (대체공휴일)
-  "2026-06-06", // 현충일
-  "2026-08-15", "2026-08-17", // 광복절 (대체공휴일)
-  "2026-09-24", "2026-09-25", "2026-09-26", // 추석 연휴
-  "2026-10-03", "2026-10-05", // 개천절 (대체공휴일)
-  "2026-10-09", // 한글날
-  "2026-12-25", // 크리스마스
-];
 
 // 캔들 하나가 "전강후약"(파랑)인지 "전약후강"(빨강)인지, 그 캔들의 저가~고가 범위 안에서 종가 위치로 근사 판정한다.
 const dotColorFor = (c) => {
@@ -776,7 +762,6 @@ function PortfolioApp() {
     try { return !!localStorage.getItem(LOCK_CRED_KEY); } catch (e) { return false; }
   });
   const [isObscured, setIsObscured] = useState(false);
-  const hiddenAtRef = useRef(null);
   const [lockMsg, setLockMsg] = useState("");
   const [hasLockPassword, setHasLockPassword] = useState(false);
   const [pwInput, setPwInput] = useState("");
@@ -1812,6 +1797,12 @@ function PortfolioApp() {
     if (!loaded) return;
     try { localStorage.setItem(QUOTE_READ_DATE_KEY, quoteReadDate); } catch (e) {}
   }, [quoteReadDate, loaded]);
+
+  // "매번 세겨야 할 투자명언" 화면을 열 때마다, 최근로딩날짜를 오늘 날짜로 자동 기입한다 (수동 입력 아님).
+  useEffect(() => {
+    if (mainView !== "investmentQuotes") return;
+    setQuoteReadDate(new Date().toISOString().slice(0, 10));
+  }, [mainView]);
 
   // 매수시점은 현금비중이 10%가 될 때까지, 매도시점은 30%가 될 때까지 그대로 유지한다.
   // (진입 조건은 새 주봉 신호가 나올 때만 확인하고, 유지 중엔 현금비중이 바뀔 때마다 "빠져나갈 때가 됐는지"만 본다)
@@ -4278,17 +4269,16 @@ function PortfolioApp() {
             </div>
           </div>
           <div style={{ padding: "0 10px 40px" }}>
-            <div style={{ fontSize: 27, fontWeight: 800, color: "#e7eaf0", lineHeight: 1.4, marginBottom: 12 }}>매번 세겨야 할 투자명언</div>
+            <div style={{ fontSize: 40, fontWeight: 800, color: "#e7eaf0", lineHeight: 1.4, marginBottom: 12 }}>매번 세겨야 할 투자명언</div>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 18, marginBottom: 16, flexWrap: "wrap" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ fontSize: 12, color: "#8993a6" }}>읽은날짜</span>
-                <input
-                  type="date"
-                  value={quoteReadDate}
-                  onChange={(e) => setQuoteReadDate(e.target.value)}
+                <span style={{ fontSize: 14, color: "#8993a6" }}>최근로딩날짜</span>
+                <div
                   className="field"
-                  style={{ width: 130, fontSize: 13, fontWeight: 700, color: "#c9974a", textAlign: "center", padding: "5px 6px" }}
-                />
+                  style={{ width: 140, fontSize: 15, fontWeight: 700, color: "#c9974a", textAlign: "center", padding: "5px 6px", boxSizing: "border-box" }}
+                >
+                  {quoteReadDate.slice(0, 4)}. {Number(quoteReadDate.slice(5, 7))}. {Number(quoteReadDate.slice(8, 10))}.
+                </div>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                 <span style={{ fontSize: 12, color: "#8993a6" }}>익힘</span>
