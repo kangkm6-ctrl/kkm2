@@ -308,6 +308,7 @@ const LEARNED_COUNT_KEY = "portfolio-quotes-learned-count-v1";
 const BOOKMARK_QUOTE_ID_KEY = "portfolio-quotes-bookmark-id-v1";
 const QUOTE_READ_DATE_KEY = "portfolio-quotes-read-date-v1";
 const NET_WORTH_HISTORY_KEY = "portfolio-net-worth-history-v1";
+const PRINCIPAL_HISTORY_KEY = "portfolio-principal-history-v1";
 const INVESTMENT_PRINCIPAL_KEY = "portfolio-investment-principal-standalone-v1";
 const DAILY_STRENGTH_ARCHIVE_KEY = "portfolio-daily-strength-archive-v1"; // 매일 오늘치 5분봉 기준 강약평균을 종목·날짜별로 저장해서, 나중에 그 날짜의 일봉을 볼 때 재사용한다.
 const INVESTMENT_QUOTES_KEY = "portfolio-investment-quotes-v1";
@@ -746,6 +747,10 @@ function PortfolioApp() {
   // 오늘 날짜의 값은 시세가 바뀔 때마다 계속 덮어써서 "그날의 마지막(최신) 값"이 되고, 날이 지나면 그 값으로 굳는다.
   const [netWorthHistory, setNetWorthHistory] = useState(() => {
     try { return JSON.parse(localStorage.getItem(NET_WORTH_HISTORY_KEY)) || {}; } catch (e) { return {}; }
+  });
+  // "투자금(투자원금) 기준" 성적용 — 날짜별 투자원금을 똑같은 방식으로 기록해둔다.
+  const [principalHistory, setPrincipalHistory] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(PRINCIPAL_HISTORY_KEY)) || {}; } catch (e) { return {}; }
   });
   const [perfQuarterKey, setPerfQuarterKey] = useState(null); // 월을 탭하면 그 월이 속한 분기 키('YYYY-Qn')가 들어감
   const [perfYearKey, setPerfYearKey] = useState(null); // 분기를 탭하면 그 분기가 속한 연도가 들어감
@@ -1195,6 +1200,17 @@ function PortfolioApp() {
       return next;
     });
   }, [totalPortfolioValue, loaded]);
+  // 투자금(투자원금) 기준 성적용 스냅샷 — 위와 똑같은 방식, 값만 투자원금으로.
+  useEffect(() => {
+    if (!loaded) return;
+    const todayKey = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    if (principalHistory[todayKey] === investmentPrincipalBase) return;
+    setPrincipalHistory((prev) => {
+      const next = { ...prev, [todayKey]: investmentPrincipalBase };
+      try { localStorage.setItem(PRINCIPAL_HISTORY_KEY, JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
+  }, [investmentPrincipalBase, loaded]);
   const cashRatio = totalPortfolioValue !== 0 ? realAvailableCash / totalPortfolioValue : 0;
   const investableCash = totalPortfolioValue * (cashRatio - targetCashRatio);
   // 주식 매입원가와 현금 둘 다 baseline(한 번 오른 뒤엔 절대 안 내려가는 값)을 사용
@@ -4503,6 +4519,12 @@ function PortfolioApp() {
             </div>
           );
         };
+        // 주어진 날짜 시점(또는 그 이전 가장 최근)의 투자원금을 찾는다.
+        const principalAt = (dateStr) => {
+          const dates = Object.keys(principalHistory).filter((d) => d <= dateStr).sort();
+          if (dates.length === 0) return null;
+          return principalHistory[dates[dates.length - 1]];
+        };
         const PerfRow = ({ label, s, onClick, filterFn }) => {
           const isOpen = expandedChartKey === s.key;
           const profitAmt = s.endVal - s.startVal;
@@ -4531,6 +4553,30 @@ function PortfolioApp() {
             </div>
           );
         };
+        // ① 투자금(투자원금) 기준 카드 — "기간 동안 얼마나 늘었나"가 아니라 "그 시점까지 내가 넣은 돈 대비
+        // 지금 얼마가 됐나"를 본다. 그래서 시작~종료가 아니라 그 구간 끝 시점의 투자원금과 총평가액을 비교한다.
+        const PrincipalRow = ({ label, s, onClick }) => {
+          const endPrincipal = principalAt(s.endDate);
+          const profitAmt = endPrincipal !== null ? s.endVal - endPrincipal : null;
+          const returnPct = endPrincipal !== null && endPrincipal !== 0 ? (profitAmt / endPrincipal) * 100 : null;
+          return (
+            <div
+              onClick={onClick}
+              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", borderRadius: 10, background: "#161a22", border: "1px solid #262c37", marginBottom: 10, cursor: onClick ? "pointer" : "default" }}
+            >
+              <div style={{ fontSize: 31.5, fontWeight: 700, color: "#e7eaf0", width: 100, flexShrink: 0, lineHeight: 1.25 }}>{label}</div>
+              <div style={{ flex: 1, fontSize: 18, color: "#8993a6", textAlign: "center" }}>
+                <div>{fmtYmd(s.endDate)} 기준</div>
+                <div style={{ marginTop: 3, color: "#c7cddb" }}>{endPrincipal === null ? "투자원금 미입력" : `${fmt(endPrincipal)}원 → ${fmt(s.endVal)}원`}</div>
+                {endPrincipal !== null && (
+                  <div style={{ marginTop: 3, fontWeight: 700, color: profitAmt > 0 ? "#e8544b" : profitAmt < 0 ? "#4c8dff" : "#8993a6" }}>
+                    {profitAmt >= 0 ? "+" : ""}{fmt(profitAmt)}원 &nbsp; ({returnPct === null ? "-" : `${returnPct >= 0 ? "+" : ""}${returnPct.toFixed(1)}%`})
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        };
         const backLabel = perfYearKey ? "분기" : perfQuarterKey ? "월별 목록" : "뒤로";
         const goBack = () => {
           if (perfYearKey) setPerfYearKey(null);
@@ -4551,35 +4597,54 @@ function PortfolioApp() {
                   ? `${perfYearKey}년 전체 성적이에요.`
                   : perfQuarterKey
                     ? `${perfQuarterKey.slice(0, 4)}년 ${perfQuarterKey.slice(5)} 성적이에요. 탭하면 그 해 전체로 넘어가요.`
-                    : "월별 성적이에요. 탭하면 그 달이 속한 분기로, 거기서 한 번 더 탭하면 그 해 전체로 넘어가요."}
+                    : "월별 성적이에요. 탭하면 그 달이 속한 분기로, 거기서 한 번 더 탭하면 그 해 전체로 넘어가요. ① 투자금 기준(내가 넣은 돈 대비 지금 얼마인지)과 ② 모든현금 기준(그 기간 동안 자산이 얼마나 늘었는지)으로 나눠서 보여줘요."}
               </div>
 
               {monthStats.length === 0 && (
                 <div style={{ fontSize: 16, color: "#5a6274", textAlign: "center", padding: "40px 0", lineHeight: 1.7 }}>아직 기록된 자산 데이터가 없어요.<br />오늘부터 매일 자동으로 쌓이기 시작해요.</div>
               )}
 
-              {!perfQuarterKey && monthStats.map((s) => (
-                <PerfRow
-                  key={s.key}
-                  label={<>{s.key.slice(0, 4)}<br />{Number(s.key.slice(5))}월</>}
-                  s={s}
-                  onClick={() => { setPerfQuarterKey(quarterKeyOf(s.startDate)); setExpandedChartKey(null); }}
-                  filterFn={(d) => monthKeyOf(d) === s.key}
-                />
-              ))}
+              {!perfQuarterKey && monthStats.length > 0 && (
+                <>
+                  <div style={{ fontSize: 17, fontWeight: 700, color: "#c9974a", marginBottom: 8 }}>① 투자금 기준</div>
+                  {monthStats.map((s) => (
+                    <PrincipalRow
+                      key={s.key}
+                      label={<>{s.key.slice(0, 4)}<br />{Number(s.key.slice(5))}월</>}
+                      s={s}
+                      onClick={() => { setPerfQuarterKey(quarterKeyOf(s.startDate)); setExpandedChartKey(null); }}
+                    />
+                  ))}
+                  <div style={{ fontSize: 17, fontWeight: 700, color: "#c9974a", marginTop: 14, marginBottom: 8 }}>② 모든현금 기준</div>
+                  {monthStats.map((s) => (
+                    <PerfRow
+                      key={s.key}
+                      label={<>{s.key.slice(0, 4)}<br />{Number(s.key.slice(5))}월</>}
+                      s={s}
+                      onClick={() => { setPerfQuarterKey(quarterKeyOf(s.startDate)); setExpandedChartKey(null); }}
+                      filterFn={(d) => monthKeyOf(d) === s.key}
+                    />
+                  ))}
+                </>
+              )}
 
               {perfQuarterKey && !perfYearKey && (() => {
                 const qHistory = Object.fromEntries(Object.entries(netWorthHistory).filter(([d]) => quarterKeyOf(d) === perfQuarterKey));
                 const s = buildPeriodStats(qHistory, quarterKeyOf)[0];
                 if (!s) return null;
                 return (
-                  <PerfRow
-                    key={s.key}
-                    label={s.key}
-                    s={s}
-                    onClick={() => { setPerfYearKey(s.key.slice(0, 4)); setExpandedChartKey(null); }}
-                    filterFn={(d) => quarterKeyOf(d) === s.key}
-                  />
+                  <>
+                    <div style={{ fontSize: 17, fontWeight: 700, color: "#c9974a", marginBottom: 8 }}>① 투자금 기준</div>
+                    <PrincipalRow key={s.key} label={s.key} s={s} onClick={() => { setPerfYearKey(s.key.slice(0, 4)); setExpandedChartKey(null); }} />
+                    <div style={{ fontSize: 17, fontWeight: 700, color: "#c9974a", marginTop: 14, marginBottom: 8 }}>② 모든현금 기준</div>
+                    <PerfRow
+                      key={s.key + "-all"}
+                      label={s.key}
+                      s={s}
+                      onClick={() => { setPerfYearKey(s.key.slice(0, 4)); setExpandedChartKey(null); }}
+                      filterFn={(d) => quarterKeyOf(d) === s.key}
+                    />
+                  </>
                 );
               })()}
 
@@ -4588,7 +4653,12 @@ function PortfolioApp() {
                 const s = buildPeriodStats(yHistory, yearKeyOf)[0];
                 if (!s) return null;
                 return (
-                  <PerfRow key={s.key} label={`${s.key}년`} s={s} filterFn={(d) => d.slice(0, 4) === s.key} />
+                  <>
+                    <div style={{ fontSize: 17, fontWeight: 700, color: "#c9974a", marginBottom: 8 }}>① 투자금 기준</div>
+                    <PrincipalRow key={s.key} label={`${s.key}년`} s={s} />
+                    <div style={{ fontSize: 17, fontWeight: 700, color: "#c9974a", marginTop: 14, marginBottom: 8 }}>② 모든현금 기준</div>
+                    <PerfRow key={s.key + "-all"} label={`${s.key}년`} s={s} filterFn={(d) => d.slice(0, 4) === s.key} />
+                  </>
                 );
               })()}
             </div>
