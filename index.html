@@ -16,7 +16,7 @@
 <script crossorigin="anonymous" src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.7/babel.min.js"></script>
 <script crossorigin="anonymous" src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
-  html, body { margin:0; padding:0; background:#12151b; }
+  html, body { margin:0; padding:0; background:#12151b; font-variant-numeric: tabular-nums; }
   * { box-sizing: border-box; }
 </style>
 </head>
@@ -4509,7 +4509,7 @@ function PortfolioApp() {
                 <polyline fill="none" stroke={color} strokeWidth="2" points={line} />
                 <circle cx={xOf(points.length - 1)} cy={yOf(lastVal)} r="3" fill={color} />
               </svg>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 21, color: "#5a6274", marginTop: 2 }}>
+              <div className="tnum" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 21, color: "#5a6274", marginTop: 2 }}>
                 <span>{fmtYmd(points[0].d)}</span>
                 <span style={{ fontWeight: 800, fontSize: 24, color }}>
                   {pctOf(lastVal) >= 0 ? "+" : ""}{pctOf(lastVal).toFixed(1)}%
@@ -4535,7 +4535,7 @@ function PortfolioApp() {
                 style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", cursor: onClick ? "pointer" : "default" }}
               >
                 <div style={{ fontSize: 31.5, fontWeight: 700, color: "#e7eaf0", width: 100, flexShrink: 0, lineHeight: 1.25 }}>{label}</div>
-                <div style={{ flex: 1, fontSize: 18, color: "#8993a6", textAlign: "center" }}>
+                <div className="tnum" style={{ flex: 1, fontSize: 18, color: "#8993a6", textAlign: "center" }}>
                   <div>{fmtYmd(s.startDate)} → {fmtYmd(s.endDate)}</div>
                   <div style={{ marginTop: 3, color: "#c7cddb" }}>{fmt(s.startVal)}원 → {fmt(s.endVal)}원</div>
                   <div style={{ marginTop: 3, fontWeight: 700, color: profitAmt > 0 ? "#e8544b" : profitAmt < 0 ? "#4c8dff" : "#8993a6" }}>
@@ -4565,7 +4565,7 @@ function PortfolioApp() {
               style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", borderRadius: 10, background: "#161a22", border: "1px solid #262c37", marginBottom: 10, cursor: onClick ? "pointer" : "default" }}
             >
               <div style={{ fontSize: 31.5, fontWeight: 700, color: "#e7eaf0", width: 100, flexShrink: 0, lineHeight: 1.25 }}>{label}</div>
-              <div style={{ flex: 1, fontSize: 18, color: "#8993a6", textAlign: "center" }}>
+              <div className="tnum" style={{ flex: 1, fontSize: 18, color: "#8993a6", textAlign: "center" }}>
                 <div>{fmtYmd(s.endDate)} 기준</div>
                 <div style={{ marginTop: 3, color: "#c7cddb" }}>{endPrincipal === null ? "투자원금 미입력" : `${fmt(endPrincipal)}원 → ${fmt(s.endVal)}원`}</div>
                 {endPrincipal !== null && (
