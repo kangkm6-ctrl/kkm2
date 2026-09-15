@@ -1528,7 +1528,7 @@ function PortfolioApp() {
     if (!account) return;
     const magnitude = Math.abs(num(account.used));
     if (magnitude === 0) return;
-    const amount = sign === "spend" ? -magnitude : magnitude; // 사용=음수(차감), 투자=양수(증가)
+    const amount = sign === "spend" ? magnitude : -magnitude; // 현금화=양수(증가), 투자=음수(차감)
     const cashBefore = num(account.cash);
     const cashAfter = cashBefore + amount;
     setCashAccounts((prev) => prev.map((a) => (a.id === id ? { ...a, cash: String(cashAfter), used: "" } : a)));
@@ -1545,7 +1545,7 @@ function PortfolioApp() {
       accountName: account.name || "(이름없음)",
       amount, // 부호 있는 값 그대로 저장 (음수=사용한돈, 양수=투자한돈)
       cashBefore, cashAfter,
-      type: amount < 0 ? "spend" : "invest",
+      type: amount > 0 ? "spend" : "invest",
     };
     setCashSettleLog((prev) => {
       const next = [entry, ...prev];
@@ -2636,8 +2636,8 @@ function PortfolioApp() {
     // 투자원금 증가/감소 이력
     const principalRows = cashSettleLog.map((e) => ({
       "날짜": e.date, "시각": e.time, "계좌명": e.accountName,
-      "구분": e.type === "repay" ? "빌린돈 상환" : e.type === "borrow" ? "빌려투자한돈 증가" : e.type === "spend" ? "사용한돈" : e.type === "invest" ? "투자한돈" : "사용한돈 정산",
-      "증가/감소금액": (e.type === "borrow" || e.type === "invest") ? Math.round(Math.abs(e.amount)) : -Math.round(Math.abs(e.amount)),
+      "구분": e.type === "repay" ? "빌린돈 상환" : e.type === "borrow" ? "빌려투자한돈 증가" : e.type === "spend" ? "현금화한돈" : e.type === "invest" ? "투자한돈" : "사용한돈 정산",
+      "증가/감소금액": (e.type === "borrow" || e.type === "spend") ? Math.round(Math.abs(e.amount)) : -Math.round(Math.abs(e.amount)),
       "이전값": Math.round(e.cashBefore), "이후값": Math.round(e.cashAfter),
     }));
     // 자동 백업 목록
@@ -4652,12 +4652,12 @@ function PortfolioApp() {
                     <div style={{ padding: 12, fontSize: 12, color: "#5a6274", textAlign: "center" }}>기록이 없어요.</div>
                   )}
                   {cashSettleLog.map((e) => {
-                    const isIncrease = e.type === "borrow" || e.type === "invest";
+                    const isIncrease = e.type === "borrow" || e.type === "spend";
                     const displayAmount = fmt(Math.abs(e.amount));
-                    const sign = e.type === "invest" ? "" : (isIncrease ? "+" : "-"); // 투자한돈은 부호 표시 없음
+                    const sign = isIncrease ? "+" : "-";
                     const label = e.type === "repay" ? " 상환)"
                       : e.type === "borrow" ? " 대출)"
-                      : e.type === "spend" ? " 사용한돈)"
+                      : e.type === "spend" ? " 현금화)"
                       : e.type === "invest" ? " 투자한돈)"
                       : " 정산)";
                     // "상환/대출"은 빌려투자한돈(pledged) 값 변화를 보여준다. 새 방식은 pledgedBefore/After, 예전 방식은 cashBefore/After 필드에 그 값이 들어있다.
