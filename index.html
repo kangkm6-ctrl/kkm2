@@ -1368,46 +1368,10 @@ function PortfolioApp() {
     delete qtyFocusRef.current[id];
   };
 
-  // "빌려투자한돈"이 늘면 투자원금도 늘고, 줄면(갚으면) 투자원금도 같이 줄어들며 이력에 기록된다.
-  const pledgedFocusRef = useRef({});
-  const handlePledgedFocus = (id, pledged) => { pledgedFocusRef.current[id] = num(pledged); };
-  const handlePledgedBlur = (id) => {
-    const before = pledgedFocusRef.current[id];
-    if (before === undefined) { delete pledgedFocusRef.current[id]; return; }
-    const account = cashAccounts.find((a) => a.id === id);
-    if (account) {
-      const after = num(account.pledged);
-      if (after !== before) {
-        const diff = after - before; // 양수면 증가, 음수면 감소(상환)
-        setInvestmentPrincipalBase((prev) => {
-          const next = Math.max(0, prev + diff);
-          try { localStorage.setItem(INVESTMENT_PRINCIPAL_KEY, String(next)); } catch (e) {}
-          return next;
-        });
-        const entry = {
-          id: genId(),
-          date: new Date().toISOString().slice(0, 10),
-          time: new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }),
-          accountId: id,
-          accountName: account.name || "(이름없음)",
-          amount: Math.abs(diff),
-          cashBefore: before,
-          cashAfter: after,
-          type: diff > 0 ? "borrow" : "repay",
-        };
-        setCashSettleLog((prev) => {
-          const next = [entry, ...prev];
-          try { localStorage.setItem(CASH_SETTLE_LOG_KEY, JSON.stringify(next)); } catch (e) {}
-          return next;
-        });
-      }
-    }
-    delete pledgedFocusRef.current[id];
-  };
-
   // "이자" — 빌려투자한돈(pledged) 원금에 대해 연 5%, 매일 일할 계산해서 자동으로 쌓인다.
   // 앱을 며칠 만에 열어도 마지막 계산일부터 오늘까지 경과 일수만큼 한 번에 계산해서 따라잡는다.
   // (2026-09-15부터 연 10%→5%로 변경. 그 전까지 이미 쌓인 이자 금액은 그대로 두고, 그 이후 날짜분만 새 요율로 계산됨)
+  // 빌려투자한돈·이자 둘 다 이제 수동 수정이 불가능하고(읽기 전용 표시), 오직 상환/대출 버튼과 이 자동 계산으로만 바뀐다.
   useEffect(() => {
     if (!loaded) return;
     const todayStr = new Date().toISOString().slice(0, 10);
@@ -1432,42 +1396,6 @@ function PortfolioApp() {
       return changed ? next : prev;
     });
   }, [loaded]);
-
-  // "이자" 칸은 자동 계산으로만 늘어나야 한다 — 직접 줄이면(=이자를 받으면) 그만큼 현금이 늘어나지만,
-  // 직접 늘리는 건 막고 원래 값으로 되돌린다.
-  const interestFocusRef = useRef({});
-  const handleInterestFocus = (id, interest) => { interestFocusRef.current[id] = num(interest); };
-  const handleInterestBlur = (id) => {
-    const before = interestFocusRef.current[id];
-    if (before === undefined) { delete interestFocusRef.current[id]; return; }
-    const account = cashAccounts.find((a) => a.id === id);
-    if (account) {
-      const after = num(account.interest);
-      const diff = after - before; // 음수면 이자를 받아서 줄인 것, 양수면 수동으로 늘리려 한 것(허용 안 함)
-      if (diff < 0) {
-        const collected = -diff;
-        // 이자를 받으면: 그 계좌 자신의 현금에만 그대로 더해진다.
-        setCashAccounts((prev) => prev.map((a) => (a.id === id ? { ...a, cash: String(num(a.cash) + collected) } : a)));
-      } else if (diff > 0) {
-        // 수동으로 늘리는 건 막고 원래 값으로 되돌린다.
-        setCashAccounts((prev) => prev.map((a) => (a.id === id ? { ...a, interest: String(before) } : a)));
-      }
-    }
-    delete interestFocusRef.current[id];
-  };
-
-  // "이자" 칸은 수동으로는 줄일 수만 있고(=이자를 받았다는 뜻), 늘릴 수는 없다 (자동 계산만 늘어나야 함).
-  const updateInterestCapped = (id, rawValue) => {
-    setCashAccounts((prev) => prev.map((a) => {
-      if (a.id !== id) return a;
-      const focusVal = interestFocusRef.current[id];
-      const cap = focusVal !== undefined ? focusVal : num(a.interest);
-      const typed = num(rawValue);
-      const clamped = typed > cap ? cap : typed;
-      // 입력칸에는 사용자가 타이핑한 형태를 그대로 보여주되, 만약 상한을 넘겼다면 상한값 문자열로 강제 교정한다.
-      return { ...a, interest: typed > cap ? String(clamped) : rawValue };
-    }));
-  };
 
   // [1회성 보정] 대출 시작일 버그(기준일이 안 잡혀서 이자가 안 쌓이던 문제)로 놓친 이자를,
   // 딱 한 번만 "1년 전부터 빌린 것"으로 계산해서 채워준다. 실행되면 다시는 실행 안 됨.
@@ -1636,10 +1564,18 @@ function PortfolioApp() {
     const pledgedDelta = sign === "repay" ? -magnitude : magnitude; // 대출=빌려투자한돈 증가, 상환=감소
     const cashDelta = -pledgedDelta; // 빌려투자한돈과 반대 방향
     const cashBefore = num(account.cash);
-    const cashAfter = cashBefore + cashDelta;
     const pledgedBefore = num(account.pledged);
     const pledgedAfter = Math.max(0, pledgedBefore + pledgedDelta);
-    setCashAccounts((prev) => prev.map((a) => (a.id === id ? { ...a, cash: String(cashAfter), pledged: String(pledgedAfter), repayLoan: "" } : a)));
+    // 빌려투자한돈을 다 갚아서(0이 됨) 나면, 그동안 쌓인 이자도 자동으로 같이 정산해서 현금에 더한다.
+    const interestSettled = pledgedAfter === 0 ? num(account.interest) : 0;
+    const cashAfter = cashBefore + cashDelta + interestSettled;
+    setCashAccounts((prev) => prev.map((a) => (a.id === id ? {
+      ...a,
+      cash: String(cashAfter),
+      pledged: String(pledgedAfter),
+      repayLoan: "",
+      interest: interestSettled > 0 ? "0" : a.interest,
+    } : a)));
     setInvestmentPrincipalBase((prev) => {
       const next = Math.max(0, prev + pledgedDelta);
       try { localStorage.setItem(INVESTMENT_PRINCIPAL_KEY, String(next)); } catch (e) {}
@@ -5493,9 +5429,10 @@ function PortfolioApp() {
                 </div>
                 <div>
                   <div className="lbl" style={{ textAlign: "center" }}>빌려투자한돈</div>
-                  <input className="field" type="text" inputMode="numeric" value={num(a.pledged) === 0 ? "" : toDisplay(a.pledged)} onChange={(e) => updateCash(a.id, "pledged", fromDisplay(e.target.value))} onFocus={() => handlePledgedFocus(a.id, a.pledged)} onBlur={() => handlePledgedBlur(a.id)} placeholder="금액입력" style={{ textAlign: "center" }} />
-                  <div className="lbl" style={{ marginTop: 4, textAlign: "center" }}>이자(연10%, 일할)</div>
-                  <input className="field" type="text" inputMode="numeric" value={num(a.interest) === 0 ? "" : toDisplay(a.interest)} onChange={(e) => updateInterestCapped(a.id, fromDisplay(e.target.value))} onFocus={() => handleInterestFocus(a.id, a.interest)} onBlur={() => handleInterestBlur(a.id)} placeholder="자동 계산" style={{ textAlign: "center" }} />
+                  <div className="field" style={{ textAlign: "center", color: "#8993a6", background: "#0e1117", boxSizing: "border-box" }}>{num(a.pledged) === 0 ? "0" : toDisplay(a.pledged)}</div>
+                  <div className="lbl" style={{ marginTop: 4, textAlign: "center" }}>이자(연5%, 일할)</div>
+                  <div className="field" style={{ textAlign: "center", color: "#8993a6", background: "#0e1117", boxSizing: "border-box" }}>{num(a.interest) === 0 ? "0" : toDisplay(a.interest)}</div>
+                  <div style={{ fontSize: 9, color: "#5a6274", marginTop: 3, textAlign: "center" }}>오른쪽 상환/대출로만 바뀌고, 다 갚으면 이자도 자동 정산돼요</div>
                 </div>
                 <div>
                   <div className="lbl" style={{ textAlign: "center" }}>상환한돈/대출한돈</div>
