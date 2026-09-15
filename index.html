@@ -311,6 +311,7 @@ const NET_WORTH_HISTORY_KEY = "portfolio-net-worth-history-v1";
 const PRINCIPAL_HISTORY_KEY = "portfolio-principal-history-v1";
 const STOCK_PROFIT_HISTORY_KEY = "portfolio-stock-profit-history-v1";
 const CASH_HISTORY_KEY = "portfolio-cash-history-v1";
+const PLEDGED_HISTORY_KEY = "portfolio-pledged-history-v1";
 const INVESTMENT_PRINCIPAL_KEY = "portfolio-investment-principal-standalone-v1";
 const DAILY_STRENGTH_ARCHIVE_KEY = "portfolio-daily-strength-archive-v1"; // 매일 오늘치 5분봉 기준 강약평균을 종목·날짜별로 저장해서, 나중에 그 날짜의 일봉을 볼 때 재사용한다.
 const INVESTMENT_QUOTES_KEY = "portfolio-investment-quotes-v1";
@@ -754,14 +755,18 @@ function PortfolioApp() {
   const [principalHistory, setPrincipalHistory] = useState(() => {
     try { return JSON.parse(localStorage.getItem(PRINCIPAL_HISTORY_KEY)) || {}; } catch (e) { return {}; }
   });
-  // 투자성적 ①번 지표(주식평가액-투자원금)와 ②번 지표(전체현금 합계)를 날짜별로 기록해둔다.
+  // 투자성적 ①번 지표(주식평가액-투자원금)와 ②번 지표(전체현금 합계), ③번 지표(빌려투자한돈)를 날짜별로 기록해둔다.
   const [stockProfitHistory, setStockProfitHistory] = useState(() => {
     try { return JSON.parse(localStorage.getItem(STOCK_PROFIT_HISTORY_KEY)) || {}; } catch (e) { return {}; }
   });
   const [cashHistory, setCashHistory] = useState(() => {
     try { return JSON.parse(localStorage.getItem(CASH_HISTORY_KEY)) || {}; } catch (e) { return {}; }
   });
+  const [pledgedHistory, setPledgedHistory] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(PLEDGED_HISTORY_KEY)) || {}; } catch (e) { return {}; }
+  });
   const [perfLevel, setPerfLevel] = useState("month"); // '월' | '분기' | '년' 중 하나를 탭으로 선택
+  const [perfMetric, setPerfMetric] = useState(null); // null이면 ①②③ 목록, 'stock'|'cash'|'pledged'면 그 지표 상세
   const [expandedChartKey, setExpandedChartKey] = useState(null); // 눌러서 펼친 카드(①/②)의 key — 그 그래프 표시
   const [cashSettleLog, setCashSettleLog] = useState([]); // [{id, date, accountName, amount}]
   const [targetCashRatio, setTargetCashRatio] = useState(0.2);
@@ -1251,6 +1256,17 @@ function PortfolioApp() {
       return next;
     });
   }, [cashCalc.totalCash, loaded]);
+  const totalPledged = sum(cashAccounts.map((a) => num(a.pledged)));
+  useEffect(() => {
+    if (!loaded) return;
+    const todayKey = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    if (pledgedHistory[todayKey] === totalPledged) return;
+    setPledgedHistory((prev) => {
+      const next = { ...prev, [todayKey]: totalPledged };
+      try { localStorage.setItem(PLEDGED_HISTORY_KEY, JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
+  }, [totalPledged, loaded]);
 
   // 전날(가장 최근 보관된, 오늘이 아닌 날짜) 대비 수익률 — "현재날짜로보관" 스냅샷에 저장된 그날의 주가로 계산
   // "전일대비"는 스냅샷(저장 시점 가격) 대신, 한투 API가 주는 공식 전일종가(prevClose)를 그대로 합산해서 계산한다.
@@ -4526,39 +4542,75 @@ function PortfolioApp() {
             </div>
           );
         };
-        const stockComp = buildComparison(stockProfitHistory);
-        const cashComp = buildComparison(cashHistory);
+        const METRICS = [
+          { key: "stock", title: "① 주식평가액-투자원금", history: stockProfitHistory },
+          { key: "cash", title: "② 전체현금 합계", history: cashHistory },
+          { key: "pledged", title: "③ 빌려투자한돈", history: pledgedHistory },
+        ];
         const levelWord = { month: "저번달보다 이번달이", quarter: "저번분기보다 이번분기가", year: "저번해보다 이번해가" }[perfLevel];
         return (
           <div style={{ padding: "calc(env(safe-area-inset-top, 0px) + 10px) 0 0" }}>
             <div style={{ padding: "0 16px 10px", position: "sticky", top: "env(safe-area-inset-top, 0px)", zIndex: 20, background: "#12151b" }}>
-              <button onClick={() => setMainView("home")} className="iconbtn" style={{ color: "#c9974a", fontWeight: 700, fontSize: 18 }}>← 뒤로</button>
+              <button
+                onClick={() => { if (perfMetric) { setPerfMetric(null); setExpandedChartKey(null); } else setMainView("home"); }}
+                className="iconbtn"
+                style={{ color: "#c9974a", fontWeight: 700, fontSize: 18 }}
+              >
+                ← {perfMetric ? "목록" : "뒤로"}
+              </button>
             </div>
             <div style={{ padding: "0 12px 40px" }}>
               <div style={{ fontSize: 40, fontWeight: 800, color: "#e7eaf0", marginBottom: 8 }}>투자성적</div>
-              <div style={{ fontSize: 15, color: "#8993a6", marginBottom: 16, lineHeight: 1.6 }}>
-                {levelWord} 얼마나 변했는지 보여줘요. ① 주식평가액-투자원금, ② 전체현금 합계 두 가지로 나눠서 봐요.
-              </div>
 
-              <div style={{ display: "flex", gap: 6, marginBottom: 18 }}>
-                {LEVELS.map((lv) => (
-                  <button
-                    key={lv.key}
-                    onClick={() => setPerfLevel(lv.key)}
-                    style={{
-                      flex: 1, padding: "10px 0", borderRadius: 8, fontSize: 16, fontWeight: 700,
-                      border: perfLevel === lv.key ? "1px solid #c9974a" : "1px solid #262c37",
-                      background: perfLevel === lv.key ? "rgba(201,151,74,0.15)" : "#161a22",
-                      color: perfLevel === lv.key ? "#c9974a" : "#8993a6",
-                    }}
-                  >
-                    {lv.label}
-                  </button>
-                ))}
-              </div>
+              {!perfMetric && (
+                <>
+                  <div style={{ fontSize: 15, color: "#8993a6", marginBottom: 16, lineHeight: 1.6 }}>
+                    지표를 하나 골라 들어가면, 그 안에서 월별·분기별·년별로 얼마나 변했는지 볼 수 있어요.
+                  </div>
+                  {METRICS.map((m) => (
+                    <div
+                      key={m.key}
+                      onClick={() => setPerfMetric(m.key)}
+                      style={{ borderRadius: 10, background: "#161a22", border: "1px solid #262c37", marginBottom: 14, padding: "20px 18px", fontSize: 22, fontWeight: 700, color: "#e7eaf0", display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}
+                    >
+                      {m.title}
+                      <span style={{ color: "#5a6274", fontSize: 20 }}>›</span>
+                    </div>
+                  ))}
+                </>
+              )}
 
-              <ComparisonCard cardKey="stock" title="① 주식평가액-투자원금" comp={stockComp} history={stockProfitHistory} />
-              <ComparisonCard cardKey="cash" title="② 전체현금 합계" comp={cashComp} history={cashHistory} />
+              {perfMetric && (() => {
+                const metric = METRICS.find((m) => m.key === perfMetric);
+                const comp = buildComparison(metric.history);
+                return (
+                  <>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: "#c9974a", marginBottom: 10 }}>{metric.title}</div>
+                    <div style={{ fontSize: 15, color: "#8993a6", marginBottom: 16, lineHeight: 1.6 }}>
+                      {levelWord} 얼마나 변했는지 보여줘요.
+                    </div>
+
+                    <div style={{ display: "flex", gap: 6, marginBottom: 18 }}>
+                      {LEVELS.map((lv) => (
+                        <button
+                          key={lv.key}
+                          onClick={() => setPerfLevel(lv.key)}
+                          style={{
+                            flex: 1, padding: "10px 0", borderRadius: 8, fontSize: 16, fontWeight: 700,
+                            border: perfLevel === lv.key ? "1px solid #c9974a" : "1px solid #262c37",
+                            background: perfLevel === lv.key ? "rgba(201,151,74,0.15)" : "#161a22",
+                            color: perfLevel === lv.key ? "#c9974a" : "#8993a6",
+                          }}
+                        >
+                          {lv.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    <ComparisonCard cardKey={metric.key} title={metric.title} comp={comp} history={metric.history} />
+                  </>
+                );
+              })()}
             </div>
           </div>
         );
@@ -4760,7 +4812,7 @@ function PortfolioApp() {
       <div className="card tnum" style={{ margin: "0 16px 8px", padding: "8px 16px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
           <div className="lbl">투자원금</div>
-          <button onClick={() => { setPerfLevel("month"); setExpandedChartKey(null); setMainView("investmentPerformance"); }} className="iconbtn" style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 12, whiteSpace: "nowrap", flexShrink: 0 }}>📋 투자성적</button>
+          <button onClick={() => { setPerfLevel("month"); setExpandedChartKey(null); setPerfMetric(null); setMainView("investmentPerformance"); }} className="iconbtn" style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 12, whiteSpace: "nowrap", flexShrink: 0 }}>📋 투자성적</button>
         </div>
         <div style={{ display: "flex", justifyContent: "space-between" }}>
           <div style={{ width: 235, flexShrink: 0 }}>
