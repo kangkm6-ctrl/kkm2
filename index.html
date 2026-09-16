@@ -1739,8 +1739,12 @@ function PortfolioApp() {
     const maAtEnd = (period, endIdx) => closes.slice(endIdx - period + 1, endIdx + 1).reduce((a, b) => a + b, 0) / period;
     const ma5 = maAtEnd(5, n - 1), ma20 = maAtEnd(20, n - 1), ma60 = maAtEnd(60, n - 1), ma120 = maAtEnd(120, n - 1);
 
-    const alignedDown = ma5 < ma20 && ma20 < ma60 && ma60 < ma120; // 역배열(단기<장기)
-    const alignedUp = ma5 > ma20 && ma20 > ma60 && ma60 > ma120;   // 정배열(단기>장기)
+    const alignedDown = ma5 < ma20 && ma20 < ma60 && ma60 < ma120; // 역배열(단기<장기) — 4개 선 전부
+    const alignedUp = ma5 > ma20 && ma20 > ma60 && ma60 > ma120;   // 정배열(단기>장기) — 4개 선 전부
+    // "하나라도" 역배열/정배열 — 5·20·60·120 중 인접한 세 쌍(5-20, 20-60, 60-120) 중 하나라도
+    // 그 방향(단기<장기 또는 단기>장기)이면 만족하는, 위보다 느슨한 조건.
+    const anyReversedPair = ma5 < ma20 || ma20 < ma60 || ma60 < ma120;
+    const anyNormalPair = ma5 > ma20 || ma20 > ma60 || ma60 > ma120;
 
     // 5선(5주 이동평균) 값을 최근 구간에 걸쳐 쭉 만든 다음, 3점 극값으로 "스윙 고점/저점"을 찾는다.
     // 가장 최근 스윙 고점이 그 이전 스윙 고점보다 낮으면 "고점이 낮아짐", 가장 최근 스윙 저점이
@@ -1759,17 +1763,17 @@ function PortfolioApp() {
     const lowerHigh = swingHighs.length >= 2 && swingHighs[swingHighs.length - 1] < swingHighs[swingHighs.length - 2]; // 5선 고점이 낮아짐
     const higherLow = swingLows.length >= 2 && swingLows[swingLows.length - 1] > swingLows[swingLows.length - 2];     // 5선 저점이 높아짐
 
-    return { ma5, ma20, ma60, ma120, alignedDown, alignedUp, lowerHigh, higherLow };
+    return { ma5, ma20, ma60, ma120, alignedDown, alignedUp, anyReversedPair, anyNormalPair, lowerHigh, higherLow };
   };
 
 
-  // 배열 상태 + 5선 스윙 고점/저점 방향 + 현금비중(고정 기준값)으로 매수/매도/중도 중 하나를 결정 (항상 셋 중 하나)
+  // 5·20·60·120선 중 하나라도 역배열 상태에서 5선 저점이 상향 돌파 → 매수관점
+  // 5·20·60·120선 중 하나라도 정배열 상태에서 5선 고점이 하향 돌파 → 매도관점
+  // 그 외에는 전부 중도관점 (항상 셋 중 하나)
   const deriveAdviceLabel = (state) => {
     if (!state) return "neutral";
-    // 역배열 + 5선 저점이 높아짐 + 현금비중 30% 이상 → 매수시점
-    if (state.alignedDown && state.higherLow && cashRatio >= 0.3) return "buy";
-    // 정배열 + 5선 고점이 낮아짐 + 현금비중 10% 이하 → 매도시점
-    if (state.alignedUp && state.lowerHigh && cashRatio <= 0.1) return "sell";
+    if (state.anyReversedPair && state.higherLow) return "buy";
+    if (state.anyNormalPair && state.lowerHigh) return "sell";
     return "neutral";
   };
 
@@ -4417,7 +4421,7 @@ function PortfolioApp() {
             </div>
             <div style={{ padding: "0 20px 40px" }}>
               <div style={{ fontSize: 22, fontWeight: 800, color: "#e7eaf0", marginBottom: 6, lineHeight: 1.4 }}>매수/매도/중도시점 기준</div>
-              <div style={{ fontSize: 12.5, color: "#8993a6", marginBottom: 24, lineHeight: 1.6 }}>코스피·코스닥과 보유종목 전부 같은 기준으로 판정돼요. 배열 상태 + 5선(5주 이동평균) 자체의 스윙 고점/저점 방향 + 현금비중, 이 세 가지를 같이 봐요.</div>
+              <div style={{ fontSize: 12.5, color: "#8993a6", marginBottom: 24, lineHeight: 1.6 }}>코스피·코스닥과 보유종목 전부 같은 기준으로 판정돼요. 5·20·60·120선 중 하나라도 역배열/정배열 방향인지 + 5선(5주 이동평균) 자체의 스윙 고점/저점 방향, 이 두 가지를 같이 봐요.</div>
 
               <Section title="1. 판정 재료 — 주봉 5·20·60·120 이동평균">
                 <Bullet>완결된 주봉(진행 중인 이번 주는 제외) 종가로 매주 계산해요.</Bullet>
@@ -4428,13 +4432,13 @@ function PortfolioApp() {
               <Section title="2. 캠페인 진입 조건 (중도일 때만 확인)">
                 <div style={{ padding: "10px 12px", borderRadius: 8, background: "rgba(232,84,75,0.1)", border: "1px solid rgba(232,84,75,0.35)", marginBottom: 10 }}>
                   <div style={{ color: "#e8544b", fontWeight: 700, marginBottom: 4 }}>매수 캠페인 시작</div>
-                  <div><b>5선&lt;20선&lt;60선&lt;120선(역배열)</b> + <b>5선의 저점이 이전 저점보다 높아짐</b> + 현재 현금비중 <b>30% 이상</b></div>
+                  <div><b>5·20·60·120선 중 하나라도 역배열</b>(단기&lt;장기인 인접한 쌍이 하나라도 있음) + <b>5선의 저점이 이전 저점보다 높아짐</b></div>
                 </div>
                 <div style={{ padding: "10px 12px", borderRadius: 8, background: "rgba(76,141,255,0.1)", border: "1px solid rgba(76,141,255,0.35)" }}>
                   <div style={{ color: "#4c8dff", fontWeight: 700, marginBottom: 4 }}>매도 캠페인 시작</div>
-                  <div><b>5선&gt;20선&gt;60선&gt;120선(정배열)</b> + <b>5선의 고점이 이전 고점보다 낮아짐</b> + 현재 현금비중 <b>10% 이하</b></div>
+                  <div><b>5·20·60·120선 중 하나라도 정배열</b>(단기&gt;장기인 인접한 쌍이 하나라도 있음) + <b>5선의 고점이 이전 고점보다 낮아짐</b></div>
                 </div>
-                <div style={{ marginTop: 8, fontSize: 12, color: "#5a6274" }}>이미 매수/매도 캠페인이 진행 중이면 이 조건은 새로 검사하지 않아요.</div>
+                <div style={{ marginTop: 8, fontSize: 12, color: "#5a6274" }}>진입 조건 자체엔 현금비중을 안 봐요. 이미 매수/매도 캠페인이 진행 중이면 이 조건은 새로 검사하지 않아요.</div>
               </Section>
 
               <Section title="3. 캠페인 종료 조건 (오직 이것만으로 끝남)">
