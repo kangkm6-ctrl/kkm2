@@ -304,6 +304,7 @@ const STOCK_WEEKLY_SIGNAL_STORE_KEY = "portfolio-stock-weekly-signal-v1";
 // 매수/매도시점은 한번 들어가면 "현금비중이 반대쪽 기준(10%/30%)에 닿을 때까지" 계속 유지되는 상태값이라
 // 새로고침·재계산과 별개로 별도 저장한다.
 const ADVICE_MODE_STORE_KEY = "portfolio-advice-mode-v1";
+const ADVICE_SUPPRESS_WEEK_KEY = "portfolio-advice-suppress-week-v1";
 const LEARNED_COUNT_KEY = "portfolio-quotes-learned-count-v1";
 const BOOKMARK_QUOTE_ID_KEY = "portfolio-quotes-bookmark-id-v1";
 const QUOTE_READ_DATE_KEY = "portfolio-quotes-read-date-v1";
@@ -861,6 +862,15 @@ function PortfolioApp() {
       if (saved && saved.market && saved.stocks) return saved;
     } catch (e) {}
     return { market: { kospi: "neutral", kosdaq: "neutral" }, stocks: {} };
+  });
+  // "전환" 아이콘으로 수동으로 중도관점으로 돌렸을 때, 그 주(week)엔 다시 판정하지 않도록 눌렀을 당시의
+  // "마지막 완결 주봉 날짜"를 기억해둔다. 새 주봉이 마감되면(날짜가 달라지면) 그때부터 다시 판정한다.
+  const [adviceSuppressWeek, setAdviceSuppressWeek] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(ADVICE_SUPPRESS_WEEK_KEY));
+      if (saved && saved.market && saved.stocks) return saved;
+    } catch (e) {}
+    return { market: {}, stocks: {} };
   });
   const [refreshMsg, setRefreshMsg] = useState("");
   const [lastRefreshedAt, setLastRefreshedAt] = useState(null);
@@ -1715,7 +1725,7 @@ function PortfolioApp() {
   const computeMaState = (candles) => {
     if (!Array.isArray(candles) || candles.length === 0) return null;
     const parsed = candles
-      .map((c) => ({ date: String(c.date || ""), close: Number(c.close) }))
+      .map((c) => ({ date: String(c.date || ""), close: Number(c.close), high: Number(c.high), low: Number(c.low) }))
       .filter((c) => c.date.length === 8 && !isNaN(c.close) && c.close > 0)
       .sort((a, b) => a.date.localeCompare(b.date));
     if (parsed.length === 0) return null;
@@ -1746,34 +1756,22 @@ function PortfolioApp() {
     const anyReversedPair = ma5 < ma20 || ma20 < ma60 || ma60 < ma120;
     const anyNormalPair = ma5 > ma20 || ma20 > ma60 || ma60 > ma120;
 
-    // 5선(5주 이동평균) 값을 최근 구간에 걸쳐 쭉 만든 다음, 3점 극값으로 "스윙 고점/저점"을 찾는다.
-    // 가장 최근 스윙 고점이 그 이전 스윙 고점보다 낮으면 "고점이 낮아짐", 가장 최근 스윙 저점이
-    // 그 이전 스윙 저점보다 높으면 "저점이 높아짐"으로 판정한다.
-    const windowSize = Math.min(60, n - 4);
-    const ma5Series = [];
-    for (let idx = n - windowSize; idx < n; idx++) {
-      if (idx - 4 < 0) continue;
-      ma5Series.push(maAtEnd(5, idx));
-    }
-    const swingHighs = [], swingLows = [];
-    for (let i = 1; i < ma5Series.length - 1; i++) {
-      if (ma5Series[i] > ma5Series[i - 1] && ma5Series[i] > ma5Series[i + 1]) swingHighs.push(ma5Series[i]);
-      else if (ma5Series[i] < ma5Series[i - 1] && ma5Series[i] < ma5Series[i + 1]) swingLows.push(ma5Series[i]);
-    }
-    const lowerHigh = swingHighs.length >= 2 && swingHighs[swingHighs.length - 1] < swingHighs[swingHighs.length - 2]; // 5선 고점이 낮아짐
-    const higherLow = swingLows.length >= 2 && swingLows[swingLows.length - 1] > swingLows[swingLows.length - 2];     // 5선 저점이 높아짐
+    // 마지막으로 완결된 주봉의 고가·저가가 5선 위/아래 어디에 있는지 본다.
+    const lastCandle = completed[completed.length - 1];
+    const priceAboveMa5 = lastCandle.high > ma5 || lastCandle.low > ma5;   // 주봉 고점이나 저점이 5선 위
+    const priceBelowMa5 = lastCandle.high < ma5 || lastCandle.low < ma5;   // 주봉 고점이나 저점이 5선 아래
 
-    return { ma5, ma20, ma60, ma120, alignedDown, alignedUp, anyReversedPair, anyNormalPair, lowerHigh, higherLow };
+    return { ma5, ma20, ma60, ma120, alignedDown, alignedUp, anyReversedPair, anyNormalPair, priceAboveMa5, priceBelowMa5, lastWeekDate: lastCandle.date };
   };
 
 
-  // 5·20·60·120선 중 하나라도 역배열 상태에서 5선 저점이 상향 돌파 → 매수관점
-  // 5·20·60·120선 중 하나라도 정배열 상태에서 5선 고점이 하향 돌파 → 매도관점
+  // 역배열이 하나라도 있는 상태 + 주봉 고점/저점이 5선 위 + 현금비중 30% 이상 → 매수관점 (현금 10%까지 유지)
+  // 정배열 상태 + 주봉 고점/저점이 5선 아래 + 현금비중 10% 이하 → 매도관점 (현금 30%까지 유지)
   // 그 외에는 전부 중도관점 (항상 셋 중 하나)
   const deriveAdviceLabel = (state) => {
     if (!state) return "neutral";
-    if (state.anyReversedPair && state.higherLow) return "buy";
-    if (state.anyNormalPair && state.lowerHigh) return "sell";
+    if (state.anyReversedPair && state.priceAboveMa5 && cashRatio >= 0.3) return "buy";
+    if (state.alignedUp && state.priceBelowMa5 && cashRatio <= 0.1) return "sell";
     return "neutral";
   };
 
@@ -1781,6 +1779,11 @@ function PortfolioApp() {
     if (!loaded) return;
     try { localStorage.setItem(ADVICE_MODE_STORE_KEY, JSON.stringify(adviceMode)); } catch (e) {}
   }, [adviceMode, loaded]);
+
+  useEffect(() => {
+    if (!loaded) return;
+    try { localStorage.setItem(ADVICE_SUPPRESS_WEEK_KEY, JSON.stringify(adviceSuppressWeek)); } catch (e) {}
+  }, [adviceSuppressWeek, loaded]);
 
   useEffect(() => {
     if (!loaded) return;
@@ -1810,25 +1813,38 @@ function PortfolioApp() {
   // (진입 조건은 새 주봉 신호가 나올 때만 확인하고, 유지 중엔 현금비중이 바뀔 때마다 "빠져나갈 때가 됐는지"만 본다)
   useEffect(() => {
     if (!loaded) return;
+    let suppressChanged = false;
+    const nextSuppress = { market: { ...adviceSuppressWeek.market }, stocks: { ...adviceSuppressWeek.stocks } };
     setAdviceMode((prev) => {
       let changed = false;
       const nextMarket = { ...prev.market };
       for (const key of ["kospi", "kosdaq"]) {
         const mode = nextMarket[key] || "neutral";
+        const state = weeklySignal[key];
+        // 눌러서 중도로 돌린 그 주(week)와 지금 최신 주봉이 같으면 아직 재판정 안 함. 새 주봉이 나오면 억제 해제.
+        if (nextSuppress.market[key] && state && state.lastWeekDate !== nextSuppress.market[key]) {
+          delete nextSuppress.market[key];
+          suppressChanged = true;
+        }
         if (mode === "buy" && cashRatio <= 0.1) { nextMarket[key] = "neutral"; changed = true; }
         else if (mode === "sell" && cashRatio >= 0.3) { nextMarket[key] = "neutral"; changed = true; }
-        else if (mode === "neutral") {
-          const triggered = deriveAdviceLabel(weeklySignal[key]);
+        else if (mode === "neutral" && !nextSuppress.market[key]) {
+          const triggered = deriveAdviceLabel(state);
           if (triggered !== "neutral") { nextMarket[key] = triggered; changed = true; }
         }
       }
       const nextStocks = {};
       stockCodes.forEach((code) => {
         const mode = prev.stocks[code] || "neutral";
+        const state = stockWeeklySignal[code];
+        if (nextSuppress.stocks[code] && state && state.lastWeekDate !== nextSuppress.stocks[code]) {
+          delete nextSuppress.stocks[code];
+          suppressChanged = true;
+        }
         if (mode === "buy" && cashRatio <= 0.1) { nextStocks[code] = "neutral"; changed = true; }
         else if (mode === "sell" && cashRatio >= 0.3) { nextStocks[code] = "neutral"; changed = true; }
-        else if (mode === "neutral") {
-          const triggered = deriveAdviceLabel(stockWeeklySignal[code]);
+        else if (mode === "neutral" && !nextSuppress.stocks[code]) {
+          const triggered = deriveAdviceLabel(state);
           nextStocks[code] = triggered;
           if (triggered !== "neutral") changed = true;
         } else {
@@ -1838,7 +1854,22 @@ function PortfolioApp() {
       if (Object.keys(prev.stocks).length !== Object.keys(nextStocks).length) changed = true;
       return changed ? { market: nextMarket, stocks: nextStocks } : prev;
     });
-  }, [weeklySignal, stockWeeklySignal, cashRatio, stockCodes, loaded]);
+    if (suppressChanged) setAdviceSuppressWeek(nextSuppress);
+  }, [weeklySignal, stockWeeklySignal, cashRatio, stockCodes, loaded, adviceSuppressWeek]);
+
+  // "전환" 아이콘: 지금 매수/매도관점을 수동으로 중도관점으로 돌리고, 지금 주(week)엔 다시 안 들어가게 막는다.
+  const manualNeutralizeAdvice = (scope, key, state) => {
+    setAdviceMode((prev) => ({
+      market: scope === "market" ? { ...prev.market, [key]: "neutral" } : prev.market,
+      stocks: scope === "stocks" ? { ...prev.stocks, [key]: "neutral" } : prev.stocks,
+    }));
+    if (state && state.lastWeekDate) {
+      setAdviceSuppressWeek((prev) => ({
+        market: scope === "market" ? { ...prev.market, [key]: state.lastWeekDate } : prev.market,
+        stocks: scope === "stocks" ? { ...prev.stocks, [key]: state.lastWeekDate } : prev.stocks,
+      }));
+    }
+  };
 
   // 코스피/코스닥 주봉 데이터 조회 — 하루 1회 계산 후 localStorage에 고정 저장 (앱을 몇 번을 다시 열어도 그날 안엔 절대 안 바뀜)
   const fetchWeeklySignals = useCallback(async () => {
@@ -2853,8 +2884,17 @@ function PortfolioApp() {
             {marketAdviceList.map((adv) => {
               const color = adv.type === "buy" ? "#e8544b" : adv.type === "sell" ? "#4c8dff" : "#8993a6";
               return (
-                <span key={adv.key} style={{ color }}>
+                <span key={adv.key} style={{ color, display: "inline-flex", alignItems: "center", gap: 4 }}>
                   {adv.text}
+                  {(adv.type === "buy" || adv.type === "sell") && (
+                    <button
+                      onClick={() => manualNeutralizeAdvice("market", adv.key, weeklySignal[adv.key])}
+                      title="중도관점으로 전환 (다음 주봉까지 유지)"
+                      style={{ border: "1px solid " + color, borderRadius: 5, background: "none", color, fontSize: 9, padding: "1px 4px", lineHeight: 1.4, cursor: "pointer" }}
+                    >
+                      ⇄전환
+                    </button>
+                  )}
                 </span>
               );
             })}
@@ -4421,34 +4461,35 @@ function PortfolioApp() {
             </div>
             <div style={{ padding: "0 20px 40px" }}>
               <div style={{ fontSize: 22, fontWeight: 800, color: "#e7eaf0", marginBottom: 6, lineHeight: 1.4 }}>매수/매도/중도시점 기준</div>
-              <div style={{ fontSize: 12.5, color: "#8993a6", marginBottom: 24, lineHeight: 1.6 }}>코스피·코스닥과 보유종목 전부 같은 기준으로 판정돼요. 5·20·60·120선 중 하나라도 역배열/정배열 방향인지 + 5선(5주 이동평균) 자체의 스윙 고점/저점 방향, 이 두 가지를 같이 봐요.</div>
+              <div style={{ fontSize: 12.5, color: "#8993a6", marginBottom: 24, lineHeight: 1.6 }}>코스피·코스닥과 보유종목 전부 같은 기준으로 판정돼요. 배열 상태 + 주봉 고점/저점이 5선 위/아래 어디 있는지 + 현금비중, 이 세 가지를 같이 봐요.</div>
 
               <Section title="1. 판정 재료 — 주봉 5·20·60·120 이동평균">
                 <Bullet>완결된 주봉(진행 중인 이번 주는 제외) 종가로 매주 계산해요.</Bullet>
                 <Bullet>120주선까지 보려면 최소 120주치 데이터가 필요해요.</Bullet>
-                <Bullet>5선 값을 최근 구간에 걸쳐 쭉 만든 뒤, 꺾이는 지점(스윙 고점·저점)을 찾아서 가장 최근 두 지점을 비교해요.</Bullet>
+                <Bullet>가장 최근에 완결된 주봉의 고가·저가가 5선 위에 있는지 아래에 있는지를 봐요.</Bullet>
               </Section>
 
               <Section title="2. 캠페인 진입 조건 (중도일 때만 확인)">
                 <div style={{ padding: "10px 12px", borderRadius: 8, background: "rgba(232,84,75,0.1)", border: "1px solid rgba(232,84,75,0.35)", marginBottom: 10 }}>
                   <div style={{ color: "#e8544b", fontWeight: 700, marginBottom: 4 }}>매수 캠페인 시작</div>
-                  <div><b>5·20·60·120선 중 하나라도 역배열</b>(단기&lt;장기인 인접한 쌍이 하나라도 있음) + <b>5선의 저점이 이전 저점보다 높아짐</b></div>
+                  <div><b>5·20·60·120선 중 하나라도 역배열</b>(단기&lt;장기인 인접한 쌍이 하나라도 있음) + <b>주봉 고점이나 저점이 5선 위에 위치</b> + 현재 현금비중 <b>30% 이상</b></div>
                 </div>
                 <div style={{ padding: "10px 12px", borderRadius: 8, background: "rgba(76,141,255,0.1)", border: "1px solid rgba(76,141,255,0.35)" }}>
                   <div style={{ color: "#4c8dff", fontWeight: 700, marginBottom: 4 }}>매도 캠페인 시작</div>
-                  <div><b>5·20·60·120선 중 하나라도 정배열</b>(단기&gt;장기인 인접한 쌍이 하나라도 있음) + <b>5선의 고점이 이전 고점보다 낮아짐</b></div>
+                  <div><b>5선&gt;20선&gt;60선&gt;120선(정배열, 4개 선 전부)</b> + <b>주봉 고점이나 저점이 5선 아래에 위치</b> + 현재 현금비중 <b>10% 이하</b></div>
                 </div>
-                <div style={{ marginTop: 8, fontSize: 12, color: "#5a6274" }}>진입 조건 자체엔 현금비중을 안 봐요. 이미 매수/매도 캠페인이 진행 중이면 이 조건은 새로 검사하지 않아요.</div>
+                <div style={{ marginTop: 8, fontSize: 12, color: "#5a6274" }}>이미 매수/매도 캠페인이 진행 중이면 이 조건은 새로 검사하지 않아요.</div>
               </Section>
 
-              <Section title="3. 캠페인 종료 조건 (오직 이것만으로 끝남)">
+              <Section title="3. 캠페인 종료 조건">
                 <Bullet>매수 캠페인 → 현금비중이 <b style={{ color: "#e7eaf0" }}>10%</b>가 되면 종료 → 중도로 리셋</Bullet>
                 <Bullet>매도 캠페인 → 현금비중이 <b style={{ color: "#e7eaf0" }}>30%</b>가 되면 종료 → 중도로 리셋</Bullet>
-                <div style={{ marginTop: 4, fontSize: 12, color: "#5a6274" }}>이 두 조건 외엔 캠페인이 절대 끝나지 않아요. 배열 상태나 5선 방향이 도중에 바뀌어도 화면 표시는 그대로 유지돼요.</div>
+                <Bullet>매수/매도시점 옆의 <b style={{ color: "#c9974a" }}>⇄전환</b> 버튼을 누르면 중도로 즉시 전환되고, 그 주(week)엔 다시 판정하지 않아요 — 다음 주봉이 새로 마감돼야 재판정해요.</Bullet>
+                <div style={{ marginTop: 4, fontSize: 12, color: "#5a6274" }}>배열 상태나 가격 위치가 도중에 바뀌어도, 위 조건들 외엔 화면 표시가 그대로 유지돼요.</div>
               </Section>
 
               <div style={{ marginTop: 4, padding: "12px 14px", borderRadius: 10, background: "#161a22", border: "1px solid #262c37", fontSize: 12.5, color: "#8993a6", lineHeight: 1.7 }}>
-                정리하면, 매수/매도시점은 <b style={{ color: "#c9974a" }}>현금비중이 목표(10%/30%)에 도달</b>해야만 끝나요. 이 상태는 기기에 저장돼서 새로고침해도 유지돼요.
+                정리하면, 매수/매도시점은 <b style={{ color: "#c9974a" }}>현금비중이 목표(10%/30%)에 도달</b>하거나 <b style={{ color: "#c9974a" }}>⇄전환을 직접 누를 때</b> 끝나요. 이 상태는 기기에 저장돼서 새로고침해도 유지돼요.
               </div>
             </div>
           </div>
@@ -5054,8 +5095,17 @@ function PortfolioApp() {
                 const color = adv === "buy" ? "#e8544b" : adv === "sell" ? "#4c8dff" : "#8993a6";
                 const badgeText = adv === "buy" ? "매수시점" : adv === "sell" ? "매도시점" : "중도시점";
                 return (
-                  <div style={{ marginTop: 6, display: "inline-block", padding: "3px 8px", borderRadius: 6, fontSize: 11, fontWeight: 700, color, background: `${color}22`, border: `1px solid ${color}` }}>
+                  <div style={{ marginTop: 6, display: "inline-flex", alignItems: "center", gap: 6, padding: "3px 8px", borderRadius: 6, fontSize: 11, fontWeight: 700, color, background: `${color}22`, border: `1px solid ${color}` }}>
                     {badgeText}
+                    {(adv === "buy" || adv === "sell") && (
+                      <button
+                        onClick={() => manualNeutralizeAdvice("stocks", r.code, stockWeeklySignal[r.code])}
+                        title="중도관점으로 전환 (다음 주봉까지 유지)"
+                        style={{ border: "1px solid " + color, borderRadius: 5, background: "none", color, fontSize: 9, padding: "1px 4px", lineHeight: 1.4, cursor: "pointer" }}
+                      >
+                        ⇄전환
+                      </button>
+                    )}
                   </div>
                 );
               })()}
