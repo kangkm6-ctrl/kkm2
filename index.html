@@ -2880,22 +2880,24 @@ function PortfolioApp() {
       </div>
       {marketAdviceList.length > 0 && (
         <div style={{ margin: "6px 16px 0", padding: "7px 12px", borderRadius: 10, fontSize: 12, fontWeight: 600, background: "#1a1f28", border: "1px solid #262c37", display: "flex", flexDirection: "column", gap: 2 }}>
-          <div style={{ display: "flex", gap: 14 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             {marketAdviceList.map((adv) => {
               const color = adv.type === "buy" ? "#e8544b" : adv.type === "sell" ? "#4c8dff" : "#8993a6";
               return (
-                <span key={adv.key} style={{ color, display: "inline-flex", alignItems: "center", gap: 4 }}>
-                  {adv.text}
-                  {(adv.type === "buy" || adv.type === "sell") && (
-                    <button
-                      onClick={() => manualNeutralizeAdvice("market", adv.key, weeklySignal[adv.key])}
-                      title="중도관점으로 전환 (다음 주봉까지 유지)"
-                      style={{ border: "1px solid " + color, borderRadius: 5, background: "none", color, fontSize: 9, padding: "1px 4px", lineHeight: 1.4, cursor: "pointer" }}
-                    >
-                      ⇄전환
-                    </button>
-                  )}
-                </span>
+                <div key={adv.key} style={{ display: "flex", alignItems: "center" }}>
+                  <span style={{ color, display: "inline-flex", alignItems: "center", gap: 4 }}>
+                    {adv.text}
+                    {(adv.type === "buy" || adv.type === "sell") && (
+                      <button
+                        onClick={() => manualNeutralizeAdvice("market", adv.key, weeklySignal[adv.key])}
+                        title="중도관점으로 전환 (다음 주봉까지 유지)"
+                        style={{ border: "1px solid " + color, borderRadius: 5, background: "none", color, fontSize: 9, padding: "1px 4px", lineHeight: 1.4, cursor: "pointer" }}
+                      >
+                        ⇄전환
+                      </button>
+                    )}
+                  </span>
+                </div>
               );
             })}
           </div>
@@ -2914,24 +2916,31 @@ function PortfolioApp() {
       )}
       <div style={{ padding: "6px 16px 4px", display: "flex", alignItems: "flex-end", justifyContent: "space-between" }}>
         <div>
+          <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+            <button
+              onClick={() => setMainView("adviceExplain")}
+              className="iconbtn"
+              style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 12, whiteSpace: "nowrap" }}
+            >
+              💡 관점설명
+            </button>
+            <button
+              onClick={() => setMainView("investmentQuotes")}
+              className="iconbtn"
+              style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 12, whiteSpace: "nowrap" }}
+            >
+              📜 투자 명언
+            </button>
+            <button
+              onClick={() => { setPerfLevel("month"); setExpandedChartKey(null); setPerfMetric(null); setMainView("investmentPerformance"); }}
+              className="iconbtn"
+              style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 12, whiteSpace: "nowrap" }}
+            >
+              📋 투자성적
+            </button>
+          </div>
           <div style={{ fontSize: 11, letterSpacing: 1, color: "#c9974a", fontWeight: 600 }}>PORTFOLIO</div>
           <div style={{ fontSize: 20, fontWeight: 700 }}>포트폴리오 리밸런싱</div>
-        </div>
-        <div style={{ display: "flex", gap: 6 }}>
-          <button
-            onClick={() => setMainView("adviceExplain")}
-            className="iconbtn"
-            style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 12, whiteSpace: "nowrap" }}
-          >
-            💡 관점설명
-          </button>
-          <button
-            onClick={() => setMainView("investmentQuotes")}
-            className="iconbtn"
-            style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 12, whiteSpace: "nowrap" }}
-          >
-            📜 투자 명언
-          </button>
         </div>
       </div>
       </>)}
@@ -4857,7 +4866,6 @@ function PortfolioApp() {
       <div className="card tnum" style={{ margin: "0 16px 8px", padding: "8px 16px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
           <div className="lbl">투자원금</div>
-          <button onClick={() => { setPerfLevel("month"); setExpandedChartKey(null); setPerfMetric(null); setMainView("investmentPerformance"); }} className="iconbtn" style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 12, whiteSpace: "nowrap", flexShrink: 0 }}>📋 투자성적</button>
         </div>
         <div style={{ display: "flex", justifyContent: "space-between" }}>
           <div style={{ width: 235, flexShrink: 0 }}>
