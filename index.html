@@ -2461,10 +2461,11 @@ function PortfolioApp() {
   const marketAdviceList = useMemo(() => {
     return [["kospi", "코스피"], ["kosdaq", "코스닥"]].map(([key, label]) => {
       const adv = adviceMode.market[key] || "neutral";
-      const text = adv === "sell" ? `${label} 매도시점(현금 30%까지 유지)`
-        : adv === "buy" ? `${label} 매수시점(현금 10%까지 유지)`
-        : `${label} 중도시점`;
-      return { key, label, type: adv, text };
+      const bareText = adv === "sell" ? "매도시점(현금 30%까지 유지)"
+        : adv === "buy" ? "매수시점(현금 10%까지 유지)"
+        : "중도시점";
+      const text = `${label} ${bareText}`;
+      return { key, label, type: adv, text, bareText };
     });
   }, [adviceMode]);
 
@@ -2848,99 +2849,84 @@ function PortfolioApp() {
       `}</style>
 
       {mainView === "home" && (<>
-      <div className="tnum" style={{ padding: "calc(env(safe-area-inset-top, 0px) + 10px) 16px 0", display: "flex", gap: 24 }}>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 13, color: "#8993a6", marginBottom: 2 }}>코스피</div>
-          {marketIndices.kospi ? (
-            <>
-              <div style={{ fontSize: 24, fontWeight: 700 }}>{Number(marketIndices.kospi.price).toFixed(2)}</div>
-              <div style={{ fontSize: 14, fontWeight: 600, color: num(marketIndices.kospi.change) > 0 ? "#e8544b" : num(marketIndices.kospi.change) < 0 ? "#4c8dff" : "#8993a6" }}>
-                {marketIndices.kospi.change !== undefined ? `${Number(marketIndices.kospi.change) >= 0 ? "+" : ""}${Number(marketIndices.kospi.change).toFixed(2)}` : ""}
-                {marketIndices.kospi.changeRate !== undefined ? ` (${Number(marketIndices.kospi.changeRate) >= 0 ? "+" : ""}${Number(marketIndices.kospi.changeRate).toFixed(2)}%)` : ""}
-              </div>
-            </>
-          ) : (
-            <div style={{ fontSize: 24, fontWeight: 700, color: "#5a6274" }}>-</div>
-          )}
-        </div>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 13, color: "#8993a6", marginBottom: 2 }}>코스닥</div>
-          {marketIndices.kosdaq ? (
-            <>
-              <div style={{ fontSize: 24, fontWeight: 700 }}>{Number(marketIndices.kosdaq.price).toFixed(2)}</div>
-              <div style={{ fontSize: 14, fontWeight: 600, color: num(marketIndices.kosdaq.change) > 0 ? "#e8544b" : num(marketIndices.kosdaq.change) < 0 ? "#4c8dff" : "#8993a6" }}>
-                {marketIndices.kosdaq.change !== undefined ? `${Number(marketIndices.kosdaq.change) >= 0 ? "+" : ""}${Number(marketIndices.kosdaq.change).toFixed(2)}` : ""}
-                {marketIndices.kosdaq.changeRate !== undefined ? ` (${Number(marketIndices.kosdaq.changeRate) >= 0 ? "+" : ""}${Number(marketIndices.kosdaq.changeRate).toFixed(2)}%)` : ""}
-              </div>
-            </>
-          ) : (
-            <div style={{ fontSize: 24, fontWeight: 700, color: "#5a6274" }}>-</div>
-          )}
-        </div>
-      </div>
-      {marketAdviceList.length > 0 && (
-        <div style={{ margin: "6px 16px 0", padding: "7px 12px", borderRadius: 10, fontSize: 12, fontWeight: 600, background: "#1a1f28", border: "1px solid #262c37", display: "flex", flexDirection: "column", gap: 2 }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            {marketAdviceList.map((adv) => {
-              const color = adv.type === "buy" ? "#e8544b" : adv.type === "sell" ? "#4c8dff" : "#8993a6";
-              return (
-                <div key={adv.key} style={{ display: "flex", alignItems: "center" }}>
-                  <span style={{ color, display: "inline-flex", alignItems: "center", gap: 4 }}>
-                    {adv.text}
-                    {(adv.type === "buy" || adv.type === "sell") && (
-                      <button
-                        onClick={() => manualNeutralizeAdvice("market", adv.key, weeklySignal[adv.key])}
-                        title="중도관점으로 전환 (다음 주봉까지 유지)"
-                        style={{ border: "1px solid " + color, borderRadius: 5, background: "none", color, fontSize: 9, padding: "1px 4px", lineHeight: 1.4, cursor: "pointer" }}
-                      >
-                        ⇄전환
-                      </button>
-                    )}
-                  </span>
+      <div style={{ padding: "calc(env(safe-area-inset-top, 0px) + 10px) 16px 0", display: "flex", gap: 10 }}>
+        {["kospi", "kosdaq"].map((key) => {
+          const label = key === "kospi" ? "코스피" : "코스닥";
+          const idx = marketIndices[key];
+          const adv = marketAdviceList.find((a) => a.key === key);
+          const advColor = adv ? (adv.type === "buy" ? "#e8544b" : adv.type === "sell" ? "#4c8dff" : "#8993a6") : "#8993a6";
+          return (
+            <div key={key} className="tnum" style={{ flex: 1, border: "1px solid #262c37", borderRadius: 10, padding: "10px 12px", background: "#161a22" }}>
+              <div style={{ fontSize: 13, color: "#8993a6", marginBottom: 2 }}>{label}</div>
+              {idx ? (
+                <>
+                  <div style={{ fontSize: 24, fontWeight: 700 }}>{Number(idx.price).toFixed(2)}</div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: num(idx.change) > 0 ? "#e8544b" : num(idx.change) < 0 ? "#4c8dff" : "#8993a6" }}>
+                    {idx.change !== undefined ? `${Number(idx.change) >= 0 ? "+" : ""}${Number(idx.change).toFixed(2)}` : ""}
+                    {idx.changeRate !== undefined ? ` (${Number(idx.changeRate) >= 0 ? "+" : ""}${Number(idx.changeRate).toFixed(2)}%)` : ""}
+                  </div>
+                </>
+              ) : (
+                <div style={{ fontSize: 24, fontWeight: 700, color: "#5a6274" }}>-</div>
+              )}
+              {adv && (
+                <div style={{ marginTop: 6, fontSize: 12, fontWeight: 600, color: advColor, display: "flex", alignItems: "center", gap: 4 }}>
+                  {adv.bareText}
+                  {(adv.type === "buy" || adv.type === "sell") && (
+                    <button
+                      onClick={() => manualNeutralizeAdvice("market", key, weeklySignal[key])}
+                      title="중도관점으로 전환 (다음 주봉까지 유지)"
+                      style={{ border: "1px solid " + advColor, borderRadius: 5, background: "none", color: advColor, fontSize: 9, padding: "1px 4px", lineHeight: 1.4, cursor: "pointer" }}
+                    >
+                      ⇄전환
+                    </button>
+                  )}
                 </div>
-              );
-            })}
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {marketAdviceList.length > 0 && (() => {
+        const codes = stockCodes;
+        const stockOkCount = codes.filter((c) => stockWeeklySignal[c]).length;
+        const allOk = !!weeklySignal.kospi && !!weeklySignal.kosdaq && stockOkCount === codes.length;
+        return (
+          <div style={{ padding: "6px 16px 0", fontSize: 10, fontWeight: 500, color: allOk ? "#5a6274" : "#8993a6" }}>
+            {allOk ? "✅ 데이터 계산 완료" : `⏳ 데이터 계산 중 (종목 ${stockOkCount}/${codes.length}) — 자동 재시도 중`}
+            {refreshMsg ? ` · ${refreshMsg}` : ""}
           </div>
-          {(() => {
-            const codes = stockCodes;
-            const stockOkCount = codes.filter((c) => stockWeeklySignal[c]).length;
-            const allOk = !!weeklySignal.kospi && !!weeklySignal.kosdaq && stockOkCount === codes.length;
-            return (
-              <div style={{ fontSize: 10, fontWeight: 500, color: allOk ? "#5a6274" : "#8993a6" }}>
-                {allOk ? "✅ 데이터 계산 완료" : `⏳ 데이터 계산 중 (종목 ${stockOkCount}/${codes.length}) — 자동 재시도 중`}
-                {refreshMsg ? ` · ${refreshMsg}` : ""}
-              </div>
-            );
-          })()}
-        </div>
-      )}
+        );
+      })()}
       <div style={{ padding: "6px 16px 4px", display: "flex", alignItems: "flex-end", justifyContent: "space-between" }}>
         <div>
-          <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
-            <button
-              onClick={() => setMainView("adviceExplain")}
-              className="iconbtn"
-              style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 12, whiteSpace: "nowrap" }}
-            >
-              💡 관점설명
-            </button>
-            <button
-              onClick={() => setMainView("investmentQuotes")}
-              className="iconbtn"
-              style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 12, whiteSpace: "nowrap" }}
-            >
-              📜 투자 명언
-            </button>
-            <button
-              onClick={() => { setPerfLevel("month"); setExpandedChartKey(null); setPerfMetric(null); setMainView("investmentPerformance"); }}
-              className="iconbtn"
-              style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 12, whiteSpace: "nowrap" }}
-            >
-              📋 투자성적
-            </button>
+          <div style={{ fontSize: 16, letterSpacing: 1.5, color: "#c9974a", fontWeight: 700 }}>PORTFOLIO</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            <div style={{ fontSize: 30, fontWeight: 800, whiteSpace: "nowrap" }}>포트폴리오 리밸런싱</div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <button
+                onClick={() => setMainView("adviceExplain")}
+                className="iconbtn"
+                style={{ padding: "8px 4px", borderRadius: 10, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 13, whiteSpace: "nowrap" }}
+              >
+                💡관점설명
+              </button>
+              <button
+                onClick={() => setMainView("investmentQuotes")}
+                className="iconbtn"
+                style={{ padding: "8px 4px", borderRadius: 10, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 13, whiteSpace: "nowrap" }}
+              >
+                📜투자명언
+              </button>
+              <button
+                onClick={() => { setPerfLevel("month"); setExpandedChartKey(null); setPerfMetric(null); setMainView("investmentPerformance"); }}
+                className="iconbtn"
+                style={{ padding: "8px 4px", borderRadius: 10, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 13, whiteSpace: "nowrap" }}
+              >
+                📋투자성적
+              </button>
+            </div>
           </div>
-          <div style={{ fontSize: 11, letterSpacing: 1, color: "#c9974a", fontWeight: 600 }}>PORTFOLIO</div>
-          <div style={{ fontSize: 20, fontWeight: 700 }}>포트폴리오 리밸런싱</div>
         </div>
       </div>
       </>)}
