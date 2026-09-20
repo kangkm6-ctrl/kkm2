@@ -313,6 +313,7 @@ const PRINCIPAL_HISTORY_KEY = "portfolio-principal-history-v1";
 const STOCK_PROFIT_HISTORY_KEY = "portfolio-stock-profit-history-v1";
 const CASH_HISTORY_KEY = "portfolio-cash-history-v1";
 const PLEDGED_HISTORY_KEY = "portfolio-pledged-history-v1";
+const PLEDGED_INTEREST_HISTORY_KEY = "portfolio-pledged-interest-history-v1";
 const INVESTMENT_PRINCIPAL_KEY = "portfolio-investment-principal-standalone-v1";
 const DAILY_STRENGTH_ARCHIVE_KEY = "portfolio-daily-strength-archive-v1"; // 매일 오늘치 5분봉 기준 강약평균을 종목·날짜별로 저장해서, 나중에 그 날짜의 일봉을 볼 때 재사용한다.
 const INVESTMENT_QUOTES_KEY = "portfolio-investment-quotes-v1";
@@ -765,6 +766,9 @@ function PortfolioApp() {
   });
   const [pledgedHistory, setPledgedHistory] = useState(() => {
     try { return JSON.parse(localStorage.getItem(PLEDGED_HISTORY_KEY)) || {}; } catch (e) { return {}; }
+  });
+  const [pledgedInterestHistory, setPledgedInterestHistory] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(PLEDGED_INTEREST_HISTORY_KEY)) || {}; } catch (e) { return {}; }
   });
   const [perfLevel, setPerfLevel] = useState("month"); // '월' | '분기' | '년' 중 하나를 탭으로 선택
   const [perfMetric, setPerfMetric] = useState(null); // null이면 ①②③ 목록, 'stock'|'cash'|'pledged'면 그 지표 상세
@@ -1277,6 +1281,17 @@ function PortfolioApp() {
       return next;
     });
   }, [totalPledged, loaded]);
+  const totalPledgedInterest = sum(cashAccounts.map((a) => num(a.interest)));
+  useEffect(() => {
+    if (!loaded) return;
+    const todayKey = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    if (pledgedInterestHistory[todayKey] === totalPledgedInterest) return;
+    setPledgedInterestHistory((prev) => {
+      const next = { ...prev, [todayKey]: totalPledgedInterest };
+      try { localStorage.setItem(PLEDGED_INTEREST_HISTORY_KEY, JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
+  }, [totalPledgedInterest, loaded]);
 
   // 전날(가장 최근 보관된, 오늘이 아닌 날짜) 대비 수익률 — "현재날짜로보관" 스냅샷에 저장된 그날의 주가로 계산
   // "전일대비"는 스냅샷(저장 시점 가격) 대신, 한투 API가 주는 공식 전일종가(prevClose)를 그대로 합산해서 계산한다.
@@ -4298,7 +4313,12 @@ function PortfolioApp() {
               />
               <button onClick={() => quotesFileInputRef.current && quotesFileInputRef.current.click()} className="iconbtn" style={{ padding: "6px 9px", borderRadius: 8, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 11.5, whiteSpace: "nowrap" }}>⬆ 가져오기</button>
               <button onClick={exportQuotesToExcel} className="iconbtn" style={{ padding: "6px 9px", borderRadius: 8, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 11.5, whiteSpace: "nowrap" }}>⬇ 내려받기</button>
-              <button onClick={jumpToBookmark} className="iconbtn" style={{ padding: "6px 9px", borderRadius: 8, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 11.5, whiteSpace: "nowrap" }}>📍 책갈피로</button>
+              <button onClick={jumpToBookmark} className="iconbtn" style={{ padding: "6px 9px", borderRadius: 8, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 11.5, whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                <svg width="12" height="15" viewBox="0 0 16 20" style={{ flexShrink: 0 }}>
+                  <path d="M1 1h14v18l-7-5-7 5V1z" fill="#c9974a" stroke="#c9974a" strokeWidth="1" strokeLinejoin="round" />
+                </svg>
+                책갈피로
+              </button>
               <button
                 onClick={undoQuoteChange}
                 disabled={quoteUndoStack.length === 0}
@@ -4397,6 +4417,8 @@ function PortfolioApp() {
                   onPointerCancel={() => handleSwipeEnd(q.id)}
                   style={{
                     position: "relative", display: "flex", gap: 6, alignItems: "flex-start", padding: "4px 8px", boxSizing: "border-box",
+                    borderRadius: 8,
+                    border: q.id === bookmarkQuoteId ? "2px solid #c9974a" : "2px solid transparent",
                     background: q.id === bookmarkQuoteId ? "rgba(201,151,74,0.1)" : "#12151b",
                     transform: `translateX(${swipeOffsets[q.id] || 0}px)`,
                     transition: swipeDragRef.current.active ? "none" : "transform 0.2s ease",
@@ -4411,12 +4433,15 @@ function PortfolioApp() {
                     className="field"
                     style={{ width: 30, fontSize: 13, fontWeight: 700, color: "#c9974a", textAlign: "center", padding: "4px 0" }}
                   />
-                  <input
-                    type="checkbox"
-                    checked={q.id === bookmarkQuoteId}
-                    onChange={() => toggleBookmark(q.id)}
-                    style={{ width: 16, height: 16, accentColor: "#c9974a", flexShrink: 0 }}
-                  />
+                  <button
+                    type="button"
+                    onClick={() => toggleBookmark(q.id)}
+                    style={{ width: 22, height: 22, border: "none", background: "none", padding: 0, cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}
+                  >
+                    <svg width="16" height="20" viewBox="0 0 16 20">
+                      <path d="M1 1h14v18l-7-5-7 5V1z" fill={q.id === bookmarkQuoteId ? "#c9974a" : "#3a4150"} stroke={q.id === bookmarkQuoteId ? "#c9974a" : "#5a6274"} strokeWidth="1" strokeLinejoin="round" />
+                    </svg>
+                  </button>
                 </div>
                 <textarea
                   ref={(el) => { if (el) { el.style.height = "auto"; el.style.height = el.scrollHeight + "px"; } }}
@@ -4559,14 +4584,22 @@ function PortfolioApp() {
           const diff = hasPrev ? comp.curVal - comp.prevVal : null;
           const pct = hasPrev && comp.prevVal !== 0 ? (diff / comp.prevVal) * 100 : null;
           const color = diff > 0 ? "#e8544b" : diff < 0 ? "#4c8dff" : "#8993a6";
+          // 각 금액 옆에 붙일 %는 "기록을 시작한 첫날 값" 대비 그 시점 값이 몇 %인지로 계산한다.
+          const firstDate = Object.keys(history).sort()[0];
+          const firstVal = firstDate !== undefined ? history[firstDate] : null;
+          const pctSince = (v) => (firstVal !== null && firstVal !== 0 ? ((v - firstVal) / firstVal) * 100 : null);
+          const fmtWithPct = (v) => {
+            const p = pctSince(v);
+            return p === null ? `${fmt(v)}원` : `${fmt(v)}원(${p >= 0 ? "+" : ""}${p.toFixed(1)}%)`;
+          };
           return (
             <div style={{ borderRadius: 10, background: "#161a22", border: "1px solid #262c37", marginBottom: 14, overflow: "hidden" }}>
               <div style={{ padding: "16px 16px 4px" }}>
                 <div style={{ fontSize: 17, fontWeight: 700, color: "#c9974a", marginBottom: 10 }}>{title}</div>
                 <div className="tnum" style={{ fontSize: 19, color: "#8993a6", textAlign: "center" }}>
                   <div>{hasPrev ? `${comp.prevLabel} → ${comp.curLabel}` : `${comp.curLabel} (비교할 이전 기록 없음)`}</div>
-                  <div style={{ marginTop: 4, color: "#c7cddb", fontSize: 22, fontWeight: 700 }}>
-                    {hasPrev ? `${fmt(comp.prevVal)}원 → ${fmt(comp.curVal)}원` : `${fmt(comp.curVal)}원`}
+                  <div style={{ marginTop: 4, color: "#c7cddb", fontSize: 20, fontWeight: 700 }}>
+                    {hasPrev ? `${fmtWithPct(comp.prevVal)} → ${fmtWithPct(comp.curVal)}` : fmtWithPct(comp.curVal)}
                   </div>
                   {hasPrev && (
                     <div style={{ marginTop: 6, fontWeight: 800, fontSize: 21, color }}>
@@ -4650,7 +4683,54 @@ function PortfolioApp() {
                       ))}
                     </div>
 
-                    <ComparisonCard cardKey={metric.key} title={metric.title} comp={comp} history={metric.history} />
+                    {perfMetric === "pledged" ? (() => {
+                      const interestComp = buildComparison(pledgedInterestHistory);
+                      const totalHistory = {};
+                      new Set([...Object.keys(pledgedHistory), ...Object.keys(pledgedInterestHistory)]).forEach((d) => {
+                        totalHistory[d] = (pledgedHistory[d] || 0) + (pledgedInterestHistory[d] || 0);
+                      });
+                      const totalComp = buildComparison(totalHistory);
+                      const isOpen = expandedChartKey === "pledgedCombined";
+                      const Row = ({ label, c }) => {
+                        if (!c) return <div style={{ fontSize: 14, color: "#5a6274", marginBottom: 10 }}>{label}: 아직 기록된 데이터가 없어요.</div>;
+                        const hasPrev = c.prevVal !== null && c.prevVal !== undefined;
+                        const diff = hasPrev ? c.curVal - c.prevVal : null;
+                        const pct = hasPrev && c.prevVal !== 0 ? (diff / c.prevVal) * 100 : null;
+                        const color = diff > 0 ? "#e8544b" : diff < 0 ? "#4c8dff" : "#8993a6";
+                        return (
+                          <div className="tnum" style={{ marginBottom: 10 }}>
+                            <div style={{ fontSize: 13, color: "#8993a6", marginBottom: 2 }}>{label}</div>
+                            <div style={{ fontSize: 16, fontWeight: 700, color: "#c7cddb" }}>
+                              {hasPrev ? `${fmt(c.prevVal)}원 → ${fmt(c.curVal)}원` : `${fmt(c.curVal)}원`}
+                            </div>
+                            {hasPrev && (
+                              <div style={{ fontSize: 14, fontWeight: 700, color }}>
+                                {diff >= 0 ? "▲ +" : "▼ "}{fmt(diff)}원 ({pct === null ? "-" : `${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%`})
+                              </div>
+                            )}
+                          </div>
+                        );
+                      };
+                      return (
+                        <div style={{ borderRadius: 10, background: "#161a22", border: "1px solid #262c37", marginBottom: 14, overflow: "hidden" }}>
+                          <div style={{ padding: "16px 16px 4px" }}>
+                            <div style={{ fontSize: 17, fontWeight: 700, color: "#c9974a", marginBottom: 10 }}>{metric.title}</div>
+                            <Row label="원금" c={comp} />
+                            <Row label="이자" c={interestComp} />
+                            <Row label="합계" c={totalComp} />
+                          </div>
+                          <div
+                            onClick={() => setExpandedChartKey(isOpen ? null : "pledgedCombined")}
+                            style={{ padding: "4px 0 6px", textAlign: "center", fontSize: 15, color: "#5a6274", borderTop: "1px solid #1f2530", cursor: "pointer", marginTop: 4 }}
+                          >
+                            {isOpen ? "▲ 그래프 접기" : "▼ 눌러서 그래프 보기 (합계 기준)"}
+                          </div>
+                          {isOpen && <div style={{ padding: "0 14px 10px" }}><MiniLineChart history={totalHistory} /></div>}
+                        </div>
+                      );
+                    })() : (
+                      <ComparisonCard cardKey={metric.key} title={metric.title} comp={comp} history={metric.history} />
+                    )}
                   </>
                 );
               })()}
