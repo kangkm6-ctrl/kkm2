@@ -4609,9 +4609,11 @@ function PortfolioApp() {
           const diff = hasPrev ? comp.curVal - comp.prevVal : null;
           const pct = hasPrev && comp.prevVal !== 0 ? (diff / comp.prevVal) * 100 : null;
           const color = diff > 0 ? "#e8544b" : diff < 0 ? "#4c8dff" : "#8993a6";
-          const fmtWithPct = (v, priorValue, date) => {
+          const fmtWithPct = (v, priorValue, date, key) => {
             const p = pctForValue(cardKey, v, date, priorValue);
-            return p === null ? `${fmt(v)}원` : `${fmt(v)}원(${p >= 0 ? "+" : ""}${p.toFixed(1)}%)`;
+            if (p === null) return <span key={key}>{fmt(v)}원</span>;
+            const pColor = p > 0 ? "#e8544b" : p < 0 ? "#4c8dff" : "#8993a6";
+            return <span key={key} style={{ color: pColor }}>{fmt(v)}원({p >= 0 ? "+" : ""}{p.toFixed(1)}%)</span>;
           };
           return (
             <div style={{ borderRadius: 10, background: "#161a22", border: "1px solid #262c37", marginBottom: 14, overflow: "hidden" }}>
@@ -4620,8 +4622,8 @@ function PortfolioApp() {
                   <div>{hasPrev ? `${comp.prevLabel} → ${comp.curLabel}` : cardKey === "stock" ? comp.curLabel : `${comp.curLabel} (비교할 이전 기록 없음)`}</div>
                   <div style={{ marginTop: 4, color: "#c7cddb", fontSize: 20, fontWeight: 700 }}>
                     {hasPrev
-                      ? `${fmtWithPct(comp.prevVal, comp.beforePrevVal, comp.prevDate)} → ${fmtWithPct(comp.curVal, comp.prevVal, comp.curDate)}`
-                      : fmtWithPct(comp.curVal, comp.beforePrevVal, comp.curDate)}
+                      ? <>{fmtWithPct(comp.prevVal, comp.beforePrevVal, comp.prevDate, "p")} → {fmtWithPct(comp.curVal, comp.prevVal, comp.curDate, "c")}</>
+                      : fmtWithPct(comp.curVal, comp.beforePrevVal, comp.curDate, "c")}
                   </div>
                   {hasPrev && (
                     <div style={{ marginTop: 6, fontWeight: 800, fontSize: 21, color }}>
@@ -4719,15 +4721,17 @@ function PortfolioApp() {
                         const diff = hasPrev ? c.curVal - c.prevVal : null;
                         const pct = hasPrev && c.prevVal !== 0 ? (diff / c.prevVal) * 100 : null;
                         const color = diff > 0 ? "#e8544b" : diff < 0 ? "#4c8dff" : "#8993a6";
-                        const fmtWithPct = (v, priorValue) => {
+                        const fmtWithPct = (v, priorValue, key) => {
                           const p = pctForValue("pledged", v, null, priorValue);
-                          return p === null ? `${fmt(v)}` : `${fmt(v)}(${p >= 0 ? "+" : ""}${p.toFixed(1)}%)`;
+                          if (p === null) return <span key={key}>{fmt(v)}</span>;
+                          const pColor = p > 0 ? "#e8544b" : p < 0 ? "#4c8dff" : "#8993a6";
+                          return <span key={key} style={{ color: pColor }}>{fmt(v)}({p >= 0 ? "+" : ""}{p.toFixed(1)}%)</span>;
                         };
                         return (
                           <div className="tnum" style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontSize: 19, color: "#8993a6", marginBottom: 2 }}>{label}</div>
                             <div style={{ fontSize: 20, fontWeight: 700, color: "#c7cddb", lineHeight: 1.3 }}>
-                              {hasPrev ? `${fmtWithPct(c.prevVal, c.beforePrevVal)}→${fmtWithPct(c.curVal, c.prevVal)}` : `${fmt(c.curVal)}`}
+                              {hasPrev ? <>{fmtWithPct(c.prevVal, c.beforePrevVal, "p")}→{fmtWithPct(c.curVal, c.prevVal, "c")}</> : `${fmt(c.curVal)}`}
                             </div>
                             {hasPrev && (
                               <div style={{ fontSize: 21, fontWeight: 700, color, lineHeight: 1.3 }}>
