@@ -4425,6 +4425,12 @@ function PortfolioApp() {
                     touchAction: "pan-y",
                   }}
                 >
+                {q.id === bookmarkQuoteId && (
+                  <>
+                    <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 4, background: "linear-gradient(90deg, #3a4150 0%, #3a4150 60%, #c0392b 100%)", borderRadius: "6px 6px 0 0" }} />
+                    <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 4, background: "linear-gradient(90deg, #3a4150 0%, #3a4150 60%, #c0392b 100%)", borderRadius: "0 0 6px 6px" }} />
+                  </>
+                )}
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, flexShrink: 0 }}>
                   <input
                     value={q.number}
@@ -4527,17 +4533,37 @@ function PortfolioApp() {
         ];
         // 레벨별로 "이번"과 "저번"에 해당하는 값을 구한다. buildPeriodStats로 그 구간의 마지막(최신)
         // 기록값을 그 구간의 대표값으로 삼아 서로 비교한다.
+        // 주어진 날짜 시점(또는 그 이전 가장 최근)의 투자원금을 찾는다.
+        const principalAt = (dateStr) => {
+          if (!dateStr) return null;
+          const dates = Object.keys(principalHistory).filter((d) => d <= dateStr).sort();
+          if (dates.length === 0) return null;
+          return principalHistory[dates[dates.length - 1]];
+        };
         const buildComparison = (history) => {
           const keyFn = perfLevel === "month" ? monthKeyOf : perfLevel === "quarter" ? quarterKeyOf : yearKeyOf;
           const list = buildPeriodStats(history, keyFn);
           if (list.length === 0) return null;
-          const cur = list[0], prev = list[1];
+          const cur = list[0], prev = list[1], beforePrev = list[2];
           const curLabel = perfLevel === "month" ? `${cur.key.slice(0, 4)}.${Number(cur.key.slice(5))}월` : perfLevel === "year" ? `${cur.key}년` : cur.key;
           const prevLabel = !prev ? null : perfLevel === "month" ? `${prev.key.slice(0, 4)}.${Number(prev.key.slice(5))}월` : perfLevel === "year" ? `${prev.key}년` : prev.key;
           return {
             curLabel, curDate: cur.endDate, curVal: cur.endVal,
             prevLabel, prevDate: prev ? prev.endDate : null, prevVal: prev ? prev.endVal : null,
+            beforePrevVal: beforePrev ? beforePrev.endVal : null,
           };
+        };
+        // 이 지표(history)가 "① 주식평가액-투자원금"인지에 따라, 금액 옆 %를 다르게 계산한다.
+        //  - ①번: 그 시점의 투자원금 대비 수익률 (그 값 자체가 이미 "주식평가액-투자원금"이라, 투자원금으로 나누면 수익률이 됨)
+        //  - 나머지: 전월/전분기/전년 대비 등락률. 비교할 이전 기록이 없으면 아예 안 보여준다.
+        const pctForValue = (metricKey, value, date, priorValue) => {
+          if (metricKey === "stock") {
+            const p = principalAt(date);
+            if (p === null || p === 0) return null;
+            return (value / p) * 100;
+          }
+          if (priorValue === null || priorValue === undefined || priorValue === 0) return null;
+          return ((value - priorValue) / priorValue) * 100;
         };
         // 펼쳤을 때 보여줄 선그래프 — 그 지표의 전체 기록을 날짜순으로 이어 그린다.
         const MiniLineChart = ({ history }) => {
@@ -4575,7 +4601,6 @@ function PortfolioApp() {
           if (!comp) {
             return (
               <div style={{ borderRadius: 10, background: "#161a22", border: "1px solid #262c37", marginBottom: 14, padding: "16px" }}>
-                <div style={{ fontSize: 17, fontWeight: 700, color: "#c9974a", marginBottom: 8 }}>{title}</div>
                 <div style={{ fontSize: 15, color: "#5a6274" }}>아직 기록된 데이터가 없어요.</div>
               </div>
             );
@@ -4584,22 +4609,19 @@ function PortfolioApp() {
           const diff = hasPrev ? comp.curVal - comp.prevVal : null;
           const pct = hasPrev && comp.prevVal !== 0 ? (diff / comp.prevVal) * 100 : null;
           const color = diff > 0 ? "#e8544b" : diff < 0 ? "#4c8dff" : "#8993a6";
-          // 각 금액 옆에 붙일 %는 "기록을 시작한 첫날 값" 대비 그 시점 값이 몇 %인지로 계산한다.
-          const firstDate = Object.keys(history).sort()[0];
-          const firstVal = firstDate !== undefined ? history[firstDate] : null;
-          const pctSince = (v) => (firstVal !== null && firstVal !== 0 ? ((v - firstVal) / firstVal) * 100 : null);
-          const fmtWithPct = (v) => {
-            const p = pctSince(v);
+          const fmtWithPct = (v, priorValue, date) => {
+            const p = pctForValue(cardKey, v, date, priorValue);
             return p === null ? `${fmt(v)}원` : `${fmt(v)}원(${p >= 0 ? "+" : ""}${p.toFixed(1)}%)`;
           };
           return (
             <div style={{ borderRadius: 10, background: "#161a22", border: "1px solid #262c37", marginBottom: 14, overflow: "hidden" }}>
               <div style={{ padding: "16px 16px 4px" }}>
-                <div style={{ fontSize: 17, fontWeight: 700, color: "#c9974a", marginBottom: 10 }}>{title}</div>
                 <div className="tnum" style={{ fontSize: 19, color: "#8993a6", textAlign: "center" }}>
                   <div>{hasPrev ? `${comp.prevLabel} → ${comp.curLabel}` : `${comp.curLabel} (비교할 이전 기록 없음)`}</div>
                   <div style={{ marginTop: 4, color: "#c7cddb", fontSize: 20, fontWeight: 700 }}>
-                    {hasPrev ? `${fmtWithPct(comp.prevVal)} → ${fmtWithPct(comp.curVal)}` : fmtWithPct(comp.curVal)}
+                    {hasPrev
+                      ? `${fmtWithPct(comp.prevVal, comp.beforePrevVal, comp.prevDate)} → ${fmtWithPct(comp.curVal, comp.prevVal, comp.curDate)}`
+                      : fmtWithPct(comp.curVal, comp.beforePrevVal, comp.curDate)}
                   </div>
                   {hasPrev && (
                     <div style={{ marginTop: 6, fontWeight: 800, fontSize: 21, color }}>
@@ -4663,7 +4685,7 @@ function PortfolioApp() {
                   <>
                     <div style={{ fontSize: 22, fontWeight: 800, color: "#c9974a", marginBottom: 10 }}>{metric.title}</div>
                     <div style={{ fontSize: 15, color: "#8993a6", marginBottom: 16, lineHeight: 1.6 }}>
-                      {levelWord} 얼마나 변했는지 보여줘요.
+                      {perfMetric === "stock" ? "원금대비 수익률을 보여줘요." : `${levelWord} 얼마나 변했는지 보여줘요.`}
                     </div>
 
                     <div style={{ display: "flex", gap: 6, marginBottom: 18 }}>
@@ -4692,20 +4714,24 @@ function PortfolioApp() {
                       const totalComp = buildComparison(totalHistory);
                       const isOpen = expandedChartKey === "pledgedCombined";
                       const Row = ({ label, c }) => {
-                        if (!c) return <div style={{ fontSize: 14, color: "#5a6274", marginBottom: 10 }}>{label}: 아직 기록된 데이터가 없어요.</div>;
+                        if (!c) return <div style={{ flex: 1, fontSize: 12, color: "#5a6274" }}>{label}: 데이터 없음</div>;
                         const hasPrev = c.prevVal !== null && c.prevVal !== undefined;
                         const diff = hasPrev ? c.curVal - c.prevVal : null;
                         const pct = hasPrev && c.prevVal !== 0 ? (diff / c.prevVal) * 100 : null;
                         const color = diff > 0 ? "#e8544b" : diff < 0 ? "#4c8dff" : "#8993a6";
+                        const fmtWithPct = (v, priorValue) => {
+                          const p = pctForValue("pledged", v, null, priorValue);
+                          return p === null ? `${fmt(v)}` : `${fmt(v)}(${p >= 0 ? "+" : ""}${p.toFixed(1)}%)`;
+                        };
                         return (
-                          <div className="tnum" style={{ marginBottom: 10 }}>
-                            <div style={{ fontSize: 13, color: "#8993a6", marginBottom: 2 }}>{label}</div>
-                            <div style={{ fontSize: 16, fontWeight: 700, color: "#c7cddb" }}>
-                              {hasPrev ? `${fmt(c.prevVal)}원 → ${fmt(c.curVal)}원` : `${fmt(c.curVal)}원`}
+                          <div className="tnum" style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 12, color: "#8993a6", marginBottom: 2 }}>{label}</div>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: "#c7cddb", lineHeight: 1.3 }}>
+                              {hasPrev ? `${fmtWithPct(c.prevVal, c.beforePrevVal)}→${fmtWithPct(c.curVal, c.prevVal)}` : `${fmt(c.curVal)}`}
                             </div>
                             {hasPrev && (
-                              <div style={{ fontSize: 14, fontWeight: 700, color }}>
-                                {diff >= 0 ? "▲ +" : "▼ "}{fmt(diff)}원 ({pct === null ? "-" : `${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%`})
+                              <div style={{ fontSize: 12.5, fontWeight: 700, color, lineHeight: 1.3 }}>
+                                {diff >= 0 ? "▲+" : "▼"}{fmt(diff)} ({pct === null ? "-" : `${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%`})
                               </div>
                             )}
                           </div>
@@ -4714,10 +4740,14 @@ function PortfolioApp() {
                       return (
                         <div style={{ borderRadius: 10, background: "#161a22", border: "1px solid #262c37", marginBottom: 14, overflow: "hidden" }}>
                           <div style={{ padding: "16px 16px 4px" }}>
-                            <div style={{ fontSize: 17, fontWeight: 700, color: "#c9974a", marginBottom: 10 }}>{metric.title}</div>
-                            <Row label="원금" c={comp} />
-                            <Row label="이자" c={interestComp} />
-                            <Row label="합계" c={totalComp} />
+                            <div className="tnum" style={{ fontSize: 14, color: "#8993a6", marginBottom: 10 }}>
+                              {comp.prevLabel ? `${comp.prevLabel} → ${comp.curLabel}` : `${comp.curLabel} (비교할 이전 기록 없음)`}
+                            </div>
+                            <div style={{ display: "flex", gap: 10 }}>
+                              <Row label="원금" c={comp} />
+                              <Row label="이자" c={interestComp} />
+                              <Row label="합계" c={totalComp} />
+                            </div>
                           </div>
                           <div
                             onClick={() => setExpandedChartKey(isOpen ? null : "pledgedCombined")}
