@@ -4714,7 +4714,7 @@ function PortfolioApp() {
                       const totalComp = buildComparison(totalHistory);
                       const isOpen = expandedChartKey === "pledgedCombined";
                       const Row = ({ label, c }) => {
-                        if (!c) return <div style={{ flex: 1, fontSize: 12, color: "#5a6274" }}>{label}: 데이터 없음</div>;
+                        if (!c) return <div style={{ flex: 1, fontSize: 19, color: "#5a6274" }}>{label}: 데이터 없음</div>;
                         const hasPrev = c.prevVal !== null && c.prevVal !== undefined;
                         const diff = hasPrev ? c.curVal - c.prevVal : null;
                         const pct = hasPrev && c.prevVal !== 0 ? (diff / c.prevVal) * 100 : null;
@@ -4725,12 +4725,12 @@ function PortfolioApp() {
                         };
                         return (
                           <div className="tnum" style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 12, color: "#8993a6", marginBottom: 2 }}>{label}</div>
-                            <div style={{ fontSize: 13, fontWeight: 700, color: "#c7cddb", lineHeight: 1.3 }}>
+                            <div style={{ fontSize: 19, color: "#8993a6", marginBottom: 2 }}>{label}</div>
+                            <div style={{ fontSize: 20, fontWeight: 700, color: "#c7cddb", lineHeight: 1.3 }}>
                               {hasPrev ? `${fmtWithPct(c.prevVal, c.beforePrevVal)}→${fmtWithPct(c.curVal, c.prevVal)}` : `${fmt(c.curVal)}`}
                             </div>
                             {hasPrev && (
-                              <div style={{ fontSize: 12.5, fontWeight: 700, color, lineHeight: 1.3 }}>
+                              <div style={{ fontSize: 21, fontWeight: 700, color, lineHeight: 1.3 }}>
                                 {diff >= 0 ? "▲+" : "▼"}{fmt(diff)} ({pct === null ? "-" : `${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%`})
                               </div>
                             )}
@@ -4740,7 +4740,7 @@ function PortfolioApp() {
                       return (
                         <div style={{ borderRadius: 10, background: "#161a22", border: "1px solid #262c37", marginBottom: 14, overflow: "hidden" }}>
                           <div style={{ padding: "16px 16px 4px" }}>
-                            <div className="tnum" style={{ fontSize: 14, color: "#8993a6", marginBottom: 10 }}>
+                            <div className="tnum" style={{ fontSize: 19, color: "#8993a6", marginBottom: 10 }}>
                               {comp.prevLabel ? `${comp.prevLabel} → ${comp.curLabel}` : `${comp.curLabel} (비교할 이전 기록 없음)`}
                             </div>
                             <div style={{ display: "flex", gap: 10 }}>
