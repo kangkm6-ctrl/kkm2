@@ -4617,7 +4617,7 @@ function PortfolioApp() {
             <div style={{ borderRadius: 10, background: "#161a22", border: "1px solid #262c37", marginBottom: 14, overflow: "hidden" }}>
               <div style={{ padding: "16px 16px 4px" }}>
                 <div className="tnum" style={{ fontSize: 19, color: "#8993a6", textAlign: "center" }}>
-                  <div>{hasPrev ? `${comp.prevLabel} → ${comp.curLabel}` : `${comp.curLabel} (비교할 이전 기록 없음)`}</div>
+                  <div>{hasPrev ? `${comp.prevLabel} → ${comp.curLabel}` : cardKey === "stock" ? comp.curLabel : `${comp.curLabel} (비교할 이전 기록 없음)`}</div>
                   <div style={{ marginTop: 4, color: "#c7cddb", fontSize: 20, fontWeight: 700 }}>
                     {hasPrev
                       ? `${fmtWithPct(comp.prevVal, comp.beforePrevVal, comp.prevDate)} → ${fmtWithPct(comp.curVal, comp.prevVal, comp.curDate)}`
