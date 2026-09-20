@@ -2677,7 +2677,7 @@ function PortfolioApp() {
     }));
     const summaryRows = [
       { "항목": "총평가금액", "값": Math.round(totalPortfolioValue) },
-      { "항목": "주식평가액", "값": Math.round(stockCalc.totalVal) },
+      { "항목": "주식평가금액", "값": Math.round(stockCalc.totalVal) },
       { "항목": "투자원금", "값": Math.round(investmentPrincipal) },
       { "항목": "총수익", "값": Math.round(totalReturnAmt) },
       { "항목": "총수익률(%)", "값": totalReturnRate != null ? Number((totalReturnRate * 100).toFixed(2)) : "" },
@@ -4653,6 +4653,7 @@ function PortfolioApp() {
           { key: "stock", title: "① 원금대비투자평가액", history: stockProfitHistory },
           { key: "cash", title: "② 전체현금 합계", history: cashHistory },
           { key: "pledged", title: "③ 빌려투자한돈", history: pledgedHistory },
+          { key: "liquidAsset", title: "④ 현금성자산금액", history: netWorthHistory },
         ];
         const levelWord = { month: "저번달보다 이번달이", quarter: "저번분기보다 이번분기가", year: "저번해보다 이번해가" }[perfLevel];
         return (
@@ -5006,7 +5007,7 @@ function PortfolioApp() {
           <div style={{ width: 235, flexShrink: 0 }}>
             <div className="lbl">주식투자금</div>
             <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 5, textAlign: "left" }}>{fmt(stockCalc.totalInvest)}원</div>
-            <div className="lbl">주식평가액</div>
+            <div className="lbl">주식평가금액</div>
             <div style={{ fontSize: 22, fontWeight: 700, textAlign: "left" }}>{fmt(stockCalc.totalVal)}원</div>
             {yesterdayCalc && (
               <div className="tnum" style={{ fontSize: 17, fontWeight: 700, marginTop: 2, whiteSpace: "nowrap", color: yesterdayCalc.stockDiff > 0 ? "#e8544b" : yesterdayCalc.stockDiff < 0 ? "#4c8dff" : "#8993a6" }}>
@@ -5105,7 +5106,7 @@ function PortfolioApp() {
           <div style={{ width: 235, flexShrink: 0 }}>
             <div className="lbl">주식투자금</div>
             <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 8, textAlign: "left" }}>{fmt(stockCalc.totalInvest)}원</div>
-            <div className="lbl">주식평가액</div>
+            <div className="lbl">주식평가금액</div>
             <div style={{ fontSize: 22, fontWeight: 700, textAlign: "left" }}>{fmt(stockCalc.totalVal)}원</div>
             {yesterdayCalc && (
               <div className="tnum" style={{ fontSize: 17, fontWeight: 700, marginTop: 3, whiteSpace: "nowrap", color: yesterdayCalc.stockDiff > 0 ? "#e8544b" : yesterdayCalc.stockDiff < 0 ? "#4c8dff" : "#8993a6" }}>
