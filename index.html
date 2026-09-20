@@ -4613,6 +4613,13 @@ function PortfolioApp() {
             const p = pctForValue(cardKey, v, date, priorValue);
             if (p === null) return <span key={key}>{fmt(v)}원</span>;
             const pColor = p > 0 ? "#e8544b" : p < 0 ? "#4c8dff" : "#8993a6";
+            if (cardKey === "stock") {
+              // v는 "주식평가액-투자원금"(수익손실액) 자체이므로, 그 시점 투자원금을 더하면 투자평가액이 나온다.
+              const principal = principalAt(date);
+              const investVal = principal !== null ? v + principal : null;
+              if (investVal === null) return <span key={key} style={{ color: pColor }}>{fmt(v)}원({p >= 0 ? "+" : ""}{p.toFixed(1)}%)</span>;
+              return <span key={key} style={{ color: pColor }}>{fmt(investVal)}원 ({v >= 0 ? "+" : ""}{fmt(v)}원, {p >= 0 ? "+" : ""}{p.toFixed(1)}%)</span>;
+            }
             return <span key={key} style={{ color: pColor }}>{fmt(v)}원({p >= 0 ? "+" : ""}{p.toFixed(1)}%)</span>;
           };
           return (
@@ -4643,7 +4650,7 @@ function PortfolioApp() {
           );
         };
         const METRICS = [
-          { key: "stock", title: "① 주식평가액-투자원금", history: stockProfitHistory },
+          { key: "stock", title: "① 원금대비투자평가액", history: stockProfitHistory },
           { key: "cash", title: "② 전체현금 합계", history: cashHistory },
           { key: "pledged", title: "③ 빌려투자한돈", history: pledgedHistory },
         ];
