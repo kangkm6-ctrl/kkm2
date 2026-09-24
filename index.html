@@ -792,6 +792,7 @@ function PortfolioApp() {
   const [faceIdAttempting, setFaceIdAttempting] = useState(false);
   const lockSupported = typeof window !== "undefined" && !!window.PublicKeyCredential;
   const [showImportExport, setShowImportExport] = useState(false);
+  const [showTextBackup, setShowTextBackup] = useState(false);
   const [importText, setImportText] = useState("");
   const [importMsg, setImportMsg] = useState("");
   const [showAnalysis, setShowAnalysis] = useState(false);
@@ -850,6 +851,7 @@ function PortfolioApp() {
   });
   const [newQuoteText, setNewQuoteText] = useState("");
   const quotesFileInputRef = useRef(null);
+  const backupFileInputRef = useRef(null);
   const [comparePeriod, setComparePeriod] = useState("W"); // 챠트비교 탭: '5MIN' | 'W' | 'M' | 'Y'
   const [compareExcluded, setCompareExcluded] = useState({}); // { [stockId]: true } — 챠트비교에서 제외된 종목
   const [chartOverlay, setChartOverlay] = useState(null); // 종목챠트에서 탭한 종목의 주가/코스피/코스닥 월봉 (EPS성장률과 겹쳐 그림)
@@ -2514,10 +2516,34 @@ function PortfolioApp() {
     setImportText(JSON.stringify(data, null, 2));
     setImportMsg("현재 데이터(종목·현금·저장된 스냅샷·리밸런싱 이력 전부)를 아래 상자에 불러왔어요. 전체 선택해서 복사해두시면 백업이 돼요.");
   };
-
-  const applyImportedData = () => {
+  // 백업 파일 하나에 진짜 "전체" 데이터가 다 들어가도록, 날짜별로 매일 쌓아온 투자성적 기록들과
+  // 투자명언·책갈피·익힘개수·관점(매수/매도/중도) 상태까지 전부 포함시킨다 — 이것들도 시간 들여 쌓인 데이터라
+  // 빠지면 복원해도 사라져버린다.
+  const buildFullBackupData = () => ({
+    stocks, cashAccounts, targetCashRatio, snapshots, rebalanceLog,
+    netWorthHistory, principalHistory, stockProfitHistory, cashHistory, pledgedHistory, pledgedInterestHistory,
+    investmentQuotes, quoteReadDate, learnedCount, bookmarkQuoteId,
+    adviceMode, adviceSuppressWeek,
+  });
+  // 위 텍스트상자 방식이 매번 복사/붙여넣기를 해야 해서 번거로우니, 진짜 파일로 내려받고/파일에서 바로 불러오는
+  // 방식을 추가한다. 데이터 구조나 적용 로직은 완전히 동일하고, 입력 소스만 "파일"이냐 "상자"냐가 다르다.
+  const downloadDataAsFile = () => {
+    const data = buildFullBackupData();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const today = new Date();
+    const y = today.getFullYear(), m = String(today.getMonth() + 1).padStart(2, "0"), d = String(today.getDate()).padStart(2, "0");
+    a.href = url;
+    a.download = `포트폴리오_백업_${y}${m}${d}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+  const applyImportedJson = (jsonText) => {
     try {
-      const parsed = JSON.parse(importText);
+      const parsed = JSON.parse(jsonText);
       if (!Array.isArray(parsed.stocks) || !Array.isArray(parsed.cashAccounts)) {
         throw new Error("형식이 올바르지 않습니다 (stocks, cashAccounts 배열 필요).");
       }
@@ -2535,10 +2561,53 @@ function PortfolioApp() {
         setRebalanceLog(migrated);
         try { localStorage.setItem(REBALANCE_LOG_KEY, JSON.stringify(migrated)); } catch (e) {}
       }
-      setImportMsg("✅ 데이터를 불러왔어요 (스냅샷·리밸런싱 이력 포함).");
+      // 파일에 투자성적 기록·투자명언·관점 상태가 들어있으면(구버전 백업엔 없을 수 있음) 같이 복원한다.
+      const restoreHistory = (key, setter, storageKey) => {
+        if (parsed[key] && typeof parsed[key] === "object") {
+          setter(parsed[key]);
+          try { localStorage.setItem(storageKey, JSON.stringify(parsed[key])); } catch (e) {}
+        }
+      };
+      restoreHistory("netWorthHistory", setNetWorthHistory, NET_WORTH_HISTORY_KEY);
+      restoreHistory("principalHistory", setPrincipalHistory, PRINCIPAL_HISTORY_KEY);
+      restoreHistory("stockProfitHistory", setStockProfitHistory, STOCK_PROFIT_HISTORY_KEY);
+      restoreHistory("cashHistory", setCashHistory, CASH_HISTORY_KEY);
+      restoreHistory("pledgedHistory", setPledgedHistory, PLEDGED_HISTORY_KEY);
+      restoreHistory("pledgedInterestHistory", setPledgedInterestHistory, PLEDGED_INTEREST_HISTORY_KEY);
+      restoreHistory("adviceMode", setAdviceMode, ADVICE_MODE_STORE_KEY);
+      restoreHistory("adviceSuppressWeek", setAdviceSuppressWeek, ADVICE_SUPPRESS_WEEK_KEY);
+      if (Array.isArray(parsed.investmentQuotes)) {
+        setInvestmentQuotes(parsed.investmentQuotes);
+        try { localStorage.setItem(INVESTMENT_QUOTES_KEY, JSON.stringify(parsed.investmentQuotes)); } catch (e) {}
+      }
+      if (typeof parsed.quoteReadDate === "string") {
+        setQuoteReadDate(parsed.quoteReadDate);
+        try { localStorage.setItem(QUOTE_READ_DATE_KEY, parsed.quoteReadDate); } catch (e) {}
+      }
+      if (typeof parsed.learnedCount === "number") {
+        setLearnedCount(parsed.learnedCount);
+        try { localStorage.setItem(LEARNED_COUNT_KEY, String(parsed.learnedCount)); } catch (e) {}
+      }
+      if (typeof parsed.bookmarkQuoteId === "string" || parsed.bookmarkQuoteId === null) {
+        setBookmarkQuoteId(parsed.bookmarkQuoteId);
+        try {
+          if (parsed.bookmarkQuoteId) localStorage.setItem(BOOKMARK_QUOTE_ID_KEY, parsed.bookmarkQuoteId);
+          else localStorage.removeItem(BOOKMARK_QUOTE_ID_KEY);
+        } catch (e) {}
+      }
+      setImportMsg("✅ 데이터를 불러왔어요 (스냅샷·리밸런싱 이력·투자성적 기록·투자명언·관점 상태 포함).");
     } catch (e) {
       setImportMsg("❌ 불러오기 실패: " + String(e.message || e));
     }
+  };
+  const applyImportedData = () => applyImportedJson(importText);
+  const handleBackupFileSelected = (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => applyImportedJson(String(evt.target.result || ""));
+    reader.readAsText(file);
   };
 
   const saveSnapshot = (isAuto) => {
@@ -2713,6 +2782,11 @@ function PortfolioApp() {
       "종목수": (b.stocks || []).filter((x) => x.name).length,
       "현금계좌수": (b.cashAccounts || []).filter((x) => x.name).length,
     }));
+    // 투자성적용으로 매일 쌓아온 날짜별 기록들 — 날짜순으로 한 줄씩 펼친다.
+    const historyToRows = (history) => Object.keys(history).sort().map((d) => ({ "날짜": `${d.slice(0, 4)}.${d.slice(4, 6)}.${d.slice(6, 8)}`, "값": Math.round(history[d]) }));
+    const investmentQuoteRows = [...investmentQuotes]
+      .sort((a, b) => (num(a.number) || 0) - (num(b.number) || 0))
+      .map((q) => ({ "번호": q.number, "명언": q.text, "책갈피": q.id === bookmarkQuoteId ? "O" : "" }));
 
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryRows), "요약");
@@ -2722,6 +2796,16 @@ function PortfolioApp() {
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(snapshotRows.length ? snapshotRows : [{ "안내": "기록 없음" }]), "보관목록");
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(principalRows.length ? principalRows : [{ "안내": "기록 없음" }]), "투자원금증가감소이력");
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(backupRows.length ? backupRows : [{ "안내": "기록 없음" }]), "자동백업목록");
+    const histSheets = [
+      ["현금성자산금액_기록", netWorthHistory], ["투자원금_기록", principalHistory],
+      ["주식평가액-투자원금_기록", stockProfitHistory], ["전체현금합계_기록", cashHistory],
+      ["빌려투자한돈_기록", pledgedHistory], ["빌려투자한돈이자_기록", pledgedInterestHistory],
+    ];
+    histSheets.forEach(([sheetName, hist]) => {
+      const rows = historyToRows(hist);
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.length ? rows : [{ "안내": "기록 없음" }]), sheetName);
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(investmentQuoteRows.length ? investmentQuoteRows : [{ "안내": "저장된 명언 없음" }]), "투자명언");
     const today = new Date();
     const y = String(today.getFullYear()).slice(2);
     const m = String(today.getMonth() + 1).padStart(2, "0");
@@ -3047,23 +3131,46 @@ function PortfolioApp() {
             {showImportExport && (
               <div style={{ marginTop: 10 }}>
                 <div className="lbl" style={{ marginBottom: 6 }}>
-                  이 상자에 데이터를 붙여넣고 "불러오기"를 누르면 종목/현금 정보가 채워져요. (이 데이터는 이 기기 브라우저에만 저장되고, 소스코드나 GitHub에는 절대 들어가지 않아요)
+                  파일 하나로 내려받고, 그 파일을 그대로 다시 불러올 수 있어요. (이 데이터는 이 기기에만 저장되고, 소스코드나 GitHub에는 절대 들어가지 않아요)
                 </div>
-                <textarea
-                  className="field"
-                  value={importText}
-                  onChange={(e) => setImportText(e.target.value)}
-                  placeholder='{"stocks":[...],"cashAccounts":[...]}'
-                  style={{ width: "100%", minHeight: 120, fontFamily: "monospace", fontSize: 11, resize: "vertical" }}
+                <input
+                  type="file"
+                  accept=".json,application/json"
+                  ref={backupFileInputRef}
+                  onChange={handleBackupFileSelected}
+                  style={{ display: "none" }}
                 />
-                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                  <button onClick={exportDataAsText} style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: "1px solid #2a303c", background: "none", color: "#8993a6", fontSize: 12 }}>
-                    현재 데이터 내보내기
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={downloadDataAsFile} style={{ flex: 1, padding: "10px 0", borderRadius: 8, border: "1px solid #2a303c", background: "none", color: "#c9974a", fontWeight: 700, fontSize: 13 }}>
+                    ⬇ 파일로 내려받기
                   </button>
-                  <button onClick={applyImportedData} style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: "none", background: "#c9974a", color: "#12151b", fontWeight: 700, fontSize: 12 }}>
-                    불러오기
+                  <button onClick={() => backupFileInputRef.current && backupFileInputRef.current.click()} style={{ flex: 1, padding: "10px 0", borderRadius: 8, border: "none", background: "#c9974a", color: "#12151b", fontWeight: 700, fontSize: 13 }}>
+                    ⬆ 파일에서 복원
                   </button>
                 </div>
+
+                <button className="iconbtn" onClick={() => setShowTextBackup((v) => !v)} style={{ marginTop: 14, fontSize: 11, color: "#5a6274" }}>
+                  텍스트로 직접 복사/붙여넣기 (고급) {showTextBackup ? "▴" : "▾"}
+                </button>
+                {showTextBackup && (
+                  <div style={{ marginTop: 8 }}>
+                    <textarea
+                      className="field"
+                      value={importText}
+                      onChange={(e) => setImportText(e.target.value)}
+                      placeholder='{"stocks":[...],"cashAccounts":[...]}'
+                      style={{ width: "100%", minHeight: 120, fontFamily: "monospace", fontSize: 11, resize: "vertical" }}
+                    />
+                    <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                      <button onClick={exportDataAsText} style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: "1px solid #2a303c", background: "none", color: "#8993a6", fontSize: 12 }}>
+                        현재 데이터 내보내기
+                      </button>
+                      <button onClick={applyImportedData} style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: "none", background: "#c9974a", color: "#12151b", fontWeight: 700, fontSize: 12 }}>
+                        불러오기
+                      </button>
+                    </div>
+                  </div>
+                )}
                 {importMsg && <div style={{ marginTop: 6, fontSize: 11, color: "#8993a6" }}>{importMsg}</div>}
               </div>
             )}
