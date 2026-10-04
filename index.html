@@ -2527,19 +2527,22 @@ function PortfolioApp() {
   });
   // 위 텍스트상자 방식이 매번 복사/붙여넣기를 해야 해서 번거로우니, 진짜 파일로 내려받고/파일에서 바로 불러오는
   // 방식을 추가한다. 데이터 구조나 적용 로직은 완전히 동일하고, 입력 소스만 "파일"이냐 "상자"냐가 다르다.
-  const downloadDataAsFile = () => {
+  const triggerBackupFileDownload = (filename) => {
     const data = buildFullBackupData();
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    const today = new Date();
-    const y = today.getFullYear(), m = String(today.getMonth() + 1).padStart(2, "0"), d = String(today.getDate()).padStart(2, "0");
     a.href = url;
-    a.download = `포트폴리오_백업_${y}${m}${d}.json`;
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  };
+  const downloadDataAsFile = () => {
+    const now = new Date();
+    const y = String(now.getFullYear()).slice(2), m = String(now.getMonth() + 1).padStart(2, "0"), d = String(now.getDate()).padStart(2, "0");
+    triggerBackupFileDownload(`포트폴리오_백업_${y}${m}${d}.json`);
   };
   const applyImportedJson = (jsonText) => {
     try {
@@ -2646,6 +2649,15 @@ function PortfolioApp() {
     // 혹시 미리보기 상태로 남아있었다면, 실행 시 항상 최신 데이터로 복귀
     setIsPreviewing(false);
     setPreviewBackup(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded]);
+
+  // 앱을 열 때마다(매번) 전체 데이터를 자동으로 파일 다운로드 시도 — 사파리 다운로드 위치가
+  // iCloud Drive의 "2 포트폴리오(KKM2)" 폴더로 지정돼 있으면 거기로 바로 떨어진다.
+  // 다만 사용자가 직접 뭘 누른 동작이 아니라서, 브라우저가 자동 다운로드로 막을 수 있다 (확실치 않음).
+  useEffect(() => {
+    if (!loaded) return;
+    try { autoDownloadBackup(); } catch (e) {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded]);
 
@@ -3035,8 +3047,24 @@ function PortfolioApp() {
 
       {mainView === "settings" && (
         <div style={{ padding: "calc(env(safe-area-inset-top, 0px) + 10px) 0 0" }}>
-          <div style={{ padding: "0 16px 10px", position: "sticky", top: "env(safe-area-inset-top, 0px)", zIndex: 20, background: "#12151b" }}>
+          <div style={{ padding: "0 16px 10px", position: "sticky", top: "env(safe-area-inset-top, 0px)", zIndex: 20, background: "#12151b", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <button onClick={() => setMainView("home")} className="iconbtn" style={{ color: "#c9974a", fontWeight: 700, fontSize: 14 }}>← 뒤로</button>
+            <div style={{ display: "flex", gap: 6 }}>
+              <button
+                onClick={downloadDataAsFile}
+                className="iconbtn"
+                style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #c9974a", background: "rgba(201,151,74,0.12)", color: "#c9974a", fontWeight: 700, fontSize: 12.5, whiteSpace: "nowrap" }}
+              >
+                ⬇ 백업
+              </button>
+              <button
+                onClick={() => backupFileInputRef.current && backupFileInputRef.current.click()}
+                className="iconbtn"
+                style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #c9974a", background: "rgba(201,151,74,0.12)", color: "#c9974a", fontWeight: 700, fontSize: 12.5, whiteSpace: "nowrap" }}
+              >
+                ⬆ 불러오기
+              </button>
+            </div>
           </div>
         <div className="card" style={{ margin: "0 16px 14px", padding: 14 }}>
           <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>설정</div>
@@ -4647,18 +4675,33 @@ function PortfolioApp() {
           if (dates.length === 0) return null;
           return principalHistory[dates[dates.length - 1]];
         };
-        const buildComparison = (history) => {
-          const keyFn = perfLevel === "month" ? monthKeyOf : perfLevel === "quarter" ? quarterKeyOf : yearKeyOf;
+        const labelFor = (lv, entry) => (lv === "month" ? `${entry.key.slice(0, 4)}.${Number(entry.key.slice(5))}월` : lv === "year" ? `${entry.key}년` : entry.key);
+        const buildComparison = (history, level) => {
+          const lv = level || perfLevel;
+          const keyFn = lv === "month" ? monthKeyOf : lv === "quarter" ? quarterKeyOf : yearKeyOf;
           const list = buildPeriodStats(history, keyFn);
           if (list.length === 0) return null;
           const cur = list[0], prev = list[1], beforePrev = list[2];
-          const curLabel = perfLevel === "month" ? `${cur.key.slice(0, 4)}.${Number(cur.key.slice(5))}월` : perfLevel === "year" ? `${cur.key}년` : cur.key;
-          const prevLabel = !prev ? null : perfLevel === "month" ? `${prev.key.slice(0, 4)}.${Number(prev.key.slice(5))}월` : perfLevel === "year" ? `${prev.key}년` : prev.key;
           return {
-            curLabel, curDate: cur.endDate, curVal: cur.endVal,
-            prevLabel, prevDate: prev ? prev.endDate : null, prevVal: prev ? prev.endVal : null,
+            curLabel: labelFor(lv, cur), curDate: cur.endDate, curVal: cur.endVal,
+            prevLabel: prev ? labelFor(lv, prev) : null, prevDate: prev ? prev.endDate : null, prevVal: prev ? prev.endVal : null,
             beforePrevVal: beforePrev ? beforePrev.endVal : null,
           };
+        };
+        // buildComparison은 "가장 최근 한 구간"만 돌려주는데, 이제는 기록된 구간 전부를 각각의 카드로
+        // 보여줘야 하니, 기록된 모든 월/분기/년 각각에 대해 비교 객체를 하나씩 만들어 배열로 돌려준다.
+        const buildAllComparisons = (history, level) => {
+          const keyFn = level === "month" ? monthKeyOf : level === "quarter" ? quarterKeyOf : yearKeyOf;
+          const list = buildPeriodStats(history, keyFn); // 최신순 정렬
+          return list.map((cur, i) => {
+            const prev = list[i + 1], beforePrev = list[i + 2];
+            return {
+              key: cur.key,
+              curLabel: labelFor(level, cur), curDate: cur.endDate, curVal: cur.endVal,
+              prevLabel: prev ? labelFor(level, prev) : null, prevDate: prev ? prev.endDate : null, prevVal: prev ? prev.endVal : null,
+              beforePrevVal: beforePrev ? beforePrev.endVal : null,
+            };
+          });
         };
         // 이 지표(history)가 "① 주식평가액-투자원금"인지에 따라, 금액 옆 %를 다르게 계산한다.
         //  - ①번: 그 시점의 투자원금 대비 수익률 (그 값 자체가 이미 "주식평가액-투자원금"이라, 투자원금으로 나누면 수익률이 됨)
@@ -4703,7 +4746,7 @@ function PortfolioApp() {
             </div>
           );
         };
-        const ComparisonCard = ({ cardKey, title, comp, history }) => {
+        const ComparisonCard = ({ cardKey, metricKey, title, comp, history }) => {
           const isOpen = expandedChartKey === cardKey;
           if (!comp) {
             return (
@@ -4762,7 +4805,6 @@ function PortfolioApp() {
           { key: "pledged", title: "③ 빌려투자한돈", history: pledgedHistory },
           { key: "liquidAsset", title: "④ 현금성자산금액", history: netWorthHistory },
         ];
-        const levelWord = { month: "저번달보다 이번달이", quarter: "저번분기보다 이번분기가", year: "저번해보다 이번해가" }[perfLevel];
         return (
           <div style={{ padding: "calc(env(safe-area-inset-top, 0px) + 10px) 0 0" }}>
             <div style={{ padding: "0 16px 10px", position: "sticky", top: "env(safe-area-inset-top, 0px)", zIndex: 20, background: "#12151b" }}>
@@ -4797,89 +4839,89 @@ function PortfolioApp() {
 
               {perfMetric && (() => {
                 const metric = METRICS.find((m) => m.key === perfMetric);
-                const comp = buildComparison(metric.history);
                 return (
                   <>
                     <div style={{ fontSize: 22, fontWeight: 800, color: "#c9974a", marginBottom: 10 }}>{metric.title}</div>
                     <div style={{ fontSize: 15, color: "#8993a6", marginBottom: 16, lineHeight: 1.6 }}>
-                      {perfMetric === "stock" ? "원금대비 수익률을 보여줘요." : `${levelWord} 얼마나 변했는지 보여줘요.`}
+                      {perfMetric === "stock" ? "원금대비 수익률을 보여줘요." : "월별·분기별·년별로 얼마나 변했는지 한눈에 보여줘요."}
                     </div>
 
-                    <div style={{ display: "flex", gap: 6, marginBottom: 18 }}>
-                      {LEVELS.map((lv) => (
-                        <button
-                          key={lv.key}
-                          onClick={() => setPerfLevel(lv.key)}
-                          style={{
-                            flex: 1, padding: "10px 0", borderRadius: 8, fontSize: 16, fontWeight: 700,
-                            border: perfLevel === lv.key ? "1px solid #c9974a" : "1px solid #262c37",
-                            background: perfLevel === lv.key ? "rgba(201,151,74,0.15)" : "#161a22",
-                            color: perfLevel === lv.key ? "#c9974a" : "#8993a6",
-                          }}
-                        >
-                          {lv.label}
-                        </button>
-                      ))}
-                    </div>
-
-                    {perfMetric === "pledged" ? (() => {
-                      const interestComp = buildComparison(pledgedInterestHistory);
-                      const totalHistory = {};
-                      new Set([...Object.keys(pledgedHistory), ...Object.keys(pledgedInterestHistory)]).forEach((d) => {
-                        totalHistory[d] = (pledgedHistory[d] || 0) + (pledgedInterestHistory[d] || 0);
-                      });
-                      const totalComp = buildComparison(totalHistory);
-                      const isOpen = expandedChartKey === "pledgedCombined";
-                      const Row = ({ label, c }) => {
-                        if (!c) return <div style={{ flex: 1, fontSize: 19, color: "#5a6274" }}>{label}: 데이터 없음</div>;
-                        const hasPrev = c.prevVal !== null && c.prevVal !== undefined;
-                        const diff = hasPrev ? c.curVal - c.prevVal : null;
-                        const pct = hasPrev && c.prevVal !== 0 ? (diff / c.prevVal) * 100 : null;
-                        const color = diff > 0 ? "#e8544b" : diff < 0 ? "#4c8dff" : "#8993a6";
-                        const fmtWithPct = (v, priorValue, key) => {
-                          const p = pctForValue("pledged", v, null, priorValue);
-                          if (p === null) return <span key={key}>{fmt(v)}</span>;
-                          const pColor = p > 0 ? "#e8544b" : p < 0 ? "#4c8dff" : "#8993a6";
-                          return <span key={key} style={{ color: pColor }}>{fmt(v)}({p >= 0 ? "+" : ""}{p.toFixed(1)}%)</span>;
-                        };
-                        return (
-                          <div className="tnum" style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 19, color: "#8993a6", marginBottom: 2 }}>{label}</div>
-                            <div style={{ fontSize: 20, fontWeight: 700, color: "#c7cddb", lineHeight: 1.3 }}>
-                              {hasPrev ? <>{fmtWithPct(c.prevVal, c.beforePrevVal, "p")}→{fmtWithPct(c.curVal, c.prevVal, "c")}</> : `${fmt(c.curVal)}`}
-                            </div>
-                            {hasPrev && (
-                              <div style={{ fontSize: 21, fontWeight: 700, color, lineHeight: 1.3 }}>
-                                {diff >= 0 ? "▲+" : "▼"}{fmt(diff)} ({pct === null ? "-" : `${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%`})
-                              </div>
-                            )}
-                          </div>
-                        );
-                      };
+                    {LEVELS.map((lv) => {
+                      const compList = buildAllComparisons(metric.history, lv.key);
                       return (
-                        <div style={{ borderRadius: 10, background: "#161a22", border: "1px solid #262c37", marginBottom: 14, overflow: "hidden" }}>
-                          <div style={{ padding: "16px 16px 4px" }}>
-                            <div className="tnum" style={{ fontSize: 19, color: "#8993a6", marginBottom: 10 }}>
-                              {comp.prevLabel ? `${comp.prevLabel} → ${comp.curLabel}` : `${comp.curLabel} (비교할 이전 기록 없음)`}
+                        <div key={lv.key} style={{ marginBottom: 18 }}>
+                          <div style={{ fontSize: 16, fontWeight: 700, color: "#e7eaf0", marginBottom: 8 }}>{lv.label}</div>
+                          {compList.length === 0 && (
+                            <div style={{ borderRadius: 10, background: "#161a22", border: "1px solid #262c37", marginBottom: 10, padding: "16px" }}>
+                              <div style={{ fontSize: 15, color: "#5a6274" }}>아직 기록된 데이터가 없어요.</div>
                             </div>
-                            <div style={{ display: "flex", gap: 10 }}>
-                              <Row label="원금" c={comp} />
-                              <Row label="이자" c={interestComp} />
-                              <Row label="합계" c={totalComp} />
-                            </div>
-                          </div>
-                          <div
-                            onClick={() => setExpandedChartKey(isOpen ? null : "pledgedCombined")}
-                            style={{ padding: "4px 0 6px", textAlign: "center", fontSize: 15, color: "#5a6274", borderTop: "1px solid #1f2530", cursor: "pointer", marginTop: 4 }}
-                          >
-                            {isOpen ? "▲ 그래프 접기" : "▼ 눌러서 그래프 보기 (합계 기준)"}
-                          </div>
-                          {isOpen && <div style={{ padding: "0 14px 10px" }}><MiniLineChart history={totalHistory} /></div>}
+                          )}
+                          {compList.map((comp) => (
+                            perfMetric === "pledged" ? (() => {
+                              const interestList = buildAllComparisons(pledgedInterestHistory, lv.key);
+                              const interestComp = interestList.find((c) => c.key === comp.key) || null;
+                              const totalHistory = {};
+                              new Set([...Object.keys(pledgedHistory), ...Object.keys(pledgedInterestHistory)]).forEach((d) => {
+                                totalHistory[d] = (pledgedHistory[d] || 0) + (pledgedInterestHistory[d] || 0);
+                              });
+                              const totalList = buildAllComparisons(totalHistory, lv.key);
+                              const totalComp = totalList.find((c) => c.key === comp.key) || null;
+                              const chartKey = `pledgedCombined-${lv.key}-${comp.key}`;
+                              const isOpen = expandedChartKey === chartKey;
+                              const Row = ({ label, c }) => {
+                                if (!c) return <div style={{ flex: 1, fontSize: 19, color: "#5a6274" }}>{label}: 데이터 없음</div>;
+                                const hasPrev = c.prevVal !== null && c.prevVal !== undefined;
+                                const diff = hasPrev ? c.curVal - c.prevVal : null;
+                                const pct = hasPrev && c.prevVal !== 0 ? (diff / c.prevVal) * 100 : null;
+                                const color = diff > 0 ? "#e8544b" : diff < 0 ? "#4c8dff" : "#8993a6";
+                                const fmtWithPct = (v, priorValue, key) => {
+                                  const p = pctForValue("pledged", v, null, priorValue);
+                                  if (p === null) return <span key={key}>{fmt(v)}</span>;
+                                  const pColor = p > 0 ? "#e8544b" : p < 0 ? "#4c8dff" : "#8993a6";
+                                  return <span key={key} style={{ color: pColor }}>{fmt(v)}({p >= 0 ? "+" : ""}{p.toFixed(1)}%)</span>;
+                                };
+                                return (
+                                  <div className="tnum" style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ fontSize: 19, color: "#8993a6", marginBottom: 2 }}>{label}</div>
+                                    <div style={{ fontSize: 20, fontWeight: 700, color: "#c7cddb", lineHeight: 1.3 }}>
+                                      {hasPrev ? <>{fmtWithPct(c.prevVal, c.beforePrevVal, "p")}→{fmtWithPct(c.curVal, c.prevVal, "c")}</> : `${fmt(c.curVal)}`}
+                                    </div>
+                                    {hasPrev && (
+                                      <div style={{ fontSize: 21, fontWeight: 700, color, lineHeight: 1.3 }}>
+                                        {diff >= 0 ? "▲+" : "▼"}{fmt(diff)} ({pct === null ? "-" : `${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%`})
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              };
+                              return (
+                                <div key={comp.key} style={{ borderRadius: 10, background: "#161a22", border: "1px solid #262c37", marginBottom: 10, overflow: "hidden" }}>
+                                  <div style={{ padding: "16px 16px 4px" }}>
+                                    <div className="tnum" style={{ fontSize: 19, color: "#8993a6", marginBottom: 10 }}>
+                                      {comp.prevLabel ? `${comp.prevLabel} → ${comp.curLabel}` : `${comp.curLabel} (비교할 이전 기록 없음)`}
+                                    </div>
+                                    <div style={{ display: "flex", gap: 10 }}>
+                                      <Row label="원금" c={comp} />
+                                      <Row label="이자" c={interestComp} />
+                                      <Row label="합계" c={totalComp} />
+                                    </div>
+                                  </div>
+                                  <div
+                                    onClick={() => setExpandedChartKey(isOpen ? null : chartKey)}
+                                    style={{ padding: "4px 0 6px", textAlign: "center", fontSize: 15, color: "#5a6274", borderTop: "1px solid #1f2530", cursor: "pointer", marginTop: 4 }}
+                                  >
+                                    {isOpen ? "▲ 그래프 접기" : "▼ 눌러서 그래프 보기 (합계 기준)"}
+                                  </div>
+                                  {isOpen && <div style={{ padding: "0 14px 10px" }}><MiniLineChart history={totalHistory} /></div>}
+                                </div>
+                              );
+                            })() : (
+                              <ComparisonCard key={comp.key} cardKey={`${metric.key}-${lv.key}-${comp.key}`} title={metric.title} comp={comp} history={metric.history} />
+                            )
+                          ))}
                         </div>
                       );
-                    })() : (
-                      <ComparisonCard cardKey={metric.key} title={metric.title} comp={comp} history={metric.history} />
-                    )}
+                    })}
                   </>
                 );
               })()}
