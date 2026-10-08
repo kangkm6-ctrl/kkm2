@@ -1529,11 +1529,14 @@ function PortfolioApp() {
       const entry = prev.find((e) => e.id === id);
       if (entry) {
         // 이 기록이 투자원금에 줬던 원래 효과(originalDelta)를 계산해서, 그 반대로 되돌린다.
+        // "현금화/투자"(spend·invest)는 투자원금에 준 효과가 현금과 반대 방향이라, 저장해둔 principalDelta를 그대로 쓴다
+        // (예전 기록엔 principalDelta가 없을 수 있어, 그때는 기존 방식대로 amount를 그대로 쓴다 — 하위호환).
         let originalDelta;
-        if (entry.type === "spend" || entry.type === "invest") originalDelta = entry.amount; // 부호 있는 값 그대로
+        if (entry.type === "spend" || entry.type === "invest") originalDelta = entry.principalDelta !== undefined ? entry.principalDelta : entry.amount;
         else if (entry.type === "borrow") originalDelta = entry.amount; // 증가
         else originalDelta = -entry.amount; // "repay" 또는 예전 형식(사용한돈 정산) → 감소였음
         const reverseDelta = -originalDelta;
+        const reverseCashDelta = -entry.amount; // 현금 되돌림은 항상 현금 자체의 부호(entry.amount) 기준
         setInvestmentPrincipalBase((prevBase) => {
           const nextBase = Math.max(0, prevBase + reverseDelta);
           try { localStorage.setItem(INVESTMENT_PRINCIPAL_KEY, String(nextBase)); } catch (e) {}
@@ -1544,7 +1547,7 @@ function PortfolioApp() {
         const isNewLoanEntry = (entry.type === "borrow" || entry.type === "repay") && entry.pledgedBefore !== undefined;
         if (entry.accountId && (entry.type === "spend" || entry.type === "invest")) {
           setCashAccounts((prevAccounts) => prevAccounts.map((a) =>
-            a.id === entry.accountId ? { ...a, cash: String(num(a.cash) + reverseDelta) } : a
+            a.id === entry.accountId ? { ...a, cash: String(num(a.cash) + reverseCashDelta) } : a
           ));
         }
         if (entry.accountId && isNewLoanEntry) {
@@ -1571,12 +1574,13 @@ function PortfolioApp() {
     if (!account) return;
     const magnitude = Math.abs(num(account.used));
     if (magnitude === 0) return;
-    const amount = sign === "spend" ? magnitude : -magnitude; // 현금화=양수(증가), 투자=음수(차감)
+    const amount = sign === "spend" ? magnitude : -magnitude; // 현금: 현금화=양수(증가), 투자=음수(차감)
+    const principalDelta = -amount; // 투자원금(=투자에 묶인 돈): 현금화=음수(투자금이 현금으로 빠짐), 투자=양수(현금이 투자로 들어감) — 현금과 정반대 방향
     const cashBefore = num(account.cash);
     const cashAfter = cashBefore + amount;
     setCashAccounts((prev) => prev.map((a) => (a.id === id ? { ...a, cash: String(cashAfter), used: "" } : a)));
     setInvestmentPrincipalBase((prev) => {
-      const next = Math.max(0, prev + amount);
+      const next = Math.max(0, prev + principalDelta);
       try { localStorage.setItem(INVESTMENT_PRINCIPAL_KEY, String(next)); } catch (e) {}
       return next;
     });
@@ -1586,7 +1590,8 @@ function PortfolioApp() {
       time: new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }),
       accountId: account.id,
       accountName: account.name || "(이름없음)",
-      amount, // 부호 있는 값 그대로 저장 (음수=사용한돈, 양수=투자한돈)
+      amount, // 현금에 적용된 부호 있는 값 (양수=현금화로 증가, 음수=투자로 차감)
+      principalDelta, // 투자원금에 적용된 부호 있는 값 (현금과 반대 방향)
       cashBefore, cashAfter,
       type: amount > 0 ? "spend" : "invest",
     };
