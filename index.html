@@ -2937,12 +2937,12 @@ function PortfolioApp() {
               placeholder="비밀번호"
               className="field"
               autoFocus
-              style={{ textAlign: "center", fontSize: 20.4, padding: "10px 0", borderRadius: 10 }}
+              style={{ display: "block", width: "100%", boxSizing: "border-box", margin: "0 auto", textAlign: "center", fontSize: 20.4, padding: "10px 0", borderRadius: 10 }}
             />
           </div>
         )}
 
-        {lockMsg && <div style={{ marginTop: 14, fontSize: 18, color: "#e8544b" }}>{lockMsg}</div>}
+        {lockMsg && <div style={{ marginTop: 14, fontSize: 18, color: "#e8544b", textAlign: "center", maxWidth: "100%" }}>{lockMsg}</div>}
       </div>
     );
   }
