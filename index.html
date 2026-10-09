@@ -974,10 +974,10 @@ function PortfolioApp() {
   const pwWrongTimerRef = useRef(null);
   const pwInputRef = useRef("");
   const checkPasswordAutoUnlock = async (value) => {
+    value = value.replace(/\D/g, "").slice(0, 6);
     setPwInput(value);
     pwInputRef.current = value;
-    if (pwWrongTimerRef.current) { clearTimeout(pwWrongTimerRef.current); pwWrongTimerRef.current = null; }
-    if (!value) { setLockMsg(""); return; }
+    if (value.length < 6) { setLockMsg(""); return; }
     try {
       const storedHash = localStorage.getItem(LOCK_PW_HASH_KEY);
       if (!storedHash) return;
@@ -989,14 +989,10 @@ function PortfolioApp() {
         setLockMsg("");
         return;
       }
-      // 입력이 잠깐(0.9초) 멈췄는데도 여전히 틀린 상태면, 오답으로 보고 비워서 다시 입력하게 한다.
-      pwWrongTimerRef.current = setTimeout(() => {
-        if (pwInputRef.current === value) {
-          setPwInput("");
-          pwInputRef.current = "";
-          setLockMsg("❌ 비밀번호가 틀렸어요. 다시 입력해주세요.");
-        }
-      }, 900);
+      // 6자리를 모두 입력했는데 틀린 경우에만 비우고 안내한다.
+      setPwInput("");
+      pwInputRef.current = "";
+      setLockMsg("※ 비밀번호가 틀렸어요. 다시 입력해주세요.");
     } catch (e) {}
   };
 
@@ -2922,7 +2918,7 @@ function PortfolioApp() {
         </div>
 
         {hasLockPassword && (
-          <div style={{ width: "100%", maxWidth: 280 }} onClick={(e) => e.stopPropagation()}>
+          <div style={{ width: "100%", maxWidth: 224, margin: "0 auto" }} onClick={(e) => e.stopPropagation()}>
             <input
               type="tel"
               inputMode="numeric"
@@ -2941,12 +2937,12 @@ function PortfolioApp() {
               placeholder="비밀번호"
               className="field"
               autoFocus
-              style={{ textAlign: "center", fontSize: 25.5, padding: "12px 0", borderRadius: 10 }}
+              style={{ textAlign: "center", fontSize: 20.4, padding: "10px 0", borderRadius: 10 }}
             />
           </div>
         )}
 
-        {lockMsg && <div style={{ marginTop: 14, fontSize: 12, color: "#e8544b" }}>{lockMsg}</div>}
+        {lockMsg && <div style={{ marginTop: 14, fontSize: 18, color: "#e8544b" }}>{lockMsg}</div>}
       </div>
     );
   }
@@ -4697,10 +4693,16 @@ function PortfolioApp() {
           return (value / p) * 100;
         };
         // 펼쳤을 때 보여줄 선그래프 — 그 지표의 전체 기록을 날짜순으로 이어 그린다.
+        const periodHistory = (history, entryKey) => {
+          const keyFn = perfLevel === "month" ? monthKeyOf : perfLevel === "quarter" ? quarterKeyOf : yearKeyOf;
+          const out = {};
+          Object.keys(history).forEach((d) => { if (keyFn(d) === entryKey) out[d] = history[d]; });
+          return out;
+        };
         const MiniLineChart = ({ history }) => {
           const points = Object.keys(history).sort().map((d) => ({ d, v: history[d] }));
           if (points.length < 2) {
-            return <div style={{ fontSize: 15, color: "#5a6274", textAlign: "center", padding: "18px 0" }}>그래프를 그리려면 기록이 2일 이상 필요해요.</div>;
+            return <div style={{ fontSize: 15, color: "#5a6274", textAlign: "center", padding: "18px 0" }}>이 기간엔 그래프를 그릴 기록이 2일 이상 필요해요.</div>;
           }
           const W = 300, H = 110, padX = 6, padY = 10;
           const vals = points.map((p) => p.v);
@@ -4729,10 +4731,11 @@ function PortfolioApp() {
         };
         const StandaloneCard = ({ cardKey, entry, history }) => {
           const isOpen = expandedChartKey === cardKey;
-          const p = pctForValue(cardKey, entry.val, entry.date);
+          const metricKey = cardKey.split("-")[0];
+          const p = pctForValue(metricKey, entry.val, entry.date);
           const pColor = p === null ? "#c7cddb" : p > 0 ? "#e8544b" : p < 0 ? "#4c8dff" : "#8993a6";
           let valueNode;
-          if (cardKey === "stock") {
+          if (metricKey === "stock") {
             // entry.val은 "주식평가액-투자원금"(수익손실액) 자체이므로, 그 시점 투자원금을 더하면 투자평가액이 나온다.
             const principal = principalAt(entry.date);
             const investVal = principal !== null ? entry.val + principal : null;
@@ -4756,7 +4759,7 @@ function PortfolioApp() {
               >
                 {isOpen ? "▲ 그래프 접기" : "▼ 눌러서 그래프 보기"}
               </div>
-              {isOpen && <div style={{ padding: "0 14px 10px" }}><MiniLineChart history={history} /></div>}
+              {isOpen && <div style={{ padding: "0 14px 10px" }}><MiniLineChart history={periodHistory(history, entry.key)} /></div>}
             </div>
           );
         };
@@ -4868,7 +4871,7 @@ function PortfolioApp() {
                               >
                                 {isOpen ? "▲ 그래프 접기" : "▼ 눌러서 그래프 보기 (합계 기준)"}
                               </div>
-                              {isOpen && <div style={{ padding: "0 14px 10px" }}><MiniLineChart history={totalHistory} /></div>}
+                              {isOpen && <div style={{ padding: "0 14px 10px" }}><MiniLineChart history={periodHistory(totalHistory, entry.key)} /></div>}
                             </div>
                           );
                         })
