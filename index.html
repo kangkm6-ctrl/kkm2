@@ -1103,15 +1103,13 @@ function PortfolioApp() {
   useEffect(() => {
     if (!loaded) return;
     if (isPreviewing) return; // 미리보기 중에는 실제 데이터를 덮어쓰지 않음
-    const t = setTimeout(() => {
-      try {
-        // 가상매수/가상매도 수량은 "시뮬레이션용 임시값"이므로 저장하지 않는다.
-        // → 실제 데이터를 절대 건드리지 않고, 앱을 다시 열면 항상 비워진 상태로 시작한다.
-        const stocksToSave = stocks.map(({ virtualBuyQty, virtualSellQty, ...rest }) => rest);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ stocks: stocksToSave, cashAccounts, targetCashRatio, proxyUrl, appSecret }));
-      } catch (e) {}
-    }, 500);
-    return () => clearTimeout(t);
+    // 값이 바뀌는 즉시 저장한다(지연 없음) — 입력 직후 앱을 닫거나 백그라운드로 넘어가도 유실되지 않게.
+    try {
+      // 가상매수/가상매도 수량은 "시뮬레이션용 임시값"이므로 저장하지 않는다.
+      // → 실제 데이터를 절대 건드리지 않고, 앱을 다시 열면 항상 비워진 상태로 시작한다.
+      const stocksToSave = stocks.map(({ virtualBuyQty, virtualSellQty, ...rest }) => rest);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ stocks: stocksToSave, cashAccounts, targetCashRatio, proxyUrl, appSecret }));
+    } catch (e) {}
   }, [stocks, cashAccounts, targetCashRatio, proxyUrl, appSecret, loaded, isPreviewing]);
 
   const stockCalc = useMemo(() => {
@@ -1719,18 +1717,21 @@ function PortfolioApp() {
     }
 
     let okCount = 0, failCount = 0;
-    const updated = [...stocks];
+    // 시세를 받아오는 동안(재시도 포함 수 초~수십 초) 사용자가 종목을 추가/수정했을 수 있으므로,
+    // 시작 시점의 목록(stocks)으로 통째로 덮어쓰지 않고 "종목 id" 기준으로 시세 필드만 최신 상태 위에 합친다.
+    const priceUpdates = {};
     Object.values(stockResultMap).forEach((r) => {
       if (r.skip) return;
       if (r.ok) {
-        updated[r.i] = { ...updated[r.i], curPrice: r.curPrice, ...(r.prevClose ? { prevClose: r.prevClose } : {}), ...(r.industryName ? { industryName: r.industryName } : {}), ...(r.marketCap ? { marketCap: r.marketCap } : {}) };
+        const sid = stocks[r.i] && stocks[r.i].id;
+        if (sid !== undefined) priceUpdates[sid] = { curPrice: r.curPrice, ...(r.prevClose ? { prevClose: r.prevClose } : {}), ...(r.industryName ? { industryName: r.industryName } : {}), ...(r.marketCap ? { marketCap: r.marketCap } : {}) };
         okCount++;
       } else {
         failCount++;
       }
     });
 
-    setStocks(updated); setRefreshing(false);
+    setStocks((prev) => prev.map((st) => (priceUpdates[st.id] ? { ...st, ...priceUpdates[st.id] } : st))); setRefreshing(false);
     setRefreshMsg(`완료: ${okCount}개 갱신${failCount ? `, ${failCount}개 실패(3회 재시도 후에도 실패)` : ""}`);
     setLastRefreshedAt(new Date());
     setPriceRefreshTick((t) => t + 1);
