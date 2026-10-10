@@ -1066,7 +1066,7 @@ function PortfolioApp() {
       const rawSnaps = localStorage.getItem(SNAPSHOTS_KEY);
       if (rawSnaps) {
         const parsedSnaps = JSON.parse(rawSnaps);
-        if (Array.isArray(parsedSnaps)) setSnapshots(parsedSnaps.slice(0, 10));
+        /* 현재날짜로보관 기능 삭제됨 */ try { localStorage.removeItem(SNAPSHOTS_KEY); localStorage.removeItem(AUTOSAVE_KEY); } catch (e2) {}
       }
     } catch (e) {}
     try {
@@ -2587,45 +2587,6 @@ function PortfolioApp() {
     reader.readAsText(file);
   };
 
-  const saveSnapshot = (isAuto) => {
-    const now = new Date();
-    const label = now.toLocaleString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) + (isAuto ? " (자동)" : "");
-    const snap = {
-      id: genId(),
-      label,
-      savedAt: now.toISOString(),
-      stocks,
-      cashAccounts,
-      targetCashRatio,
-    };
-    setSnapshots((prev) => {
-      const todayStr = now.toISOString().slice(0, 10);
-      const withoutToday = prev.filter((s) => (s.savedAt || "").slice(0, 10) !== todayStr);
-      const next = [snap, ...withoutToday].slice(0, 10); // 최대 10개까지만 보관(오래된 것부터 삭제)
-      try { localStorage.setItem(SNAPSHOTS_KEY, JSON.stringify(next)); } catch (e) {}
-      return next;
-    });
-    setSnapshotMsg(isAuto ? `📅 자동 저장 완료 (${label})` : `✅ ${label} 기준으로 저장했어요.`);
-    setTimeout(() => setSnapshotMsg(""), 4000);
-  };
-
-  // 앱을 실행할 때마다 그날 첫 실행이면 "현재날짜로보관"을 자동 실행 (하루 1회만)
-  useEffect(() => {
-    if (!loaded) return;
-    try {
-      const todayStr = new Date().toISOString().slice(0, 10);
-      const lastAuto = localStorage.getItem(AUTOSAVE_KEY);
-      if (lastAuto !== todayStr) {
-        saveSnapshot(true);
-        localStorage.setItem(AUTOSAVE_KEY, todayStr);
-      }
-    } catch (e) {}
-    // 혹시 미리보기 상태로 남아있었다면, 실행 시 항상 최신 데이터로 복귀
-    setIsPreviewing(false);
-    setPreviewBackup(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loaded]);
-
   // 자동 백업: 하루에 1개만, 그날의 "가장 마지막" 상태로 계속 덮어쓴다. 최근 5일치만 보관.
   const localDayStr = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   useEffect(() => {
@@ -2681,41 +2642,6 @@ function PortfolioApp() {
     setShowBackupList(false);
     setSnapshotMsg(`↩ ${b.label} 자동백업으로 복원했어요.`);
     setTimeout(() => setSnapshotMsg(""), 4000);
-  };
-
-  const loadSnapshot = (id) => {
-    const snap = snapshots.find((s) => s.id === id);
-    if (!snap) return;
-    if (!isPreviewing) {
-      // 실제(최신) 데이터를 백업해뒀다가, 미리보기를 끝내면 그대로 복귀시킨다
-      setPreviewBackup({ stocks, cashAccounts, targetCashRatio });
-    }
-    setStocks((snap.stocks || []).map((s) => ({ ...s, virtualSellQty: "", virtualBuyQty: "" })));
-    setCashAccounts(snap.cashAccounts || []);
-    if (typeof snap.targetCashRatio === "number") setTargetCashRatio(snap.targetCashRatio);
-    setIsPreviewing(true);
-    setShowSnapshotList(false);
-    setSnapshotMsg(`👁 ${snap.label} 데이터를 보는 중이에요 (보관용 미리보기, 저장되지 않아요).`);
-  };
-
-  const exitPreview = () => {
-    if (previewBackup) {
-      setStocks(previewBackup.stocks);
-      setCashAccounts(previewBackup.cashAccounts);
-      setTargetCashRatio(previewBackup.targetCashRatio);
-    }
-    setIsPreviewing(false);
-    setPreviewBackup(null);
-    setSnapshotMsg("↩ 최신(실시간) 데이터로 돌아왔어요.");
-    setTimeout(() => setSnapshotMsg(""), 3000);
-  };
-
-  const deleteSnapshot = (id) => {
-    setSnapshots((prev) => {
-      const next = prev.filter((s) => s.id !== id);
-      try { localStorage.setItem(SNAPSHOTS_KEY, JSON.stringify(next)); } catch (e) {}
-      return next;
-    });
   };
 
   const cashRatioPct = Math.max(0, Math.min(100, cashRatio * 100));
@@ -5020,12 +4946,6 @@ function PortfolioApp() {
       {saveError && (
         <div style={{ margin: "0 16px 8px", padding: "8px 12px", background: "#3a1517", border: "1px solid #e8544b", borderRadius: 10, fontSize: 13, color: "#ff9a94" }}>
           ⚠️ 저장 공간이 부족해서 최근 입력이 저장되지 않았어요. 설정에서 ⬇ 백업을 받아두세요.
-        </div>
-      )}
-      {isPreviewing && (
-        <div style={{ margin: "0 16px 8px", padding: "8px 12px", background: "#3a2f12", border: "1px solid #c9974a", borderRadius: 10, fontSize: 12, color: "#e7c98a", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span>👁 보관된 데이터 보는 중 (읽기 전용)</span>
-          <button onClick={exitPreview} style={{ background: "none", border: "1px solid #c9974a", color: "#c9974a", borderRadius: 6, padding: "4px 8px", fontSize: 11, fontWeight: 700 }}>돌아가기</button>
         </div>
       )}
       <div style={isPreviewing ? { pointerEvents: "none", opacity: 0.75 } : undefined}>
