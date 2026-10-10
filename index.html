@@ -1066,7 +1066,7 @@ function PortfolioApp() {
       const rawSnaps = localStorage.getItem(SNAPSHOTS_KEY);
       if (rawSnaps) {
         const parsedSnaps = JSON.parse(rawSnaps);
-        if (Array.isArray(parsedSnaps)) setSnapshots(parsedSnaps);
+        if (Array.isArray(parsedSnaps)) setSnapshots(parsedSnaps.slice(0, 10));
       }
     } catch (e) {}
     try {
@@ -1084,7 +1084,7 @@ function PortfolioApp() {
       const rawBackups = localStorage.getItem(LAUNCH_BACKUP_KEY);
       if (rawBackups) {
         const parsedBackups = JSON.parse(rawBackups);
-        if (Array.isArray(parsedBackups)) setLaunchBackups(parsedBackups);
+        if (Array.isArray(parsedBackups)) setLaunchBackups(parsedBackups.slice(0, 5));
       }
     } catch (e) {}
     try {
@@ -1525,44 +1525,9 @@ function PortfolioApp() {
   const addCash = () => setCashAccounts((prev) => [...prev, emptyCash()]);
   const removeCash = (id) => setCashAccounts((prev) => prev.filter((a) => a.id !== id));
 
+  // 이력은 기록일 뿐이라, 지워도 투자원금·현금·빌려투자한돈에는 아무 영향이 없다(기록만 삭제).
   const deleteCashSettleEntry = (id) => {
     setCashSettleLog((prev) => {
-      const entry = prev.find((e) => e.id === id);
-      if (entry) {
-        // 이 기록이 투자원금에 줬던 원래 효과(originalDelta)를 계산해서, 그 반대로 되돌린다.
-        // "현금화/투자"(spend·invest)는 투자원금에 준 효과가 현금과 반대 방향이라, 저장해둔 principalDelta를 그대로 쓴다
-        // (예전 기록엔 principalDelta가 없을 수 있어, 그때는 기존 방식대로 amount를 그대로 쓴다 — 하위호환).
-        let originalDelta;
-        if (entry.type === "spend" || entry.type === "invest") originalDelta = entry.principalDelta !== undefined ? entry.principalDelta : entry.amount;
-        else if (entry.type === "borrow") originalDelta = entry.amount; // 증가
-        else originalDelta = -entry.amount; // "repay" 또는 예전 형식(사용한돈 정산) → 감소였음
-        const reverseDelta = -originalDelta;
-        const reverseCashDelta = -entry.amount; // 현금 되돌림은 항상 현금 자체의 부호(entry.amount) 기준
-        setInvestmentPrincipalBase((prevBase) => {
-          const nextBase = Math.max(0, prevBase + reverseDelta);
-          try { localStorage.setItem(INVESTMENT_PRINCIPAL_KEY, String(nextBase)); } catch (e) {}
-          return nextBase;
-        });
-        // "사용한돈/투자한돈"(spend·invest)은 "현금"과 "빌려투자한돈"이 같은 방향, "상환한돈/대출한돈"(repay·borrow, 새 버튼 방식)은 "현금"과 "빌려투자한돈"이 반대 방향으로 바뀌었던 거라, 그 부분도 같이 되돌린다.
-        // (예전 방식의 "빌려투자한돈" 직접수정 기록은 pledgedBefore가 없고 cash를 바꾼 적이 없으므로 여기서 제외한다)
-        const isNewLoanEntry = (entry.type === "borrow" || entry.type === "repay") && entry.pledgedBefore !== undefined;
-        if (entry.accountId && (entry.type === "spend" || entry.type === "invest")) {
-          setCashAccounts((prevAccounts) => prevAccounts.map((a) =>
-            a.id === entry.accountId ? { ...a, cash: String(num(a.cash) + reverseCashDelta) } : a
-          ));
-        }
-        if (entry.accountId && isNewLoanEntry) {
-          setCashAccounts((prevAccounts) => prevAccounts.map((a) =>
-            a.id === entry.accountId ? { ...a, cash: String(num(a.cash) - reverseDelta) } : a
-          ));
-        }
-        // "빌려투자한돈"(borrow·repay)은 새/구 방식 모두 되돌린다.
-        if ((entry.type === "borrow" || entry.type === "repay") && entry.accountId) {
-          setCashAccounts((prevAccounts) => prevAccounts.map((a) =>
-            a.id === entry.accountId ? { ...a, pledged: String(Math.max(0, num(a.pledged) + reverseDelta)) } : a
-          ));
-        }
-      }
       const next = prev.filter((e) => e.id !== id);
       try { localStorage.setItem(CASH_SETTLE_LOG_KEY, JSON.stringify(next)); } catch (e) {}
       return next;
@@ -2636,7 +2601,7 @@ function PortfolioApp() {
     setSnapshots((prev) => {
       const todayStr = now.toISOString().slice(0, 10);
       const withoutToday = prev.filter((s) => (s.savedAt || "").slice(0, 10) !== todayStr);
-      const next = [snap, ...withoutToday];
+      const next = [snap, ...withoutToday].slice(0, 10); // 최대 10개까지만 보관(오래된 것부터 삭제)
       try { localStorage.setItem(SNAPSHOTS_KEY, JSON.stringify(next)); } catch (e) {}
       return next;
     });
@@ -2661,33 +2626,40 @@ function PortfolioApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded]);
 
-  // 앱을 열 때마다(매번) 전체 데이터를 자동으로 파일 다운로드 시도 — 사파리 다운로드 위치가
-  // iCloud Drive의 "2 포트폴리오(KKM2)" 폴더로 지정돼 있으면 거기로 바로 떨어진다.
-  // 다만 사용자가 직접 뭘 누른 동작이 아니라서, 브라우저가 자동 다운로드로 막을 수 있다 (확실치 않음).
+  // 자동 백업: 하루에 1개만, 그날의 "가장 마지막" 상태로 계속 덮어쓴다. 최근 5일치만 보관.
+  const localDayStr = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   useEffect(() => {
-    if (!loaded) return;
-    try { autoDownloadBackup(); } catch (e) {}
+    if (!loaded || isPreviewing) return;
+    const t = setTimeout(() => {
+      try {
+        const now = new Date();
+        const today = localDayStr(now);
+        const entry = {
+          id: genId(),
+          savedAt: now.toISOString(),
+          day: today,
+          label: now.toLocaleString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }),
+          stocks, cashAccounts, targetCashRatio,
+        };
+        const rawBackups = localStorage.getItem(LAUNCH_BACKUP_KEY);
+        const prevBackups = rawBackups ? JSON.parse(rawBackups) : [];
+        const dayOf = (b) => b.day || localDayStr(new Date(b.savedAt));
+        const seen = new Set([today]);
+        const older = [];
+        prevBackups.forEach(({ snapshots: _s, rebalanceLog: _r, ...rest }) => {
+          const d = dayOf(rest);
+          if (seen.has(d)) return; // 같은 날은 제일 마지막(가장 최근) 것 하나만
+          seen.add(d);
+          older.push({ ...rest, day: d });
+        });
+        const nextBackups = [entry, ...older].slice(0, 5);
+        localStorage.setItem(LAUNCH_BACKUP_KEY, JSON.stringify(nextBackups));
+        setLaunchBackups(nextBackups);
+      } catch (e) {}
+    }, 1500);
+    return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loaded]);
-
-  // 앱을 실행할 때마다(매번) 그 시점의 전체 데이터를 자동 백업 — 최근 10회까지 보관, 언제든 복원 가능
-  useEffect(() => {
-    if (!loaded) return;
-    try {
-      const entry = {
-        id: genId(),
-        savedAt: new Date().toISOString(),
-        label: new Date().toLocaleString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }),
-        stocks, cashAccounts, targetCashRatio, // 용량 절약: 스냅샷/이력은 백업 항목에 넣지 않는다(예전엔 매번 통째로 복사돼 저장공간을 가득 채웠음)
-      };
-      const rawBackups = localStorage.getItem(LAUNCH_BACKUP_KEY);
-      const prevBackups = rawBackups ? JSON.parse(rawBackups) : [];
-      const nextBackups = [entry, ...prevBackups.map(({ snapshots: _s, rebalanceLog: _r, ...rest }) => rest)].slice(0, 5);
-      localStorage.setItem(LAUNCH_BACKUP_KEY, JSON.stringify(nextBackups));
-      setLaunchBackups(nextBackups);
-    } catch (e) {}
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loaded]);
+  }, [loaded, isPreviewing, stocks, cashAccounts, targetCashRatio]);
 
   const restoreFromLaunchBackup = (id) => {
     const b = launchBackups.find((x) => x.id === id);
@@ -3215,7 +3187,7 @@ function PortfolioApp() {
 
           <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1px solid #262c37" }}>
             <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid #262c37" }}>
-              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, color: "#8993a6" }}>🛟 자동 백업 (앱 실행마다 자동 저장, 최근 10회)</div>
+              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, color: "#8993a6" }}>🛟 자동 백업 (하루 1개, 그날의 마지막 상태 · 최근 5일)</div>
               <div style={{ fontSize: 10, color: "#5a6274", marginBottom: 8 }}>
                 실수로 데이터가 잘못됐을 때, 이전 실행 시점으로 되돌릴 수 있어요.
               </div>
@@ -3251,6 +3223,133 @@ function PortfolioApp() {
               )}
             </div>
           </div>
+
+          <div style={{ margin: "0 16px 14px" }}>
+            <button
+              onClick={exportToExcel}
+              style={{ width: "100%", background: "#1a1f28", border: "1px solid #c9974a", color: "#c9974a", fontWeight: 700, borderRadius: 12, padding: "13px 0", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
+            >
+              📥 엑셀로 내보내기 (전체 데이터)
+            </button>
+          </div>
+
+          <button className="iconbtn" onClick={() => setShowRebalanceLog((v) => !v)} style={{ padding: "0 16px 8px", fontSize: 12, fontWeight: 600, color: "#8993a6", display: "flex", alignItems: "center", gap: 3, width: "100%" }}>
+            🔁 리밸런싱 이력 {showRebalanceLog ? "▴" : "▾"}
+          </button>
+          {showRebalanceLog && (
+          <div style={{ padding: "0 16px" }}>
+        <div className="card tnum" style={{ margin: "0 16px 12px", padding: 12, fontSize: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, paddingBottom: 8, borderBottom: "1px solid #262c37" }}>
+            <span className="lbl">전체 평균 리밸런싱 주기 (총 {rebalanceDisplay.totalCount}회)</span>
+            <span style={{ fontWeight: 700 }}>{rebalanceDisplay.avgIntervalAll !== null ? `평균 ${rebalanceDisplay.avgIntervalAll.toFixed(1)}일에 한 번씩` : "-"}</span>
+          </div>
+          {rebalanceDisplay.last30.length === 0 ? (
+            <div style={{ color: "#5a6274", textAlign: "center", padding: 8 }}>아직 기록된 리밸런싱이 없어요.</div>
+          ) : (
+            rebalanceDisplay.last30.map((r, i) => (
+              <div key={r.date} style={{ padding: "6px 0", borderBottom: i === rebalanceDisplay.last30.length - 1 ? "none" : "1px solid #1a1f28" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                  <span style={{ color: "#8993a6", flexShrink: 0 }}>{rebalanceDisplay.totalCount - i}회차 · {r.date}{r.interval !== null ? ` (${r.interval}일 주기)` : " (최초)"}</span>
+                  <button className="iconbtn" onClick={() => deleteRebalanceEntry(r.date)} style={{ padding: 2, color: "#5a6274", fontSize: 12, flexShrink: 0 }}>🗑 회차삭제</button>
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 5 }}>
+                  {r.items && r.items.map((it, j) => (
+                    <div key={j} style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "#12151b", border: "1px solid #2a303c", borderRadius: 6, padding: "3px 6px", width: "fit-content" }}>
+                      <input
+                        className="tnum"
+                        value={it.name}
+                        onChange={(e) => updateRebalanceItem(r.date, it.name, "name", e.target.value)}
+                        style={{ width: `${Math.max(2, [...it.name].reduce((w, c) => w + (c.charCodeAt(0) > 0x3000 ? 2 : 1), 0)) + 0.5}ch`, maxWidth: 100, background: "none", border: "none", color: "#c9974a", fontWeight: 700, fontSize: 11, padding: 0 }}
+                      />
+                      <input
+                        className="tnum"
+                        inputMode="numeric"
+                        value={toDisplay(it.qty)}
+                        onChange={(e) => updateRebalanceItem(r.date, it.name, "qty", fromDisplay(e.target.value))}
+                        style={{ width: `${Math.max(1, String(toDisplay(it.qty)).length) + 0.5}ch`, maxWidth: 44, background: "none", border: "none", color: "#e7eaf0", fontSize: 11, padding: 0 }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => updateRebalanceItem(r.date, it.name, "direction", it.direction === "buy" ? "sell" : "buy")}
+                        style={{ fontSize: 10, fontWeight: 700, padding: "2px 4px", borderRadius: 4, border: "none", background: "none", color: it.direction === "sell" ? "#4c8dff" : "#e8544b" }}
+                      >
+                        {it.direction === "sell" ? "매도" : "매수"}
+                      </button>
+                      <button onClick={() => deleteRebalanceItem(r.date, it.name)} style={{ padding: 0, color: "#5a6274", fontSize: 11, background: "none", border: "none" }}>✕</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+          </div>
+          )}
+
+          <div className="card" style={{ margin: "0 16px 14px", padding: 14 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, color: "#8993a6" }}>📉 투자원금 증가/감소 이력</div>
+              <div style={{ fontSize: 10, color: "#5a6274", marginBottom: 8 }}>
+                투자원금은 "사용한돈" 정산이나 "빌려투자한돈" 변경을 통해서만 늘거나 줄어요. 그 내역이 아래에 날짜별로 기록돼요.
+              </div>
+              <button
+                className="iconbtn"
+                onClick={() => setShowPrincipalLog((v) => !v)}
+                style={{ width: "100%", textAlign: "left", fontSize: 12, color: "#8993a6", border: "1px solid #2a303c", borderRadius: 8, padding: "8px 10px", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+              >
+                <span>{cashSettleLog.length > 0 ? `이력 (${cashSettleLog.length}건)` : "이력 없음"}</span>
+                <span>{showPrincipalLog ? "▴" : "▾"}</span>
+              </button>
+              {showPrincipalLog && (
+                <div style={{ marginTop: 6, marginBottom: 10, maxHeight: 240, overflowY: "auto", background: "#12151b", border: "1px solid #2a303c", borderRadius: 8 }}>
+                  {cashSettleLog.length === 0 && (
+                    <div style={{ padding: 12, fontSize: 12, color: "#5a6274", textAlign: "center" }}>기록이 없어요.</div>
+                  )}
+                  {cashSettleLog.map((e) => {
+                    const isIncrease = e.type === "borrow" || e.type === "spend";
+                    const displayAmount = fmt(Math.abs(e.amount));
+                    const sign = isIncrease ? "+" : "-";
+                    const label = e.type === "repay" ? " 상환)"
+                      : e.type === "borrow" ? " 대출)"
+                      : e.type === "spend" ? " 현금화)"
+                      : e.type === "invest" ? " 투자한돈)"
+                      : " 정산)";
+                    // "상환/대출"은 빌려투자한돈(pledged) 값 변화를 보여준다. 새 방식은 pledgedBefore/After, 예전 방식은 cashBefore/After 필드에 그 값이 들어있다.
+                    const isLoan = e.type === "borrow" || e.type === "repay";
+                    const beforeVal = isLoan ? (e.pledgedBefore !== undefined ? e.pledgedBefore : e.cashBefore) : e.cashBefore;
+                    const afterVal = isLoan ? (e.pledgedAfter !== undefined ? e.pledgedAfter : e.cashAfter) : e.cashAfter;
+                    return (
+                      <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 10px", borderBottom: "1px solid #1a1f28" }}>
+                        <div className="tnum" style={{ flex: 1, fontSize: 11 }}>
+                          <div style={{ color: "#8993a6" }}>{e.date} {e.time}</div>
+                          <div>
+                            {e.accountName}: {fmt(beforeVal)}원 → {fmt(afterVal)}원
+                            {" ("}<span style={{ color: isIncrease ? "#e8544b" : "#4c8dff", fontWeight: 700 }}>{sign}{displayAmount}원</span>
+                            {label}
+                          </div>
+                        </div>
+                        <button onClick={() => deleteCashSettleEntry(e.id)} style={{ color: "#5a6274", fontSize: 13, padding: 4, background: "none", border: "none" }}>🗑</button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              <div className="lbl" style={{ marginBottom: 4 }}>투자원금 (실제보유현금 포함)을 직접 입력해서 적용 (현재: {fmt(investmentPrincipal)}원)</div>
+              <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+                <input
+                  className="field"
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="적용할 금액 입력"
+                  value={toDisplay(principalOverrideInput)}
+                  onChange={(e) => setPrincipalOverrideInput(fromDisplay(e.target.value))}
+                  style={{ flex: 1 }}
+                />
+                <button onClick={applyPrincipalOverride} style={{ padding: "0 14px", borderRadius: 8, border: "1px solid #c9974a", background: "none", color: "#c9974a", fontWeight: 700, fontSize: 12 }}>
+                  적용
+                </button>
+              </div>
+          </div>
+
         </div>
       </div>
       )}
@@ -4895,196 +4994,6 @@ function PortfolioApp() {
       })()}
 
 
-      {mainView === "view" && (
-        <div style={{ padding: "calc(env(safe-area-inset-top, 0px) + 10px) 0 0" }}>
-          <div style={{ padding: "0 16px 10px", position: "sticky", top: "env(safe-area-inset-top, 0px)", zIndex: 20, background: "#12151b" }}>
-            <button onClick={() => setMainView("home")} className="iconbtn" style={{ color: "#c9974a", fontWeight: 700, fontSize: 14 }}>← 뒤로</button>
-          </div>
-
-          <div style={{ margin: "0 16px 14px" }}>
-            <button
-              onClick={exportToExcel}
-              style={{ width: "100%", background: "#1a1f28", border: "1px solid #c9974a", color: "#c9974a", fontWeight: 700, borderRadius: 12, padding: "13px 0", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
-            >
-              📥 엑셀로 내보내기 (전체 데이터)
-            </button>
-          </div>
-
-          <button className="iconbtn" onClick={() => setShowRebalanceLog((v) => !v)} style={{ padding: "0 16px 8px", fontSize: 12, fontWeight: 600, color: "#8993a6", display: "flex", alignItems: "center", gap: 3, width: "100%" }}>
-            🔁 리밸런싱 이력 {showRebalanceLog ? "▴" : "▾"}
-          </button>
-          {showRebalanceLog && (
-          <div style={{ padding: "0 16px" }}>
-        <div className="card tnum" style={{ margin: "0 16px 12px", padding: 12, fontSize: 12 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, paddingBottom: 8, borderBottom: "1px solid #262c37" }}>
-            <span className="lbl">전체 평균 리밸런싱 주기 (총 {rebalanceDisplay.totalCount}회)</span>
-            <span style={{ fontWeight: 700 }}>{rebalanceDisplay.avgIntervalAll !== null ? `평균 ${rebalanceDisplay.avgIntervalAll.toFixed(1)}일에 한 번씩` : "-"}</span>
-          </div>
-          {rebalanceDisplay.last30.length === 0 ? (
-            <div style={{ color: "#5a6274", textAlign: "center", padding: 8 }}>아직 기록된 리밸런싱이 없어요.</div>
-          ) : (
-            rebalanceDisplay.last30.map((r, i) => (
-              <div key={r.date} style={{ padding: "6px 0", borderBottom: i === rebalanceDisplay.last30.length - 1 ? "none" : "1px solid #1a1f28" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                  <span style={{ color: "#8993a6", flexShrink: 0 }}>{rebalanceDisplay.totalCount - i}회차 · {r.date}{r.interval !== null ? ` (${r.interval}일 주기)` : " (최초)"}</span>
-                  <button className="iconbtn" onClick={() => deleteRebalanceEntry(r.date)} style={{ padding: 2, color: "#5a6274", fontSize: 12, flexShrink: 0 }}>🗑 회차삭제</button>
-                </div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 5 }}>
-                  {r.items && r.items.map((it, j) => (
-                    <div key={j} style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "#12151b", border: "1px solid #2a303c", borderRadius: 6, padding: "3px 6px", width: "fit-content" }}>
-                      <input
-                        className="tnum"
-                        value={it.name}
-                        onChange={(e) => updateRebalanceItem(r.date, it.name, "name", e.target.value)}
-                        style={{ width: `${Math.max(2, [...it.name].reduce((w, c) => w + (c.charCodeAt(0) > 0x3000 ? 2 : 1), 0)) + 0.5}ch`, maxWidth: 100, background: "none", border: "none", color: "#c9974a", fontWeight: 700, fontSize: 11, padding: 0 }}
-                      />
-                      <input
-                        className="tnum"
-                        inputMode="numeric"
-                        value={toDisplay(it.qty)}
-                        onChange={(e) => updateRebalanceItem(r.date, it.name, "qty", fromDisplay(e.target.value))}
-                        style={{ width: `${Math.max(1, String(toDisplay(it.qty)).length) + 0.5}ch`, maxWidth: 44, background: "none", border: "none", color: "#e7eaf0", fontSize: 11, padding: 0 }}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => updateRebalanceItem(r.date, it.name, "direction", it.direction === "buy" ? "sell" : "buy")}
-                        style={{ fontSize: 10, fontWeight: 700, padding: "2px 4px", borderRadius: 4, border: "none", background: "none", color: it.direction === "sell" ? "#4c8dff" : "#e8544b" }}
-                      >
-                        {it.direction === "sell" ? "매도" : "매수"}
-                      </button>
-                      <button onClick={() => deleteRebalanceItem(r.date, it.name)} style={{ padding: 0, color: "#5a6274", fontSize: 11, background: "none", border: "none" }}>✕</button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-          </div>
-          )}
-
-          <div className="card" style={{ margin: "0 16px 14px", padding: 14 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, color: "#8993a6" }}>📉 투자원금 증가/감소 이력</div>
-              <div style={{ fontSize: 10, color: "#5a6274", marginBottom: 8 }}>
-                투자원금은 "사용한돈" 정산이나 "빌려투자한돈" 변경을 통해서만 늘거나 줄어요. 그 내역이 아래에 날짜별로 기록돼요.
-              </div>
-              <button
-                className="iconbtn"
-                onClick={() => setShowPrincipalLog((v) => !v)}
-                style={{ width: "100%", textAlign: "left", fontSize: 12, color: "#8993a6", border: "1px solid #2a303c", borderRadius: 8, padding: "8px 10px", display: "flex", justifyContent: "space-between", alignItems: "center" }}
-              >
-                <span>{cashSettleLog.length > 0 ? `이력 (${cashSettleLog.length}건)` : "이력 없음"}</span>
-                <span>{showPrincipalLog ? "▴" : "▾"}</span>
-              </button>
-              {showPrincipalLog && (
-                <div style={{ marginTop: 6, marginBottom: 10, maxHeight: 240, overflowY: "auto", background: "#12151b", border: "1px solid #2a303c", borderRadius: 8 }}>
-                  {cashSettleLog.length === 0 && (
-                    <div style={{ padding: 12, fontSize: 12, color: "#5a6274", textAlign: "center" }}>기록이 없어요.</div>
-                  )}
-                  {cashSettleLog.map((e) => {
-                    const isIncrease = e.type === "borrow" || e.type === "spend";
-                    const displayAmount = fmt(Math.abs(e.amount));
-                    const sign = isIncrease ? "+" : "-";
-                    const label = e.type === "repay" ? " 상환)"
-                      : e.type === "borrow" ? " 대출)"
-                      : e.type === "spend" ? " 현금화)"
-                      : e.type === "invest" ? " 투자한돈)"
-                      : " 정산)";
-                    // "상환/대출"은 빌려투자한돈(pledged) 값 변화를 보여준다. 새 방식은 pledgedBefore/After, 예전 방식은 cashBefore/After 필드에 그 값이 들어있다.
-                    const isLoan = e.type === "borrow" || e.type === "repay";
-                    const beforeVal = isLoan ? (e.pledgedBefore !== undefined ? e.pledgedBefore : e.cashBefore) : e.cashBefore;
-                    const afterVal = isLoan ? (e.pledgedAfter !== undefined ? e.pledgedAfter : e.cashAfter) : e.cashAfter;
-                    return (
-                      <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 10px", borderBottom: "1px solid #1a1f28" }}>
-                        <div className="tnum" style={{ flex: 1, fontSize: 11 }}>
-                          <div style={{ color: "#8993a6" }}>{e.date} {e.time}</div>
-                          <div>
-                            {e.accountName}: {fmt(beforeVal)}원 → {fmt(afterVal)}원
-                            {" ("}<span style={{ color: isIncrease ? "#e8544b" : "#4c8dff", fontWeight: 700 }}>{sign}{displayAmount}원</span>
-                            {label}
-                          </div>
-                        </div>
-                        <button onClick={() => deleteCashSettleEntry(e.id)} style={{ color: "#5a6274", fontSize: 13, padding: 4, background: "none", border: "none" }}>🗑</button>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-              <div className="lbl" style={{ marginBottom: 4 }}>투자원금 (실제보유현금 포함)을 직접 입력해서 적용 (현재: {fmt(investmentPrincipal)}원)</div>
-              <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-                <input
-                  className="field"
-                  type="text"
-                  inputMode="numeric"
-                  placeholder="적용할 금액 입력"
-                  value={toDisplay(principalOverrideInput)}
-                  onChange={(e) => setPrincipalOverrideInput(fromDisplay(e.target.value))}
-                  style={{ flex: 1 }}
-                />
-                <button onClick={applyPrincipalOverride} style={{ padding: "0 14px", borderRadius: 8, border: "1px solid #c9974a", background: "none", color: "#c9974a", fontWeight: 700, fontSize: 12 }}>
-                  적용
-                </button>
-              </div>
-          </div>
-
-          <div className="card" style={{ margin: "14px 16px", padding: 14 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: "#8993a6" }}>📌 현재날짜로보관</div>
-            <button onClick={() => saveSnapshot(false)} style={{ width: "100%", padding: "10px 0", borderRadius: 8, border: "none", background: "#c9974a", color: "#12151b", fontWeight: 700, fontSize: 12 }}>
-              💾 현재날짜로보관
-            </button>
-            <div style={{ marginTop: 4, fontSize: 10, color: "#5a6274" }}>
-              보관된 데이터는 나중에 잠깐 열어서 확인만 하는 용도예요. 열어봐도 실제 데이터는 바뀌지 않아요.
-            </div>
-            {snapshotMsg && <div style={{ marginTop: 6, fontSize: 11, color: "#8993a6" }}>{snapshotMsg}</div>}
-            {isPreviewing && (
-              <button onClick={exitPreview} style={{ marginTop: 8, width: "100%", padding: "8px 0", borderRadius: 8, border: "1px solid #c9974a", background: "none", color: "#c9974a", fontWeight: 700, fontSize: 12 }}>
-                ↩ 실시간 데이터로 돌아가기
-              </button>
-            )}
-
-            <div style={{ marginTop: 10, position: "relative" }}>
-              <button
-                className="iconbtn"
-                onClick={() => setShowSnapshotList((v) => !v)}
-                style={{ width: "100%", textAlign: "left", fontSize: 12, color: "#8993a6", border: "1px solid #2a303c", borderRadius: 8, padding: "8px 10px", display: "flex", justifyContent: "space-between", alignItems: "center" }}
-              >
-                <span>
-                  {snapshots.length > 0
-                    ? `보관 날짜 목록 (${snapshots.length}개) — 최근: ${snapshots[0].label}`
-                    : "보관된 날짜 없음"}
-                </span>
-                <span>{showSnapshotList ? "▴" : "▾"}</span>
-              </button>
-              {showSnapshotList && (
-                <div style={{ marginTop: 6, maxHeight: 240, overflowY: "auto", background: "#12151b", border: "1px solid #2a303c", borderRadius: 8 }}>
-                  {snapshots.length === 0 && (
-                    <div style={{ padding: 12, fontSize: 12, color: "#5a6274", textAlign: "center" }}>보관된 날짜가 없어요.</div>
-                  )}
-                  {snapshots.map((s) => (
-                    <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 10px", borderBottom: "1px solid #1a1f28" }}>
-                      <button
-                        onClick={() => loadSnapshot(s.id)}
-                        className="tnum"
-                        style={{ flex: 1, textAlign: "left", background: "none", border: "none", color: "#e7eaf0", fontSize: 12, cursor: "pointer", padding: 0 }}
-                      >
-                        {s.label}
-                      </button>
-                      <button
-                        className="iconbtn"
-                        onClick={() => { if (window.confirm(`"${s.label}" 보관을 삭제할까요?`)) deleteSnapshot(s.id); }}
-                        style={{ color: "#5a6274", fontSize: 13, padding: 4 }}
-                      >
-                        🗑
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-          </div>
-        </div>
-      )}
 
       {mainView === "home" && (<>
       <div className="card tnum" style={{ margin: "0 16px 8px", padding: "8px 16px" }}>
@@ -5813,17 +5722,14 @@ function PortfolioApp() {
       )}
 
       {mainView === "home" && (<>
-      <div style={{ padding: "0 16px 10px", display: "flex", gap: 8 }}>
-        <button onClick={() => setMainView("stocks")} className="iconbtn" style={{ flex: 1, padding: "8px 0", borderRadius: 10, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 13 }}>
+      <div style={{ padding: "0 16px 10px", display: "flex", gap: 6, justifyContent: "flex-start" }}>
+        <button onClick={() => setMainView("stocks")} className="iconbtn" style={{ flex: "0 0 calc((100% - 18px) / 4)", padding: "8px 4px", whiteSpace: "nowrap", borderRadius: 10, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 13 }}>
           📈 보유종목
         </button>
-        <button onClick={() => setMainView("cash")} className="iconbtn" style={{ flex: 1, padding: "8px 0", borderRadius: 10, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 13 }}>
+        <button onClick={() => setMainView("cash")} className="iconbtn" style={{ flex: "0 0 calc((100% - 18px) / 4)", padding: "8px 4px", whiteSpace: "nowrap", borderRadius: 10, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 13 }}>
           💰 현금계좌
         </button>
-        <button onClick={() => setMainView("view")} className="iconbtn" style={{ flex: 1, padding: "8px 0", borderRadius: 10, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 13 }}>
-          👁 보기
-        </button>
-        <button onClick={() => setMainView("settings")} className="iconbtn" style={{ flex: 1, padding: "8px 0", borderRadius: 10, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 13 }}>
+        <button onClick={() => setMainView("settings")} className="iconbtn" style={{ flex: "0 0 calc((100% - 18px) / 4)", padding: "8px 4px", whiteSpace: "nowrap", borderRadius: 10, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 13 }}>
           ⚙ 설정
         </button>
       </div>
