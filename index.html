@@ -893,6 +893,7 @@ function PortfolioApp() {
   const [saveError, setSaveError] = useState(false);
   const [showBackupList, setShowBackupList] = useState(false);
   const [showPrincipalLog, setShowPrincipalLog] = useState(false);
+  const [showPrincipalSection, setShowPrincipalSection] = useState(false);
   const [principalOverrideInput, setPrincipalOverrideInput] = useState("");
 
   useEffect(() => {
@@ -2953,91 +2954,59 @@ function PortfolioApp() {
       </>)}
 
       {mainView === "settings" && (
-        <div style={{ padding: "calc(env(safe-area-inset-top, 0px) + 10px) 0 0" }}>
-          <div style={{ padding: "0 16px 10px", position: "sticky", top: "env(safe-area-inset-top, 0px)", zIndex: 20, background: "#12151b", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ padding: "calc(env(safe-area-inset-top, 0px) + 4px) 0 0" }}>
+          <div style={{ padding: "0 16px 4px", position: "sticky", top: "env(safe-area-inset-top, 0px)", zIndex: 20, background: "#12151b", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <button onClick={() => setMainView("home")} className="iconbtn" style={{ color: "#c9974a", fontWeight: 700, fontSize: 14 }}>← 뒤로</button>
             <div style={{ display: "flex", gap: 6 }}>
               <button
                 onClick={downloadDataAsFile}
                 className="iconbtn"
-                style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #c9974a", background: "rgba(201,151,74,0.12)", color: "#c9974a", fontWeight: 700, fontSize: 12.5, whiteSpace: "nowrap" }}
+                style={{ padding: "4px 10px", borderRadius: 8, border: "1px solid #c9974a", background: "rgba(201,151,74,0.12)", color: "#c9974a", fontWeight: 700, fontSize: 12.5, whiteSpace: "nowrap" }}
               >
                 ⬇ 백업
               </button>
               <button
                 onClick={() => backupFileInputRef.current && backupFileInputRef.current.click()}
                 className="iconbtn"
-                style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #c9974a", background: "rgba(201,151,74,0.12)", color: "#c9974a", fontWeight: 700, fontSize: 12.5, whiteSpace: "nowrap" }}
+                style={{ padding: "4px 10px", borderRadius: 8, border: "1px solid #c9974a", background: "rgba(201,151,74,0.12)", color: "#c9974a", fontWeight: 700, fontSize: 12.5, whiteSpace: "nowrap" }}
               >
                 ⬆ 불러오기
               </button>
+              <button
+                onClick={exportToExcel}
+                className="iconbtn"
+                style={{ padding: "4px 10px", borderRadius: 8, border: "1px solid #c9974a", background: "rgba(201,151,74,0.12)", color: "#c9974a", fontWeight: 700, fontSize: 12.5, whiteSpace: "nowrap" }}
+              >
+                📥 엑셀
+              </button>
             </div>
           </div>
-        <div className="card" style={{ margin: "0 16px 14px", padding: 14 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>설정</div>
+        <div className="card" style={{ margin: "0 16px 6px", padding: 8 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>설정</div>
           <div className="lbl" style={{ marginBottom: 4 }}>프록시 서버 주소 (실시간 시세 연동용)</div>
-          <input className="field" placeholder="https://your-proxy.onrender.com" value={proxyUrl} onChange={(e) => setProxyUrl(e.target.value)} style={{ marginBottom: 10 }} />
+          <input className="field" placeholder="https://your-proxy.onrender.com" value={proxyUrl} onChange={(e) => setProxyUrl(e.target.value)} style={{ marginBottom: 5 }} />
           <div className="lbl" style={{ marginBottom: 4 }}>서버 비밀키 (APP_SHARED_SECRET과 동일하게)</div>
-          <input className="field" type="password" placeholder="Render에 설정한 비밀키" value={appSecret} onChange={(e) => setAppSecret(e.target.value)} style={{ marginBottom: 10 }} />
-          <button onClick={refreshPrices} disabled={refreshing}
-            style={{ marginTop: 12, width: "100%", background: "#c9974a", color: "#12151b", fontWeight: 700, border: "none", borderRadius: 10, padding: "10px 0", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-            <span className={refreshing ? "spinning" : ""}>↻</span>
-            {refreshing ? "시세 갱신 중..." : "실시간 시세 새로고침"}
-          </button>
-          {refreshMsg && <div style={{ marginTop: 8, fontSize: 12, color: "#8993a6" }}>{refreshMsg}</div>}
-
-          <button
-            onClick={() => {
-              try {
-                localStorage.removeItem(WEEKLY_SIGNAL_STORE_KEY);
-                localStorage.removeItem(STOCK_WEEKLY_SIGNAL_STORE_KEY);
-              } catch (e) {}
-              fetchWeeklySignals();
-              fetchStockWeeklySignals();
-            }}
-            style={{ marginTop: 8, width: "100%", background: "none", color: "#8993a6", fontWeight: 700, border: "1px solid #2a303c", borderRadius: 10, padding: "9px 0", fontSize: 12 }}
-          >
-            ↻ 매수/매도/중도시점 다시 계산
-          </button>
-          {(() => {
-            const codes = stockCodes;
-            const stockOkCount = codes.filter((c) => stockWeeklySignal[c]).length;
-            const stockTotal = codes.length;
-            const kospiOk = !!weeklySignal.kospi;
-            const kosdaqOk = !!weeklySignal.kosdaq;
-            const allOk = kospiOk && kosdaqOk && stockOkCount === stockTotal;
-            return (
-              <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 8, fontSize: 11, background: allOk ? "rgba(232,84,75,0.08)" : "rgba(137,147,166,0.10)", border: `1px solid ${allOk ? "#e8544b" : "#5a6274"}` }}>
-                <span style={{ color: kospiOk ? "#e8544b" : "#8993a6" }}>코스피 {kospiOk ? "✅ 성공" : "⏳ 대기/실패"}</span>
-                {"  ·  "}
-                <span style={{ color: kosdaqOk ? "#e8544b" : "#8993a6" }}>코스닥 {kosdaqOk ? "✅ 성공" : "⏳ 대기/실패"}</span>
-                {"  ·  "}
-                <span style={{ color: stockOkCount === stockTotal && stockTotal > 0 ? "#e8544b" : "#8993a6" }}>
-                  종목 {stockOkCount}/{stockTotal} 성공
-                </span>
-                {!allOk && <div style={{ marginTop: 4, color: "#5a6274" }}>실패한 항목은 30초마다 자동으로 다시 시도해요.</div>}
-              </div>
-            );
-          })()}
-
-          <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1px solid #262c37" }}>
+          <input className="field" type="password" placeholder="Render에 설정한 비밀키" value={appSecret} onChange={(e) => setAppSecret(e.target.value)} style={{ marginBottom: 5 }} />
+          </div>
+          <div className="card" style={{ margin: "0 16px 6px", padding: 8 }}>
+          <div style={{ margin: 0 }}>
             <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, color: "#8993a6" }}>🔒 앱 잠금 (Face ID / 암호)</div>
             {!lockSupported ? (
               <div style={{ fontSize: 11, color: "#5a6274" }}>이 브라우저/기기는 Face ID·암호 잠금을 지원하지 않아요.</div>
             ) : lockEnabled ? (
               <>
-                <div style={{ fontSize: 11, color: "#8993a6", marginBottom: 8 }}>✅ 잠금이 켜져 있어요. 앱을 다시 열 때마다 Face ID/암호를 요구해요.</div>
-                <button onClick={disableLock} style={{ width: "100%", padding: "10px 0", borderRadius: 8, border: "1px solid #5a6274", background: "none", color: "#8993a6", fontWeight: 700, fontSize: 12 }}>
+                <div style={{ fontSize: 11, color: "#8993a6", marginBottom: 4 }}>✅ 잠금이 켜져 있어요. 앱을 다시 열 때마다 Face ID/암호를 요구해요.</div>
+                <button onClick={disableLock} style={{ width: "100%", padding: "6px 0", borderRadius: 8, border: "1px solid #5a6274", background: "none", color: "#8993a6", fontWeight: 700, fontSize: 12 }}>
                   잠금 끄기
                 </button>
               </>
             ) : (
-              <button onClick={enableLock} style={{ width: "100%", padding: "10px 0", borderRadius: 8, border: "none", background: "#c9974a", color: "#12151b", fontWeight: 700, fontSize: 12 }}>
+              <button onClick={enableLock} style={{ width: "100%", padding: "6px 0", borderRadius: 8, border: "none", background: "#c9974a", color: "#12151b", fontWeight: 700, fontSize: 12 }}>
                 🔒 Face ID / 암호로 앱 잠금 설정
               </button>
             )}
             {lockEnabled && (
-              <div style={{ marginTop: 12 }}>
+              <div style={{ marginTop: 6 }}>
                 <div className="lbl" style={{ marginBottom: 4 }}>
                   {hasLockPassword ? "예비 비밀번호 (Face ID 안 될 때 사용)" : "예비 비밀번호 설정 (Face ID 안 될 때 대신 사용)"}
                 </div>
@@ -3059,13 +3028,58 @@ function PortfolioApp() {
             {lockMsg && <div style={{ marginTop: 6, fontSize: 11, color: "#8993a6" }}>{lockMsg}</div>}
           </div>
 
-          <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1px solid #262c37" }}>
-            <button className="iconbtn" onClick={() => setShowImportExport((v) => !v)} style={{ fontSize: 12, color: "#8993a6" }}>
+          </div>
+          <div className="card" style={{ margin: "0 16px 6px", padding: 8 }}>
+          <button onClick={refreshPrices} disabled={refreshing}
+            style={{ marginTop: 12, width: "100%", background: "#c9974a", color: "#12151b", fontWeight: 700, border: "none", borderRadius: 10, padding: "6px 0", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+            <span className={refreshing ? "spinning" : ""}>↻</span>
+            {refreshing ? "시세 갱신 중..." : "실시간 시세 새로고침"}
+          </button>
+          {refreshMsg && <div style={{ marginTop: 3, fontSize: 12, color: "#8993a6" }}>{refreshMsg}</div>}
+
+          <button
+            onClick={() => {
+              try {
+                localStorage.removeItem(WEEKLY_SIGNAL_STORE_KEY);
+                localStorage.removeItem(STOCK_WEEKLY_SIGNAL_STORE_KEY);
+              } catch (e) {}
+              fetchWeeklySignals();
+              fetchStockWeeklySignals();
+            }}
+            style={{ marginTop: 4, width: "100%", background: "none", color: "#8993a6", fontWeight: 700, border: "1px solid #2a303c", borderRadius: 10, padding: "5px 0", fontSize: 12 }}
+          >
+            ↻ 매수/매도/중도시점 다시 계산
+          </button>
+          {(() => {
+            const codes = stockCodes;
+            const stockOkCount = codes.filter((c) => stockWeeklySignal[c]).length;
+            const stockTotal = codes.length;
+            const kospiOk = !!weeklySignal.kospi;
+            const kosdaqOk = !!weeklySignal.kosdaq;
+            const allOk = kospiOk && kosdaqOk && stockOkCount === stockTotal;
+            return (
+              <div style={{ marginTop: 8, padding: "5px 10px", borderRadius: 8, fontSize: 11, background: allOk ? "rgba(232,84,75,0.08)" : "rgba(137,147,166,0.10)", border: `1px solid ${allOk ? "#e8544b" : "#5a6274"}` }}>
+                <span style={{ color: kospiOk ? "#e8544b" : "#8993a6" }}>코스피 {kospiOk ? "✅ 성공" : "⏳ 대기/실패"}</span>
+                {"  ·  "}
+                <span style={{ color: kosdaqOk ? "#e8544b" : "#8993a6" }}>코스닥 {kosdaqOk ? "✅ 성공" : "⏳ 대기/실패"}</span>
+                {"  ·  "}
+                <span style={{ color: stockOkCount === stockTotal && stockTotal > 0 ? "#e8544b" : "#8993a6" }}>
+                  종목 {stockOkCount}/{stockTotal} 성공
+                </span>
+                {!allOk && <div style={{ marginTop: 4, color: "#5a6274" }}>실패한 항목은 30초마다 자동으로 다시 시도해요.</div>}
+              </div>
+            );
+          })()}
+
+          </div>
+          <div className="card" style={{ margin: "0 16px 6px", padding: 8 }}>
+          <div style={{ margin: 0 }}>
+            <button className="iconbtn" onClick={() => setShowImportExport((v) => !v)} style={{ fontSize: 12, fontWeight: 600, color: "#8993a6", padding: 0, display: "flex", alignItems: "center", gap: 3, width: "100%", justifyContent: "flex-start", textAlign: "left" }}>
               🔄 데이터 백업/복원 {showImportExport ? "▴" : "▾"}
             </button>
             {showImportExport && (
-              <div style={{ marginTop: 10 }}>
-                <div className="lbl" style={{ marginBottom: 6 }}>
+              <div style={{ marginTop: 5 }}>
+                <div className="lbl" style={{ marginBottom: 3 }}>
                   파일 하나로 내려받고, 그 파일을 그대로 다시 불러올 수 있어요. (이 데이터는 이 기기에만 저장되고, 소스코드나 GitHub에는 절대 들어가지 않아요)
                 </div>
                 <input
@@ -3076,10 +3090,10 @@ function PortfolioApp() {
                   style={{ display: "none" }}
                 />
                 <div style={{ display: "flex", gap: 8 }}>
-                  <button onClick={downloadDataAsFile} style={{ flex: 1, padding: "10px 0", borderRadius: 8, border: "1px solid #2a303c", background: "none", color: "#c9974a", fontWeight: 700, fontSize: 13 }}>
+                  <button onClick={downloadDataAsFile} style={{ flex: 1, padding: "6px 0", borderRadius: 8, border: "1px solid #2a303c", background: "none", color: "#c9974a", fontWeight: 700, fontSize: 13 }}>
                     ⬇ 파일로 내려받기
                   </button>
-                  <button onClick={() => backupFileInputRef.current && backupFileInputRef.current.click()} style={{ flex: 1, padding: "10px 0", borderRadius: 8, border: "none", background: "#c9974a", color: "#12151b", fontWeight: 700, fontSize: 13 }}>
+                  <button onClick={() => backupFileInputRef.current && backupFileInputRef.current.click()} style={{ flex: 1, padding: "6px 0", borderRadius: 8, border: "none", background: "#c9974a", color: "#12151b", fontWeight: 700, fontSize: 13 }}>
                     ⬆ 파일에서 복원
                   </button>
                 </div>
@@ -3097,10 +3111,10 @@ function PortfolioApp() {
                       style={{ width: "100%", minHeight: 120, fontFamily: "monospace", fontSize: 11, resize: "vertical" }}
                     />
                     <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                      <button onClick={exportDataAsText} style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: "1px solid #2a303c", background: "none", color: "#8993a6", fontSize: 12 }}>
+                      <button onClick={exportDataAsText} style={{ flex: 1, padding: "5px 0", borderRadius: 8, border: "1px solid #2a303c", background: "none", color: "#8993a6", fontSize: 12 }}>
                         현재 데이터 내보내기
                       </button>
-                      <button onClick={applyImportedData} style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: "none", background: "#c9974a", color: "#12151b", fontWeight: 700, fontSize: 12 }}>
+                      <button onClick={applyImportedData} style={{ flex: 1, padding: "5px 0", borderRadius: 8, border: "none", background: "#c9974a", color: "#12151b", fontWeight: 700, fontSize: 12 }}>
                         불러오기
                       </button>
                     </div>
@@ -3111,31 +3125,23 @@ function PortfolioApp() {
             )}
           </div>
 
-          <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1px solid #262c37" }}>
-            <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid #262c37" }}>
-              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, color: "#8993a6" }}>🛟 자동 백업 (하루 1개, 그날의 마지막 상태 · 최근 5일)</div>
-              <div style={{ fontSize: 10, color: "#5a6274", marginBottom: 8 }}>
-                실수로 데이터가 잘못됐을 때, 이전 실행 시점으로 되돌릴 수 있어요.
-              </div>
-              <button
-                className="iconbtn"
-                onClick={() => setShowBackupList((v) => !v)}
-                style={{ width: "100%", textAlign: "left", fontSize: 12, color: "#8993a6", border: "1px solid #2a303c", borderRadius: 8, padding: "8px 10px", display: "flex", justifyContent: "space-between", alignItems: "center" }}
-              >
-                <span>
-                  {launchBackups.length > 0
-                    ? `자동 백업 목록 (${launchBackups.length}개) — 최근: ${launchBackups[0].label}`
-                    : "자동 백업 없음"}
-                </span>
-                <span>{showBackupList ? "▴" : "▾"}</span>
+          </div>
+          <div className="card" style={{ margin: "0 16px 6px", padding: 8 }}>
+          <div style={{ margin: 0 }}>
+            <div style={{ marginTop: 4, paddingTop: 4, borderTop: "1px solid #262c37" }}>
+              <button className="iconbtn" onClick={() => setShowBackupList((v) => !v)} style={{ fontSize: 12, fontWeight: 600, color: "#8993a6", display: "flex", alignItems: "center", gap: 3, width: "100%", padding: 0 }}>
+                🛟 자동 백업 (하루 1개, 그날의 마지막 상태 · 최근 5일) {showBackupList ? "▴" : "▾"}
               </button>
-              {showBackupList && (
-                <div style={{ marginTop: 6, maxHeight: 240, overflowY: "auto", background: "#12151b", border: "1px solid #2a303c", borderRadius: 8 }}>
+              {showBackupList && (<>
+                <div style={{ fontSize: 10, color: "#5a6274", margin: "4px 0" }}>
+                  실수로 데이터가 잘못됐을 때, 이전 실행 시점으로 되돌릴 수 있어요. 항목을 탭하면 그 시점으로 복원돼요.
+                </div>
+                <div style={{ maxHeight: 240, overflowY: "auto", background: "#12151b", border: "1px solid #2a303c", borderRadius: 8 }}>
                   {launchBackups.length === 0 && (
                     <div style={{ padding: 12, fontSize: 12, color: "#5a6274", textAlign: "center" }}>자동 백업이 없어요.</div>
                   )}
                   {launchBackups.map((b) => (
-                    <div key={b.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 10px", borderBottom: "1px solid #1a1f28" }}>
+                    <div key={b.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 10px", borderBottom: "1px solid #1a1f28" }}>
                       <button
                         onClick={() => restoreFromLaunchBackup(b.id)}
                         className="tnum"
@@ -3146,25 +3152,18 @@ function PortfolioApp() {
                     </div>
                   ))}
                 </div>
-              )}
+              </>)}
             </div>
           </div>
 
-          <div style={{ margin: "0 16px 14px" }}>
-            <button
-              onClick={exportToExcel}
-              style={{ width: "100%", background: "#1a1f28", border: "1px solid #c9974a", color: "#c9974a", fontWeight: 700, borderRadius: 12, padding: "13px 0", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
-            >
-              📥 엑셀로 내보내기 (전체 데이터)
-            </button>
           </div>
-
-          <button className="iconbtn" onClick={() => setShowRebalanceLog((v) => !v)} style={{ padding: "0 16px 8px", fontSize: 12, fontWeight: 600, color: "#8993a6", display: "flex", alignItems: "center", gap: 3, width: "100%" }}>
+          <div className="card" style={{ margin: "0 16px 6px", padding: 8 }}>
+          <div style={{ margin: "6px 0 0" }}><button className="iconbtn" onClick={() => setShowRebalanceLog((v) => !v)} style={{ padding: 0, fontSize: 12, fontWeight: 600, color: "#8993a6", display: "flex", alignItems: "center", justifyContent: "flex-start", textAlign: "left", gap: 3, width: "100%" }}>
             🔁 리밸런싱 이력 {showRebalanceLog ? "▴" : "▾"}
-          </button>
+          </button></div>
           {showRebalanceLog && (
-          <div style={{ padding: "0 16px" }}>
-        <div className="card tnum" style={{ margin: "0 16px 12px", padding: 12, fontSize: 12 }}>
+          <div style={{ padding: 0 }}>
+        <div className="tnum" style={{ margin: "0 0 4px", fontSize: 12 }}>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, paddingBottom: 8, borderBottom: "1px solid #262c37" }}>
             <span className="lbl">전체 평균 리밸런싱 주기 (총 {rebalanceDisplay.totalCount}회)</span>
             <span style={{ fontWeight: 700 }}>{rebalanceDisplay.avgIntervalAll !== null ? `평균 ${rebalanceDisplay.avgIntervalAll.toFixed(1)}일에 한 번씩` : "-"}</span>
@@ -3212,15 +3211,20 @@ function PortfolioApp() {
           </div>
           )}
 
-          <div className="card" style={{ margin: "0 16px 14px", padding: 14 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, color: "#8993a6" }}>📉 투자원금 증가/감소 이력</div>
-              <div style={{ fontSize: 10, color: "#5a6274", marginBottom: 8 }}>
+          </div>
+          <div className="card" style={{ margin: "0 16px 6px", padding: 8 }}>
+          <div style={{ margin: "6px 0 0" }}><button className="iconbtn" onClick={() => setShowPrincipalSection((v) => !v)} style={{ padding: 0, fontSize: 12, fontWeight: 600, color: "#8993a6", display: "flex", alignItems: "center", justifyContent: "flex-start", textAlign: "left", gap: 3, width: "100%" }}>
+            📉 투자원금 증가/감소 이력 {showPrincipalSection ? "▴" : "▾"}
+          </button></div>
+          {showPrincipalSection && (
+          <div style={{ margin: 0, padding: 0 }}>
+              <div style={{ fontSize: 10, color: "#5a6274", marginBottom: 4 }}>
                 투자원금은 "사용한돈" 정산이나 "빌려투자한돈" 변경을 통해서만 늘거나 줄어요. 그 내역이 아래에 날짜별로 기록돼요.
               </div>
               <button
                 className="iconbtn"
                 onClick={() => setShowPrincipalLog((v) => !v)}
-                style={{ width: "100%", textAlign: "left", fontSize: 12, color: "#8993a6", border: "1px solid #2a303c", borderRadius: 8, padding: "8px 10px", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+                style={{ width: "100%", textAlign: "left", fontSize: 12, color: "#8993a6", border: "1px solid #2a303c", borderRadius: 8, padding: "5px 10px", display: "flex", justifyContent: "space-between", alignItems: "center" }}
               >
                 <span>{cashSettleLog.length > 0 ? `이력 (${cashSettleLog.length}건)` : "이력 없음"}</span>
                 <span>{showPrincipalLog ? "▴" : "▾"}</span>
@@ -3244,7 +3248,7 @@ function PortfolioApp() {
                     const beforeVal = isLoan ? (e.pledgedBefore !== undefined ? e.pledgedBefore : e.cashBefore) : e.cashBefore;
                     const afterVal = isLoan ? (e.pledgedAfter !== undefined ? e.pledgedAfter : e.cashAfter) : e.cashAfter;
                     return (
-                      <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 10px", borderBottom: "1px solid #1a1f28" }}>
+                      <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 10px", borderBottom: "1px solid #1a1f28" }}>
                         <div className="tnum" style={{ flex: 1, fontSize: 11 }}>
                           <div style={{ color: "#8993a6" }}>{e.date} {e.time}</div>
                           <div>
@@ -3260,7 +3264,7 @@ function PortfolioApp() {
                 </div>
               )}
               <div className="lbl" style={{ marginBottom: 4 }}>투자원금 (실제보유현금 포함)을 직접 입력해서 적용 (현재: {fmt(investmentPrincipal)}원)</div>
-              <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+              <div style={{ display: "flex", gap: 6, marginBottom: 4 }}>
                 <input
                   className="field"
                   type="text"
@@ -3275,6 +3279,7 @@ function PortfolioApp() {
                 </button>
               </div>
           </div>
+          )}
 
         </div>
       </div>
