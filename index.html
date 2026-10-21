@@ -5503,19 +5503,19 @@ function PortfolioApp() {
                   ["부채비율", debtRatioAnnual, (v) => `${v.toFixed(1)}%`, debtTier, debtRange],
                   ["당좌비율", quickRatioAnnual, (v) => `${v.toFixed(1)}%`, quickRatioColor, "150%↑"],
                 ];
-                const allYears = [...new Set(rows.flatMap(([, pts]) => pts.map((p) => p.year)))].sort().slice(quarterMode ? -4 : -4);
+                const allYears = quarterMode ? ["03", "06", "09", "12"] : [...new Set(rows.flatMap(([, pts]) => pts.map((p) => p.year)))].sort().slice(-4);
                 const colLabel = (y) => (quarterMode ? `${Math.round(Number(y) / 3)}분기` : y + "년");
 
                 return (
                   <div style={{ marginTop: 4, fontSize: 11, color: "#5a6274" }}>
                     <div style={{ marginBottom: 2, color: "#c9974a", fontWeight: 700 }}>{quarterMode ? `${thisYearStr}년 분기별 · ` : ""}기준선: {profileLabel}</div>
-                    {allYears.length === 0 ? (
+                    {(!quarterMode && allYears.length === 0) ? (
                       <div>표시할 데이터가 없어요.</div>
                     ) : (
                       <>
                         <div style={{ display: "grid", gridTemplateColumns: `minmax(0, 1fr) repeat(${allYears.length}, 52px)`, gap: 2, marginBottom: 2, fontWeight: 700, color: "#8993a6" }}>
                           <div></div>
-                          {allYears.map((y) => <div key={y} className="tnum" style={{ textAlign: "center", fontSize: 12 }}>{colLabel(y)}</div>)}
+                          {allYears.map((y) => <div key={y} className="tnum" style={{ textAlign: quarterMode ? "right" : "center", fontSize: 12, paddingRight: quarterMode ? 2 : 0 }}>{colLabel(y)}</div>)}
                         </div>
                         {rows.map(([label, pts, formatter, colorFn, excellentRange]) => {
                           const yoy = yoyColorFor(pts);
@@ -5534,7 +5534,7 @@ function PortfolioApp() {
                                     key={y}
                                     className="tnum"
                                     style={{
-                                      textAlign: "center", fontWeight: 700, fontSize: 11, color, lineHeight: 1.1, whiteSpace: "nowrap", letterSpacing: "-0.4px",
+                                      textAlign: quarterMode ? "right" : "center", fontWeight: 700, fontSize: 11, color, lineHeight: 1.1, whiteSpace: "nowrap", letterSpacing: "-0.4px",
                                       border: isExcellent ? "1px solid #e8544b" : "1px solid transparent",
                                       borderRadius: 4, padding: "0px 1px",
                                     }}
