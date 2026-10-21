@@ -800,6 +800,7 @@ function PortfolioApp() {
   const [showRebalanceLog, setShowRebalanceLog] = useState(false);
   const [expandedStock, setExpandedStock] = useState(null);
   const [metricsStock, setMetricsStock] = useState(null); // "종목지표" 펼친 종목 id
+  const [quarterStock, setQuarterStock] = useState(null); // "당해데이터"(당해 분기별) 펼친 종목 id
   const [candleStock, setCandleStock] = useState(null); // "강약챠트" 펼친 종목 id (보유종목 화면)
   const [extraFundamentalsData, setExtraFundamentalsData] = useState({}); // { [code]: { periods, divUsed } } — 매출액/당좌비율
   const [extraFundamentalsLoading, setExtraFundamentalsLoading] = useState({}); // { [code]: true }
@@ -2023,12 +2024,13 @@ function PortfolioApp() {
   }, [proxyUrl, appSecret, fundamentalsData, extraFundamentalsData, extraFundamentalsLoading]);
 
   useEffect(() => {
-    if (!loaded || !metricsStock) return;
-    const stock = stocks.find((s) => s.id === metricsStock);
+    const openId = metricsStock || quarterStock;
+    if (!loaded || !openId) return;
+    const stock = stocks.find((s) => s.id === openId);
     if (!stock || !stock.code) return;
     fetchStockMetrics(stock.code);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loaded, metricsStock]);
+  }, [loaded, metricsStock, quarterStock]);
 
   useEffect(() => {
     if (!loaded || !candleStock) return;
@@ -5185,15 +5187,15 @@ function PortfolioApp() {
                   </div>
                 );
               })()}
-              <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", gap: 2, marginTop: 8, flexWrap: "nowrap", justifyContent: "space-between" }}>
                 <button
                   className="iconbtn"
                   onClick={() => {
                     const opening = manualCodeFor !== r.id;
                     setManualCodeFor(opening ? r.id : null);
-                    if (opening) { setExpandedStock(null); setCandleStock(null); setMetricsStock(null); }
+                    if (opening) { setExpandedStock(null); setCandleStock(null); setMetricsStock(null); setQuarterStock(null); }
                   }}
-                  style={{ fontSize: 11, padding: "4px 8px", borderRadius: 8, border: manualCodeFor === r.id ? "1px solid #c9974a" : "1px solid transparent", background: manualCodeFor === r.id ? "rgba(201,151,74,0.15)" : "none", color: manualCodeFor === r.id ? "#c9974a" : "#8993a6", fontWeight: manualCodeFor === r.id ? 700 : 400 }}
+                  style={{ fontSize: 11, padding: "4px 4px", whiteSpace: "nowrap", letterSpacing: "-0.5px", borderRadius: 8, border: manualCodeFor === r.id ? "1px solid #c9974a" : "1px solid transparent", background: manualCodeFor === r.id ? "rgba(201,151,74,0.15)" : "none", color: manualCodeFor === r.id ? "#c9974a" : "#8993a6", fontWeight: manualCodeFor === r.id ? 700 : 400 }}
                 >
                   코드 {manualCodeFor === r.id ? "▴" : "▾"}
                 </button>
@@ -5202,9 +5204,9 @@ function PortfolioApp() {
                   onClick={() => {
                     const opening = !expanded;
                     setExpandedStock(opening ? r.id : null);
-                    if (opening) { setManualCodeFor(null); setCandleStock(null); setMetricsStock(null); }
+                    if (opening) { setManualCodeFor(null); setCandleStock(null); setMetricsStock(null); setQuarterStock(null); }
                   }}
-                  style={{ fontSize: 11, padding: "4px 8px", borderRadius: 8, border: expanded ? "1px solid #c9974a" : "1px solid transparent", background: expanded ? "rgba(201,151,74,0.15)" : "none", color: expanded ? "#c9974a" : "#8993a6", fontWeight: expanded ? 700 : 400 }}
+                  style={{ fontSize: 11, padding: "4px 4px", whiteSpace: "nowrap", letterSpacing: "-0.5px", borderRadius: 8, border: expanded ? "1px solid #c9974a" : "1px solid transparent", background: expanded ? "rgba(201,151,74,0.15)" : "none", color: expanded ? "#c9974a" : "#8993a6", fontWeight: expanded ? 700 : 400 }}
                 >
                   상세 비중 {expanded ? "▴" : "▾"}
                 </button>
@@ -5213,9 +5215,9 @@ function PortfolioApp() {
                   onClick={() => {
                     const opening = candleStock !== r.id;
                     setCandleStock(opening ? r.id : null);
-                    if (opening) { setManualCodeFor(null); setExpandedStock(null); setMetricsStock(null); }
+                    if (opening) { setManualCodeFor(null); setExpandedStock(null); setMetricsStock(null); setQuarterStock(null); }
                   }}
-                  style={{ fontSize: 11, padding: "4px 8px", borderRadius: 8, border: candleStock === r.id ? "1px solid #c9974a" : "1px solid transparent", background: candleStock === r.id ? "rgba(201,151,74,0.15)" : "none", color: candleStock === r.id ? "#c9974a" : "#8993a6", fontWeight: candleStock === r.id ? 700 : 400 }}
+                  style={{ fontSize: 11, padding: "4px 4px", whiteSpace: "nowrap", letterSpacing: "-0.5px", borderRadius: 8, border: candleStock === r.id ? "1px solid #c9974a" : "1px solid transparent", background: candleStock === r.id ? "rgba(201,151,74,0.15)" : "none", color: candleStock === r.id ? "#c9974a" : "#8993a6", fontWeight: candleStock === r.id ? 700 : 400 }}
                 >
                   강약챠트 {candleStock === r.id ? "▴" : "▾"}
                 </button>
@@ -5224,11 +5226,22 @@ function PortfolioApp() {
                   onClick={() => {
                     const opening = metricsStock !== r.id;
                     setMetricsStock(opening ? r.id : null);
-                    if (opening) { setManualCodeFor(null); setExpandedStock(null); setCandleStock(null); }
+                    if (opening) { setManualCodeFor(null); setExpandedStock(null); setCandleStock(null); setQuarterStock(null); }
                   }}
-                  style={{ fontSize: 11, padding: "4px 8px", borderRadius: 8, border: metricsStock === r.id ? "1px solid #c9974a" : "1px solid transparent", background: metricsStock === r.id ? "rgba(201,151,74,0.15)" : "none", color: metricsStock === r.id ? "#c9974a" : "#8993a6", fontWeight: metricsStock === r.id ? 700 : 400 }}
+                  style={{ fontSize: 11, padding: "4px 4px", whiteSpace: "nowrap", letterSpacing: "-0.5px", borderRadius: 8, border: metricsStock === r.id ? "1px solid #c9974a" : "1px solid transparent", background: metricsStock === r.id ? "rgba(201,151,74,0.15)" : "none", color: metricsStock === r.id ? "#c9974a" : "#8993a6", fontWeight: metricsStock === r.id ? 700 : 400 }}
                 >
                   재무데이터 {metricsStock === r.id ? "▴" : "▾"}
+                </button>
+                <button
+                  className="iconbtn"
+                  onClick={() => {
+                    const opening = quarterStock !== r.id;
+                    setQuarterStock(opening ? r.id : null);
+                    if (opening) { setManualCodeFor(null); setExpandedStock(null); setCandleStock(null); setMetricsStock(null); }
+                  }}
+                  style={{ fontSize: 11, padding: "4px 4px", whiteSpace: "nowrap", letterSpacing: "-0.5px", borderRadius: 8, border: quarterStock === r.id ? "1px solid #c9974a" : "1px solid transparent", background: quarterStock === r.id ? "rgba(201,151,74,0.15)" : "none", color: quarterStock === r.id ? "#c9974a" : "#8993a6", fontWeight: quarterStock === r.id ? 700 : 400 }}
+                >
+                  당해데이터 {quarterStock === r.id ? "▴" : "▾"}
                 </button>
               </div>
               {manualCodeFor === r.id && (
@@ -5262,9 +5275,31 @@ function PortfolioApp() {
                   <CandleChart title={r.name} candles={strengthData[`${r.code}:${strengthPeriod}`] || []} period={strengthPeriod} subCandles={strengthData[`${r.code}:${SUB_PERIOD_OF[strengthPeriod]}`]} archiveForCode={dailyStrengthArchive[r.code]} adviceLabel={adviceMode.stocks[r.code]} />
                 </div>
               )}
-              {metricsStock === r.id && (() => {
-                const f = r.code ? fundamentalsData[r.code] : null;
-                const ef = r.code ? extraFundamentalsData[r.code] : null;
+              {(metricsStock === r.id || quarterStock === r.id) && (() => {
+                const quarterMode = quarterStock === r.id;
+                const f0 = r.code ? fundamentalsData[r.code] : null;
+                const ef0 = r.code ? extraFundamentalsData[r.code] : null;
+                // 당해 분기별 보기: API 값은 그 해 1분기부터의 누적치라서, 같은 해 직전 분기 누적치를 빼서 "단일 분기 값"으로 바꾼다.
+                const toSingleQuarter = (src, fields) => {
+                  if (!quarterMode || !src || !src.periods) return src;
+                  const byP = {};
+                  src.periods.forEach((p) => { byP[p.period] = p; });
+                  const periods = src.periods.map((p) => {
+                    const mm = p.period.slice(4, 6);
+                    if (mm === "03") return p; // 1분기는 누적치=단일 분기 값
+                    const prevKey = p.period.slice(0, 4) + String(Number(mm) - 3).padStart(2, "0");
+                    const prev = byP[prevKey];
+                    const out = { ...p };
+                    fields.forEach((fld) => {
+                      const cur = p[fld], pv = prev ? prev[fld] : undefined;
+                      out[fld] = (cur !== null && cur !== undefined && pv !== null && pv !== undefined) ? num(cur) - num(pv) : null;
+                    });
+                    return out;
+                  });
+                  return { ...src, periods };
+                };
+                const f = toSingleQuarter(f0, ["eps"]);
+                const ef = toSingleQuarter(ef0, ["revenue", "opProfit", "netIncome"]);
                 const isLoading = r.code && (fundamentalsLoading || extraFundamentalsLoading[r.code]) && (!f || !ef);
                 if (isLoading) return <div style={{ marginTop: 6, fontSize: 11, color: "#8993a6" }}>불러오는 중...</div>;
                 if (!f && !ef) return <div style={{ marginTop: 6, fontSize: 11, color: "#5a6274" }}>{r.code ? "데이터 없음" : "종목코드가 필요해요"}</div>;
@@ -5274,6 +5309,19 @@ function PortfolioApp() {
                 // 누적치를 연환산(4/지난 분기수)해서 "예상 연간치"로 보여준다 — annualize=true일 때만 적용.
                 const thisYearStr = String(new Date().getFullYear());
                 const deriveAnnual = (periodPts, annualize) => {
+                  if (quarterMode) {
+                    // 당해 분기별 보기: 올해 발표된 분기 값을 그대로 쓰고(연환산 안 함), 색 비교용으로 "작년 같은 분기" 값을 prev로 붙인다.
+                    return periodPts
+                      .filter((p) => p.period.slice(0, 4) === thisYearStr)
+                      .map((p) => {
+                        const mm = p.period.slice(4, 6);
+                        const prevPt = periodPts.find((x) => x.period === String(Number(thisYearStr) - 1) + mm);
+                        const qn = Math.max(1, Math.min(4, Math.round(Number(mm) / 3)));
+                        const adj = (v) => (annualize === "inverse" && mm !== "12" && v !== null ? v * (qn / 4) : v); // PER: EPS를 연환산하면 PER은 (지난분기수/4)배
+                        return { year: mm, value: adj(p.value), prev: prevPt ? adj(prevPt.value) : undefined };
+                      })
+                      .sort((a, b) => (a.year < b.year ? -1 : 1));
+                  }
                   const byYear = {};
                   periodPts.forEach((p) => {
                     const year = p.period.slice(0, 4);
@@ -5284,7 +5332,8 @@ function PortfolioApp() {
                     const { mm, value } = byYear[year];
                     if (annualize && year === thisYearStr && mm !== "12" && value !== null) {
                       const quartersElapsed = Math.max(1, Math.min(4, Math.round(Number(mm) / 3)));
-                      return { year, value: value * (4 / quartersElapsed), estimated: true };
+                      // PER(=현재가÷EPS)은 EPS를 연환산(×4/q)하는 것과 같으므로, PER 값에는 반대로 (q/4)를 곱해야 한다.
+                      return { year, value: annualize === "inverse" ? value * (quartersElapsed / 4) : value * (4 / quartersElapsed), estimated: true };
                     }
                     return { year, value };
                   });
@@ -5326,7 +5375,7 @@ function PortfolioApp() {
                 const epsAnnual = f ? buildFrom(f.periods, "eps", null, true) : [];
                 const epsGrowthAnnual = f ? buildGrowth(f.periods, "eps") : [];
                 const bpsAnnual = f ? buildFrom(f.periods, "bps") : [];
-                const perAnnual = f ? buildFrom(f.periods, "eps", (v) => (v && price ? price / num(v) : null), true) : [];
+                const perAnnual = f ? (quarterMode ? buildFrom(f.periods, "eps", (v) => (v && price ? price / (num(v) * 4) : null)) : buildFrom(f.periods, "eps", (v) => (v && price ? price / num(v) : null), "inverse")) : [];
                 const roeAnnual = f ? buildFrom(f.periods, "roe") : [];
                 const psrAnnual = f ? buildFrom(f.periods, "sps", (v) => (v && price ? price / num(v) : null)) : [];
                 const pbrAnnual = f ? buildFrom(f.periods, "bps", (v) => (v && price ? price / num(v) : null)) : [];
@@ -5371,7 +5420,9 @@ function PortfolioApp() {
                       // 이미 연율 기준이라 그대로 두고, 누적치인 영업이익 쪽만 보정해야 EVA가 과소평가되지 않는다.
                       const year = p.period.slice(0, 4), mm = p.period.slice(4, 6);
                       let opProfitForCalc = p.opProfit;
-                      if (year === thisYearStr && mm !== "12") {
+                      if (quarterMode) {
+                        opProfitForCalc = p.opProfit * 4; // 단일 분기 영업이익을 연환산
+                      } else if (year === thisYearStr && mm !== "12") {
                         const q = Math.max(1, Math.min(4, Math.round(Number(mm) / 3)));
                         opProfitForCalc = p.opProfit * (4 / q);
                       }
@@ -5421,6 +5472,11 @@ function PortfolioApp() {
 
                 // 절대값 지표(매출액·EPS·BPS)는 업종 기준선이 없어서, 전년 대비 증감으로 색을 매긴다.
                 const yoyColorFor = (pts) => (year) => {
+                  if (quarterMode) {
+                    const q = pts.find((p) => p.year === year);
+                    if (!q || q.prev === undefined || q.prev === null) return "#e7eaf0";
+                    return q.value > q.prev ? "#e8544b" : q.value < q.prev ? "#4c8dff" : "#e7eaf0";
+                  }
                   const idx = pts.findIndex((p) => p.year === year);
                   if (idx <= 0) return "#e7eaf0";
                   const cur = pts[idx].value, prev = pts[idx - 1].value;
@@ -5447,26 +5503,27 @@ function PortfolioApp() {
                   ["부채비율", debtRatioAnnual, (v) => `${v.toFixed(1)}%`, debtTier, debtRange],
                   ["당좌비율", quickRatioAnnual, (v) => `${v.toFixed(1)}%`, quickRatioColor, "150%↑"],
                 ];
-                const allYears = [...new Set(rows.flatMap(([, pts]) => pts.map((p) => p.year)))].sort().slice(-4);
+                const allYears = [...new Set(rows.flatMap(([, pts]) => pts.map((p) => p.year)))].sort().slice(quarterMode ? -4 : -4);
+                const colLabel = (y) => (quarterMode ? `${Math.round(Number(y) / 3)}분기` : y + "년");
 
                 return (
                   <div style={{ marginTop: 4, fontSize: 11, color: "#5a6274" }}>
-                    <div style={{ marginBottom: 2, color: "#c9974a", fontWeight: 700 }}>기준선: {profileLabel}</div>
+                    <div style={{ marginBottom: 2, color: "#c9974a", fontWeight: 700 }}>{quarterMode ? `${thisYearStr}년 분기별 · ` : ""}기준선: {profileLabel}</div>
                     {allYears.length === 0 ? (
                       <div>표시할 데이터가 없어요.</div>
                     ) : (
                       <>
-                        <div style={{ display: "grid", gridTemplateColumns: `1fr repeat(${allYears.length}, 60px)`, gap: 4, marginBottom: 2, fontWeight: 700, color: "#8993a6" }}>
+                        <div style={{ display: "grid", gridTemplateColumns: `minmax(0, 1fr) repeat(${allYears.length}, 52px)`, gap: 2, marginBottom: 2, fontWeight: 700, color: "#8993a6" }}>
                           <div></div>
-                          {allYears.map((y) => <div key={y} className="tnum" style={{ textAlign: "center", fontSize: 12 }}>{y + "년"}</div>)}
+                          {allYears.map((y) => <div key={y} className="tnum" style={{ textAlign: "center", fontSize: 12 }}>{colLabel(y)}</div>)}
                         </div>
                         {rows.map(([label, pts, formatter, colorFn, excellentRange]) => {
                           const yoy = yoyColorFor(pts);
                           return (
-                            <div key={label} style={{ display: "grid", gridTemplateColumns: `1fr repeat(${allYears.length}, 60px)`, gap: 4, padding: "1px 0", borderTop: "1px solid #1a1f28" }}>
-                              <div style={{ color: "#8993a6", fontSize: 11, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                            <div key={label} style={{ display: "grid", gridTemplateColumns: `minmax(0, 1fr) repeat(${allYears.length}, 52px)`, gap: 2, padding: "1px 0", borderTop: "1px solid #1a1f28" }}>
+                              <div style={{ color: "#8993a6", fontSize: 10, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "clip", letterSpacing: "-0.3px" }}>
                                 {label}
-                                {excellentRange && <span style={{ fontSize: 9, color: "#5a6274" }}> ({excellentRange})</span>}
+                                {excellentRange && <span style={{ fontSize: 8, color: "#5a6274" }}>({excellentRange})</span>}
                               </div>
                               {allYears.map((y) => {
                                 const p = pts.find((x) => x.year === y);
@@ -5477,9 +5534,9 @@ function PortfolioApp() {
                                     key={y}
                                     className="tnum"
                                     style={{
-                                      textAlign: "center", fontWeight: 700, fontSize: 12, color, lineHeight: 1.1,
+                                      textAlign: "center", fontWeight: 700, fontSize: 11, color, lineHeight: 1.1, whiteSpace: "nowrap", letterSpacing: "-0.4px",
                                       border: isExcellent ? "1px solid #e8544b" : "1px solid transparent",
-                                      borderRadius: 4, padding: "0px 3px",
+                                      borderRadius: 4, padding: "0px 1px",
                                     }}
                                   >
                                     {p ? formatter(p.value) : "-"}{p && p.estimated ? <span style={{ color: "#c9974a" }}>*</span> : ""}
@@ -5490,6 +5547,7 @@ function PortfolioApp() {
                           );
                         })}
                         <div style={{ marginTop: 4, fontSize: 9 }}>
+                          {quarterMode && <div style={{ marginBottom: 3, color: "#8993a6" }}>당해 분기별 보기예요. 매출액·영업이익·순이익·EPS는 그 분기 한 분기 값이에요(누적치에서 직전 분기를 뺀 값). PER·EVA는 그 분기 EPS·영업이익을 ×4로 연환산해 계산해요. 색은 작년 같은 분기와 비교해요. 아직 발표 안 된 분기는 나오지 않아요.</div>}
                           <span style={{ color: "#c9974a" }}>*</span> 당해년 매출액·영업이익·순이익·EPS·PER·EVA는 아직 결산 전이라, 지금까지 발표된 누적치를 연환산(4÷지난 분기수)한 예상치예요. 당좌비율은 유동자산÷유동부채로 근사 계산했어요(재고자산 분리 불가). PER이 마이너스면 "극저", 100배 이상이면 "극고"로 표시돼요. EVA는 세후영업이익-투하자본×WACC로 근사했어요(WACC는 업종별 고정 가정치). 우선주는 본주 재무데이터를 사용해요. 색은 전년 대비 증가(붉은색)·감소(파란색)로만 표시되고, 그 수치가 "우수" 기준을 만족하면 <span style={{ border: "1px solid #e8544b", padding: "0 3px", borderRadius: 3 }}>테두리</span>가 추가돼요.
                           <br /><span style={{ color: "#e8544b" }}>●우수</span> <span style={{ color: "#e0b93c" }}>●양호</span> <span style={{ color: "#8993a6" }}>●보통/적정</span> <span style={{ color: "#4c8dff" }}>●주의</span> · 업종명을 인식해 반도체·게임·2차전지는 전용 기준선을, 그 외는 일반 기준선을 적용해요. 업종별로 기준이 없는 지표는 일반 기준을 그대로 써요.
                         </div>
