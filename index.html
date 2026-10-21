@@ -800,7 +800,7 @@ function PortfolioApp() {
   const [showRebalanceLog, setShowRebalanceLog] = useState(false);
   const [expandedStock, setExpandedStock] = useState(null);
   const [metricsStock, setMetricsStock] = useState(null); // "종목지표" 펼친 종목 id
-  const [quarterStock, setQuarterStock] = useState(null); // "당해데이터"(당해 분기별) 펼친 종목 id
+  const [quarterStock, setQuarterStock] = useState(null); // "최근4분기" 펼친 종목 id
   const [candleStock, setCandleStock] = useState(null); // "강약챠트" 펼친 종목 id (보유종목 화면)
   const [extraFundamentalsData, setExtraFundamentalsData] = useState({}); // { [code]: { periods, divUsed } } — 매출액/당좌비율
   const [extraFundamentalsLoading, setExtraFundamentalsLoading] = useState({}); // { [code]: true }
@@ -5241,7 +5241,7 @@ function PortfolioApp() {
                   }}
                   style={{ fontSize: 11, padding: "4px 4px", whiteSpace: "nowrap", letterSpacing: "-0.5px", borderRadius: 8, border: quarterStock === r.id ? "1px solid #c9974a" : "1px solid transparent", background: quarterStock === r.id ? "rgba(201,151,74,0.15)" : "none", color: quarterStock === r.id ? "#c9974a" : "#8993a6", fontWeight: quarterStock === r.id ? 700 : 400 }}
                 >
-                  당해데이터 {quarterStock === r.id ? "▴" : "▾"}
+                  최근4분기 {quarterStock === r.id ? "▴" : "▾"}
                 </button>
               </div>
               {manualCodeFor === r.id && (
@@ -5312,13 +5312,12 @@ function PortfolioApp() {
                   if (quarterMode) {
                     // 당해 분기별 보기: 올해 발표된 분기 값을 그대로 쓰고(연환산 안 함), 색 비교용으로 "작년 같은 분기" 값을 prev로 붙인다.
                     return periodPts
-                      .filter((p) => p.period.slice(0, 4) === thisYearStr)
                       .map((p) => {
                         const mm = p.period.slice(4, 6);
-                        const prevPt = periodPts.find((x) => x.period === String(Number(thisYearStr) - 1) + mm);
+                        const prevPt = periodPts.find((x) => x.period === String(Number(p.period.slice(0, 4)) - 1) + mm);
                         const qn = Math.max(1, Math.min(4, Math.round(Number(mm) / 3)));
                         const adj = (v) => (annualize === "inverse" && mm !== "12" && v !== null ? v * (qn / 4) : v); // PER: EPS를 연환산하면 PER은 (지난분기수/4)배
-                        return { year: mm, value: adj(p.value), prev: prevPt ? adj(prevPt.value) : undefined };
+                        return { year: p.period, value: adj(p.value), prev: prevPt ? adj(prevPt.value) : undefined };
                       })
                       .sort((a, b) => (a.year < b.year ? -1 : 1));
                   }
@@ -5503,13 +5502,13 @@ function PortfolioApp() {
                   ["부채비율", debtRatioAnnual, (v) => `${v.toFixed(1)}%`, debtTier, debtRange],
                   ["당좌비율", quickRatioAnnual, (v) => `${v.toFixed(1)}%`, quickRatioColor, "150%↑"],
                 ];
-                const allYears = quarterMode ? ["03", "06", "09", "12"] : [...new Set(rows.flatMap(([, pts]) => pts.map((p) => p.year)))].sort().slice(-4);
-                const colLabel = (y) => (quarterMode ? `${Math.round(Number(y) / 3)}분기` : y + "년");
+                const allYears = [...new Set(rows.flatMap(([, pts]) => pts.map((p) => p.year)))].sort().slice(-4); // 당해데이터: 가장 최근 4개 분기를 오래된 순서대로
+                const colLabel = (y) => (quarterMode ? `${y.slice(2, 4)}.${Math.round(Number(y.slice(4, 6)) / 3)}Q` : y + "년");
 
                 return (
                   <div style={{ marginTop: 4, fontSize: 11, color: "#5a6274" }}>
-                    <div style={{ marginBottom: 2, color: "#c9974a", fontWeight: 700 }}>{quarterMode ? `${thisYearStr}년 분기별 · ` : ""}기준선: {profileLabel}</div>
-                    {(!quarterMode && allYears.length === 0) ? (
+                    <div style={{ marginBottom: 2, color: "#c9974a", fontWeight: 700 }}>{quarterMode ? "최근 4분기 · " : ""}기준선: {profileLabel}</div>
+                    {allYears.length === 0 ? (
                       <div>표시할 데이터가 없어요.</div>
                     ) : (
                       <>
@@ -5547,7 +5546,7 @@ function PortfolioApp() {
                           );
                         })}
                         <div style={{ marginTop: 4, fontSize: 9 }}>
-                          {quarterMode && <div style={{ marginBottom: 3, color: "#8993a6" }}>당해 분기별 보기예요. 매출액·영업이익·순이익·EPS는 그 분기 한 분기 값이에요(누적치에서 직전 분기를 뺀 값). PER·EVA는 그 분기 EPS·영업이익을 ×4로 연환산해 계산해요. 색은 작년 같은 분기와 비교해요. 아직 발표 안 된 분기는 나오지 않아요.</div>}
+                          {quarterMode && <div style={{ marginBottom: 3, color: "#8993a6" }}>최근 4분기를 오래된 순서로 보여줘요(예: 25.3Q = 2025년 3분기). 매출액·영업이익·순이익·EPS는 그 분기 한 분기 값이에요(누적치에서 직전 분기를 뺀 값). PER·EVA는 그 분기 EPS·영업이익을 ×4로 연환산해 계산해요. 색은 작년 같은 분기와 비교해요. 아직 발표 안 된 분기는 나오지 않아요.</div>}
                           <span style={{ color: "#c9974a" }}>*</span> 당해년 매출액·영업이익·순이익·EPS·PER·EVA는 아직 결산 전이라, 지금까지 발표된 누적치를 연환산(4÷지난 분기수)한 예상치예요. 당좌비율은 유동자산÷유동부채로 근사 계산했어요(재고자산 분리 불가). PER이 마이너스면 "극저", 100배 이상이면 "극고"로 표시돼요. EVA는 세후영업이익-투하자본×WACC로 근사했어요(WACC는 업종별 고정 가정치). 우선주는 본주 재무데이터를 사용해요. 색은 전년 대비 증가(붉은색)·감소(파란색)로만 표시되고, 그 수치가 "우수" 기준을 만족하면 <span style={{ border: "1px solid #e8544b", padding: "0 3px", borderRadius: 3 }}>테두리</span>가 추가돼요.
                           <br /><span style={{ color: "#e8544b" }}>●우수</span> <span style={{ color: "#e0b93c" }}>●양호</span> <span style={{ color: "#8993a6" }}>●보통/적정</span> <span style={{ color: "#4c8dff" }}>●주의</span> · 업종명을 인식해 반도체·게임·2차전지는 전용 기준선을, 그 외는 일반 기준선을 적용해요. 업종별로 기준이 없는 지표는 일반 기준을 그대로 써요.
                         </div>
