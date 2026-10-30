@@ -4857,7 +4857,7 @@ function PortfolioApp() {
                   <>
                     <div style={{ fontSize: 22, fontWeight: 800, color: "#c9974a", marginBottom: 10 }}>{metric.title}</div>
                     <div style={{ fontSize: 15, color: "#8993a6", marginBottom: 16, lineHeight: 1.6 }}>
-                      {perfMetric === "stock" ? "원금대비 수익률을 보여줘요." : "구간별 값을 그대로 보여줘요 (전월/전분기/전년 대비 비교는 안 해요)."}
+                      {perfMetric === "stock" ? "원금대비 수익률을 보여줘요." : "구간별 값을 그대로 보여줘요."}
                     </div>
 
                     <div style={{ display: "flex", gap: 6, marginBottom: 18 }}>
@@ -5470,17 +5470,18 @@ function PortfolioApp() {
                 }
 
                 // 절대값 지표(매출액·EPS·BPS)는 업종 기준선이 없어서, 전년 대비 증감으로 색을 매긴다.
-                const yoyColorFor = (pts) => (year) => {
+                const yoyColorFor = (pts, reversed) => (year) => {
+                  const UP = reversed ? "#4c8dff" : "#e8544b", DOWN = reversed ? "#e8544b" : "#4c8dff"; // 부채비율은 늘면 나쁨(파란색), 줄면 좋음(붉은색)
                   if (quarterMode) {
                     const q = pts.find((p) => p.year === year);
                     if (!q || q.prev === undefined || q.prev === null) return "#e7eaf0";
-                    return q.value > q.prev ? "#e8544b" : q.value < q.prev ? "#4c8dff" : "#e7eaf0";
+                    return q.value > q.prev ? UP : q.value < q.prev ? DOWN : "#e7eaf0";
                   }
                   const idx = pts.findIndex((p) => p.year === year);
                   if (idx <= 0) return "#e7eaf0";
                   const cur = pts[idx].value, prev = pts[idx - 1].value;
-                  if (cur > prev) return "#e8544b";
-                  if (cur < prev) return "#4c8dff";
+                  if (cur > prev) return UP;
+                  if (cur < prev) return DOWN;
                   return "#e7eaf0";
                 };
 
@@ -5495,7 +5496,7 @@ function PortfolioApp() {
                   ["EPS", epsAnnual, (v) => fmt(v), null, null],
                   ["EPS성장률", epsGrowthAnnual, (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`, tier4(0, 5, 15), "15%↑"],
                   ["BPS", bpsAnnual, (v) => fmt(v), null, null],
-                  ["PER", perAnnual, (v) => (v < 0 ? "극저" : v >= 100 ? "극고" : `${v.toFixed(1)}배`), perColor, perRange],
+                  ["PER", perAnnual, (v) => `${v.toFixed(1)}배`, perColor, perRange],
                   ["ROE", roeAnnual, (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`, roeTier, roeRange],
                   ["PSR", psrAnnual, (v) => `${v.toFixed(2)}배`, psrColor, psrRange],
                   ["PBR", pbrAnnual, (v) => `${v.toFixed(2)}배`, pbrColor, pbrRange],
@@ -5517,7 +5518,7 @@ function PortfolioApp() {
                           {allYears.map((y) => <div key={y} className="tnum" style={{ textAlign: quarterMode ? "right" : "center", fontSize: 12, paddingRight: quarterMode ? 2 : 0 }}>{colLabel(y)}</div>)}
                         </div>
                         {rows.map(([label, pts, formatter, colorFn, excellentRange]) => {
-                          const yoy = yoyColorFor(pts);
+                          const yoy = yoyColorFor(pts, label === "부채비율");
                           return (
                             <div key={label} style={{ display: "grid", gridTemplateColumns: `minmax(0, 1fr) repeat(${allYears.length}, 52px)`, gap: 2, padding: "1px 0", borderTop: "1px solid #1a1f28" }}>
                               <div style={{ color: "#8993a6", fontSize: 10, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "clip", letterSpacing: "-0.3px" }}>
@@ -5547,7 +5548,7 @@ function PortfolioApp() {
                         })}
                         <div style={{ marginTop: 4, fontSize: 9 }}>
                           {quarterMode && <div style={{ marginBottom: 3, color: "#8993a6" }}>최근 4분기를 오래된 순서로 보여줘요(예: 25.3Q = 2025년 3분기). 매출액·영업이익·순이익·EPS는 그 분기 한 분기 값이에요(누적치에서 직전 분기를 뺀 값). PER·EVA는 그 분기 EPS·영업이익을 ×4로 연환산해 계산해요. 색은 작년 같은 분기와 비교해요. 아직 발표 안 된 분기는 나오지 않아요.</div>}
-                          <span style={{ color: "#c9974a" }}>*</span> 당해년 매출액·영업이익·순이익·EPS·PER·EVA는 아직 결산 전이라, 지금까지 발표된 누적치를 연환산(4÷지난 분기수)한 예상치예요. 당좌비율은 유동자산÷유동부채로 근사 계산했어요(재고자산 분리 불가). PER이 마이너스면 "극저", 100배 이상이면 "극고"로 표시돼요. EVA는 세후영업이익-투하자본×WACC로 근사했어요(WACC는 업종별 고정 가정치). 우선주는 본주 재무데이터를 사용해요. 색은 전년 대비 증가(붉은색)·감소(파란색)로만 표시되고, 그 수치가 "우수" 기준을 만족하면 <span style={{ border: "1px solid #e8544b", padding: "0 3px", borderRadius: 3 }}>테두리</span>가 추가돼요.
+                          <span style={{ color: "#c9974a" }}>*</span> 당해년 매출액·영업이익·순이익·EPS·PER·EVA는 아직 결산 전이라, 지금까지 발표된 누적치를 연환산(4÷지난 분기수)한 예상치예요. 당좌비율은 유동자산÷유동부채로 근사 계산했어요(재고자산 분리 불가). PER은 계산된 값 그대로 표시돼요. 부채비율은 늘면 파란색, 줄면 붉은색이에요. EVA는 세후영업이익-투하자본×WACC로 근사했어요(WACC는 업종별 고정 가정치). 우선주는 본주 재무데이터를 사용해요. 색은 전년 대비 증가(붉은색)·감소(파란색)로만 표시되고, 그 수치가 "우수" 기준을 만족하면 <span style={{ border: "1px solid #e8544b", padding: "0 3px", borderRadius: 3 }}>테두리</span>가 추가돼요.
                           <br /><span style={{ color: "#e8544b" }}>●우수</span> <span style={{ color: "#e0b93c" }}>●양호</span> <span style={{ color: "#8993a6" }}>●보통/적정</span> <span style={{ color: "#4c8dff" }}>●주의</span> · 업종명을 인식해 반도체·게임·2차전지는 전용 기준선을, 그 외는 일반 기준선을 적용해요. 업종별로 기준이 없는 지표는 일반 기준을 그대로 써요.
                         </div>
                       </>
