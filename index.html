@@ -623,12 +623,6 @@ const CandleChart = React.memo(function CandleChart({ title, candles, period, su
                 {" "}({adviceLabel === "buy" ? "매수시점" : adviceLabel === "sell" ? "매도시점" : "중도시점"})
               </span>
             )}
-            {techSignal && (
-              <span style={{ color: techSignal.label === "buy" ? "#e8544b" : techSignal.label === "sell" ? "#4c8dff" : "#8993a6", fontSize: 11 }}>
-                {" "}· 기술적 {techSignal.label === "buy" ? "매수" : techSignal.label === "sell" ? "매도" : "관망"}
-                <span style={{ fontSize: 9, color: "#5a6274" }}> ({techSignal.votes.map((x) => `${x.name}${x.v > 0 ? "▲" : x.v < 0 ? "▼" : "-"}`).join(" ")})</span>
-              </span>
-            )}
           </div>
         )}
         {touched && (
@@ -637,6 +631,12 @@ const CandleChart = React.memo(function CandleChart({ title, candles, period, su
           </div>
         )}
       </div>
+      {techSignal && (
+        <div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginBottom: 6, fontSize: 11, color: techSignal.label === "buy" ? "#e8544b" : techSignal.label === "sell" ? "#4c8dff" : "#8993a6" }}>
+          기술적 {techSignal.label === "buy" ? "매수" : techSignal.label === "sell" ? "매도" : "관망"}
+          <span style={{ fontSize: 9, color: "#5a6274" }}> ({techSignal.votes.map((x) => `${x.name}${x.v > 0 ? "▲" : x.v < 0 ? "▼" : "-"}`).join(" ")})</span>
+        </div>
+      )}
       <div
         style={{ overflowX: "auto", WebkitUserSelect: "none", userSelect: "none", WebkitTouchCallout: "none" }}
         onScroll={handleScroll1}
