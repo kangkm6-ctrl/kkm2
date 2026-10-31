@@ -435,6 +435,38 @@ const CandleChart = React.memo(function CandleChart({ title, candles, period, su
   // pending: 누른 직후 판정 대기 / crosshair: 크로스헤어 추적 중 / scroll: 차트를 옆으로 미는 중 / vertical: 세로 스와이프라 페이지 스크롤에 맡김
   const gestureRef = useRef({ mode: "none", startX: 0, startY: 0, startScrollLeft: 0, startWindowScrollTop: 0, timer: null });
   const [scrollLeftSnap, setScrollLeftSnap] = useState(0);
+  // 기술적 분석 신호: 이동평균(5/20)·RSI(14)·MACD(12,26,9)·볼린저밴드(20,2) 4가지를 각각 +1(매수)/0/-1(매도)로 보고 합산한다.
+  // 합계 +2 이상이면 매수, -2 이하면 매도, 그 사이는 관망. (선택한 기간 봉 기준 — 5분/일/주/월/년)
+  const techSignal = useMemo(() => {
+    const cl = (candles || []).map((c) => num(c.close)).filter((v) => v > 0);
+    if (cl.length < 35) return null;
+    const n = cl.length;
+    const sma = (arr, p, end) => { let t = 0; for (let i = end - p + 1; i <= end; i++) t += arr[i]; return t / p; };
+    const ema = (arr, p) => { const k = 2 / (p + 1); const out = [arr[0]]; for (let i = 1; i < arr.length; i++) out.push(arr[i] * k + out[i - 1] * (1 - k)); return out; };
+    const votes = [];
+    // 1) 이동평균
+    const m5 = sma(cl, 5, n - 1), m20 = sma(cl, 20, n - 1), last = cl[n - 1];
+    votes.push({ name: "이동평균", v: last > m20 && m5 > m20 ? 1 : last < m20 && m5 < m20 ? -1 : 0 });
+    // 2) RSI(14)
+    let g = 0, l = 0;
+    for (let i = n - 14; i < n; i++) { const d = cl[i] - cl[i - 1]; if (d > 0) g += d; else l -= d; }
+    const rsi = l === 0 ? 100 : 100 - 100 / (1 + g / l);
+    votes.push({ name: `RSI ${rsi.toFixed(0)}`, v: rsi <= 30 ? 1 : rsi >= 70 ? -1 : 0 });
+    // 3) MACD
+    const e12 = ema(cl, 12), e26 = ema(cl, 26);
+    const macd = e12.map((v, i) => v - e26[i]);
+    const sig = ema(macd, 9);
+    const hist = macd.map((v, i) => v - sig[i]);
+    const h1 = hist[n - 1], h0 = hist[n - 2];
+    votes.push({ name: "MACD", v: h1 > 0 && h1 >= h0 ? 1 : h1 < 0 && h1 <= h0 ? -1 : 0 });
+    // 4) 볼린저밴드(20, 2σ)
+    const mid = m20;
+    let varSum = 0; for (let i = n - 20; i < n; i++) varSum += (cl[i] - mid) ** 2;
+    const sd = Math.sqrt(varSum / 20);
+    votes.push({ name: "볼린저", v: last < mid - 2 * sd ? 1 : last > mid + 2 * sd ? -1 : 0 });
+    const total = votes.reduce((a, x) => a + x.v, 0);
+    return { total, label: total >= 2 ? "buy" : total <= -2 ? "sell" : "hold", votes };
+  }, [candles]);
   const scrollRef1 = useRef(null); // 캔들차트
   const scrollRefVol = useRef(null); // 거래량 (선색 표시 카드를 캔들차트와 거래량 사이에 넣으려고 분리함)
   const scrollRef2 = useRef(null); // 강약표시/도트
@@ -589,6 +621,12 @@ const CandleChart = React.memo(function CandleChart({ title, candles, period, su
             {adviceLabel && (
               <span style={{ color: adviceLabel === "buy" ? "#e8544b" : adviceLabel === "sell" ? "#4c8dff" : "#8993a6" }}>
                 {" "}({adviceLabel === "buy" ? "매수시점" : adviceLabel === "sell" ? "매도시점" : "중도시점"})
+              </span>
+            )}
+            {techSignal && (
+              <span style={{ color: techSignal.label === "buy" ? "#e8544b" : techSignal.label === "sell" ? "#4c8dff" : "#8993a6", fontSize: 11 }}>
+                {" "}· 기술적 {techSignal.label === "buy" ? "매수" : techSignal.label === "sell" ? "매도" : "관망"}
+                <span style={{ fontSize: 9, color: "#5a6274" }}> ({techSignal.votes.map((x) => `${x.name}${x.v > 0 ? "▲" : x.v < 0 ? "▼" : "-"}`).join(" ")})</span>
               </span>
             )}
           </div>
