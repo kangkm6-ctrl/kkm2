@@ -788,12 +788,15 @@ const MARKET_SERIES_DEFS = [
   { key: "mcap", label: "시가총액", unit: "조원", hint: "코스피+코스닥 합산" },
   { key: "gdp", label: "GDP", unit: "조원", hint: "명목 GDP(연율)" },
   { key: "export", label: "일평균수출", unit: "억$", hint: "월별 일평균 수출(억달러/일)" },
+  { key: "deposit", label: "고객예탁금", unit: "조원", hint: "투자자예탁금" },
   { key: "margin", label: "신용융자잔고", unit: "조원", hint: "코스피+코스닥 합산" },
   { key: "cape", label: "CAPE", unit: "배", hint: "코스피 실러 PER(10년 평균이익 기준) — 직접 입력", path: "한국(South Korea) 항목에서 CAPE(Shiller PE) 확인", links: [["World PE Ratio · 한국", "https://worldperatio.com/area/south-korea/"], ["Star Capital · 국가별 CAPE", "https://www.starcapital.de/en/research/stock-market-valuation/"]] },
   { key: "conc", label: "시장집중도", unit: "%", hint: "코스피 시총 상위 10종목 비중" },
   { key: "breadthK", label: "코스피 상승비율", unit: "%", hint: "상승 종목 수 ÷ 전체 종목" },
   { key: "breadthQ", label: "코스닥 상승비율", unit: "%", hint: "상승 종목 수 ÷ 전체 종목" },
   { key: "bond10", label: "국채10년", unit: "%", hint: "국고채 10년 금리" },
+  { key: "bond3", label: "국채3년", unit: "%", hint: "국고채 3년 금리" },
+  { key: "vkospi", label: "VKOSPI", unit: "pt", hint: "변동성지수 — 직접 입력", path: "통계 → 기본통계 → 지수 → 변동성지수(VKOSPI)", links: [["KRX 정보데이터시스템", "https://data.krx.co.kr"]] },
   { key: "sentiment", label: "투자심리", unit: "pt", hint: "소비자심리지수(100 기준)" },
   { key: "pbr", label: "코스피 PBR", unit: "배", hint: "", src: "https://data.krx.co.kr", path: "통계 → 기본통계 → 지수 → PER/PBR/배당수익률(코스피)", links: [["KRX 정보데이터시스템", "https://data.krx.co.kr"], ["네이버 증권 코스피", "https://finance.naver.com/sise/sise_index.naver?code=KOSPI"]] },
   { key: "per", label: "코스피 PER", unit: "배", hint: "", src: "https://data.krx.co.kr", path: "통계 → 기본통계 → 지수 → PER/PBR/배당수익률(코스피)", links: [["KRX 정보데이터시스템", "https://data.krx.co.kr"], ["네이버 증권 코스피", "https://finance.naver.com/sise/sise_index.naver?code=KOSPI"]] },
@@ -1245,11 +1248,11 @@ function PortfolioApp() {
       const headers0 = appSecret ? { "x-app-secret": appSecret } : {};
       setMarketAutoMsg("지표 자동 수집 중...");
       fetch(`${base0}/market-data`, { headers: headers0 }).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`서버 응답 ${r.status} (서버에 marketData.route.js가 배포됐는지 확인)`)))).then((d) => {
-        const names = { mcap: "시가총액", margin: "신용융자잔고", gdp: "GDP", export: "일평균수출", conc: "시장집중도", breadthK: "코스피상승비율", breadthQ: "코스닥상승비율", bond10: "국채10년", sentiment: "투자심리" };
+        const names = { mcap: "시가총액", margin: "신용융자잔고", gdp: "GDP", export: "일평균수출", deposit: "고객예탁금", conc: "시장집중도", breadthK: "코스피상승비율", breadthQ: "코스닥상승비율", bond10: "국채10년", bond3: "국채3년", sentiment: "투자심리" };
         const ok = [], fail = [];
         setMarketSeries((prev) => {
           const next = { ...prev };
-          ["mcap", "margin", "gdp", "export", "conc", "breadthK", "breadthQ", "bond10", "sentiment"].forEach((k) => {
+          ["mcap", "margin", "gdp", "export", "deposit", "conc", "breadthK", "breadthQ", "bond10", "bond3", "sentiment"].forEach((k) => {
             if (Array.isArray(d[k]) && d[k].length) {
               const map = {};
               (prev[k] || []).forEach((p) => { map[p.d] = p; });
@@ -1259,7 +1262,7 @@ function PortfolioApp() {
           });
           return next;
         });
-        ["mcap", "margin", "gdp", "export", "conc", "breadthK", "breadthQ", "bond10", "sentiment"].forEach((k) => { if (Array.isArray(d[k]) && d[k].length) ok.push(names[k]); else fail.push(`${names[k]}: ${(d.errors && d.errors[k]) || "데이터 없음"}`); });
+        ["mcap", "margin", "gdp", "export", "deposit", "conc", "breadthK", "breadthQ", "bond10", "bond3", "sentiment"].forEach((k) => { if (Array.isArray(d[k]) && d[k].length) ok.push(names[k]); else fail.push(`${names[k]}: ${String((d.errors && d.errors[k]) || "데이터 없음").replace(/\s+/g, " ").replace(/"/g, "").slice(0, 110)}`); });
         setMarketAutoMsg(`${ok.length ? "✅ 자동 수집: " + ok.join(", ") : ""}${fail.length ? (ok.length ? "\n" : "") + "⚠️ " + fail.join("\n⚠️ ") : ""}`);
       }).catch((e) => setMarketAutoMsg(`⚠️ 자동 수집 실패: ${e.message || e}`));
     })();
@@ -3754,15 +3757,20 @@ function PortfolioApp() {
         ];
         const cRows = [
           { id: "buffett", mk: "both", name: "버핏지수(시총÷GDP)", val: buffett !== null ? `${buffett.toFixed(0)}%` : "시총·GDP 입력 필요", j: judge(buffett, 80, 120), rule: "80%↓ 저 / 120%↑ 고", chart: { points: ratioSeries("mcap", "gdp", 100), color: "#c9974a", unit: "%" } },
-          { id: "margin", mk: "both", name: "신용융자÷시총", val: marginRatio !== null ? `${marginRatio.toFixed(2)}%` : "융자·시총 입력 필요", j: judge(marginRatio, 0.5, 1.0), rule: "0.5%↓ 저 / 1.0%↑ 고(과열)", chart: { points: ratioSeries("margin", "mcap", 100), color: "#c9974a", unit: "%" } },
         ];
         // 추가 지표 ─ CAPE, 위험프리미엄, 신용융자 증가율, 시장집중도, 투자심리, 상승종목 비율
+        const vk = lastOf("vkospi");
+        const pairSeries = (aK, bK, fn) => { const A = ser(aK), B = ser(bK); if (!A.length || !B.length) return []; return A.map((p) => { let q = null; for (let i = B.length - 1; i >= 0; i--) { if (B[i].d <= p.d) { q = B[i]; break; } } return q ? { d: p.d, v: fn(p.v, q.v) } : null; }).filter(Boolean); };
+        const spreadSeries = pairSeries("bond10", "bond3", (a, b) => a - b);
+        const spread = spreadSeries.length ? spreadSeries[spreadSeries.length - 1] : null;
         const cape = lastOf("cape"), conc = lastOf("conc"), bond = lastOf("bond10"), sent = lastOf("sentiment");
         const avgLast = (k, n) => { const a = ser(k).slice(-n); return a.length ? a.reduce((x, y) => x + y.v, 0) / a.length : null; };
         const erp = per && bond && per.v > 0 ? 100 / per.v - bond.v : null;
         const erpSeries = ser("per").map((p) => { let b = null; const bs = ser("bond10"); for (let i = bs.length - 1; i >= 0; i--) { if (bs[i].d <= p.d) { b = bs[i]; break; } } return b && p.v > 0 ? { d: p.d, v: 100 / p.v - b.v } : null; }).filter(Boolean);
         const mSer = ser("margin");
         const mGrowthSeries = mSer.map((p) => { const t = new Date(Number(p.d.slice(0, 4)) - 1, Number(p.d.slice(4, 6)) - 1, Number(p.d.slice(6, 8))); const key = `${t.getFullYear()}${String(t.getMonth() + 1).padStart(2, "0")}${String(t.getDate()).padStart(2, "0")}`; let b = null; for (let i = mSer.length - 1; i >= 0; i--) { if (mSer[i].d <= key) { b = mSer[i]; break; } } return b && b.v ? { d: p.d, v: (p.v / b.v - 1) * 100 } : null; }).filter(Boolean);
+        const mDepSeries = ratioSeries("margin", "deposit", 100);
+        const mDep = mDepSeries.length ? mDepSeries[mDepSeries.length - 1] : null;
         const mGrowth = mGrowthSeries.length ? mGrowthSeries[mGrowthSeries.length - 1] : null;
         const breadthVal = (k) => { const l = lastOf(k); if (!l) return null; const a20 = avgLast(k, 20); return { last: l.v, avg: a20, n: ser(k).length }; };
         const bK = breadthVal("breadthK"), bQ = breadthVal("breadthQ");
@@ -3778,12 +3786,16 @@ function PortfolioApp() {
           { id: "breadthQ", go: "breadthQ", mk: "kosdaq", name: "코스닥 상승종목 비율", val: breadthTxt(bQ), j: breadthJ(bQ), rule: "40%↓ 침체 / 60%↑ 과열(20일평균)", chart: { points: ser("breadthQ"), color: "#4c8dff", unit: "%" } },
         );
         cRows.push(
+          { id: "vkospi", go: "vkospi", mk: "both", name: "VKOSPI(변동성)", val: vk ? `${vk.v.toFixed(1)}` : "입력 필요", j: vk ? judge(-vk.v, -30, -15) : null, rule: "30↑ 공포(저) / 15↓ 안일(고)", chart: { points: ser("vkospi"), color: "#c9974a", unit: "pt" } },
+          { id: "spread", ref: true, mk: "both", name: "장단기 금리차(10년−3년)", val: spread ? `${spread.v >= 0 ? "+" : ""}${spread.v.toFixed(2)}%p` : "국채 금리 필요", j: null, rule: "0 미만=역전(침체 경고) · 점수 제외", chart: { points: spreadSeries, color: "#c9974a", unit: "%p" } },
+          { id: "mdep", go: "deposit", mk: "both", name: "신용잔고÷고객예탁금", val: mDep ? `${mDep.v.toFixed(1)}%` : "예탁금 수집 필요", j: mDep ? judge(mDep.v, 25, 40) : null, rule: "25%↓ 저 / 40%↑ 고(빚투 과열)", chart: { points: mDepSeries, color: "#c9974a", unit: "%" } },
           { id: "mgrowth", mk: "both", name: "신용융자 증가율(1년)", val: mGrowth ? `${mGrowth.v >= 0 ? "+" : ""}${mGrowth.v.toFixed(1)}%` : "융자 1년치 필요", j: mGrowth ? judge(mGrowth.v, -5, 25) : null, rule: "-5%↓ 저 / +25%↑ 고(과열)", chart: { points: mGrowthSeries, color: "#c9974a", unit: "%" } },
           { id: "sentiment", go: "sentiment", mk: "both", name: "투자심리(소비자심리)", val: sent ? `${sent.v.toFixed(1)}pt` : "수집 필요", j: sent ? judge(sent.v, 92, 108) : null, rule: "92↓ 비관 / 108↑ 낙관(100 기준)", chart: { points: ser("sentiment"), color: "#c9974a", unit: "pt" } },
         );
         const compOf = (mk) => {
-          const rs = [...(mk === "kospi" ? kRows : qRows), ...cRows].filter((r) => r.j !== null);
-          const total = (mk === "kospi" ? kRows : qRows).length + cRows.length;
+          const base = [...(mk === "kospi" ? kRows : qRows), ...cRows].filter((r) => !r.ref);
+          const rs = base.filter((r) => r.j !== null);
+          const total = base.length;
           const avg = rs.length ? rs.reduce((a, r) => a + r.j, 0) / rs.length : null;
           return { avg, n: rs.length, total, score: avg === null ? null : Math.round(100 + avg * 100), overall: avg === null ? null : avg >= 0.4 ? 1 : avg <= -0.4 ? -1 : 0 };
         };
