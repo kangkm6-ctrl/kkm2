@@ -788,17 +788,25 @@ const MARKET_SERIES_DEFS = [
   { key: "mcap", label: "시가총액", unit: "조원", hint: "코스피+코스닥 합산" },
   { key: "gdp", label: "GDP", unit: "조원", hint: "명목 GDP(연율)" },
   { key: "export", label: "일평균수출", unit: "억$", hint: "월별 일평균 수출(억달러/일)" },
-  { key: "foreign", label: "외국인보유", unit: "%", hint: "시가총액 대비 보유비중", src: "https://data.krx.co.kr", path: "통계 → 기본통계 → 주식 → 외국인 보유량(시장별)" },
   { key: "margin", label: "신용융자잔고", unit: "조원", hint: "코스피+코스닥 합산" },
-  { key: "cape", label: "CAPE", unit: "배", hint: "코스피 실러 PER(10년 평균이익 기준) — 직접 입력" },
+  { key: "cape", label: "CAPE", unit: "배", hint: "코스피 실러 PER(10년 평균이익 기준) — 직접 입력", path: "한국(South Korea) 항목에서 CAPE(Shiller PE) 확인", links: [["World PE Ratio · 한국", "https://worldperatio.com/area/south-korea/"], ["Star Capital · 국가별 CAPE", "https://www.starcapital.de/en/research/stock-market-valuation/"]] },
   { key: "conc", label: "시장집중도", unit: "%", hint: "코스피 시총 상위 10종목 비중" },
   { key: "breadthK", label: "코스피 상승비율", unit: "%", hint: "상승 종목 수 ÷ 전체 종목" },
   { key: "breadthQ", label: "코스닥 상승비율", unit: "%", hint: "상승 종목 수 ÷ 전체 종목" },
   { key: "bond10", label: "국채10년", unit: "%", hint: "국고채 10년 금리" },
   { key: "sentiment", label: "투자심리", unit: "pt", hint: "소비자심리지수(100 기준)" },
-  { key: "pbr", label: "코스피 PBR", unit: "배", hint: "", src: "https://data.krx.co.kr", path: "통계 → 기본통계 → 지수 → PER/PBR/배당수익률(코스피)" },
-  { key: "per", label: "코스피 PER", unit: "배", hint: "", src: "https://data.krx.co.kr", path: "통계 → 기본통계 → 지수 → PER/PBR/배당수익률(코스피)" },
+  { key: "pbr", label: "코스피 PBR", unit: "배", hint: "", src: "https://data.krx.co.kr", path: "통계 → 기본통계 → 지수 → PER/PBR/배당수익률(코스피)", links: [["KRX 정보데이터시스템", "https://data.krx.co.kr"], ["네이버 증권 코스피", "https://finance.naver.com/sise/sise_index.naver?code=KOSPI"]] },
+  { key: "per", label: "코스피 PER", unit: "배", hint: "", src: "https://data.krx.co.kr", path: "통계 → 기본통계 → 지수 → PER/PBR/배당수익률(코스피)", links: [["KRX 정보데이터시스템", "https://data.krx.co.kr"], ["네이버 증권 코스피", "https://finance.naver.com/sise/sise_index.naver?code=KOSPI"]] },
 ];
+const MarketSrcLinks = ({ def }) => (def && def.links ? (
+  <div style={{ fontSize: 10, color: "#8993a6", margin: "2px 0 4px", textAlign: "center", lineHeight: 1.6 }}>
+    값 확인:{" "}
+    {def.links.map(([t, u], i) => (
+      <a key={u} href={u} target="_blank" rel="noopener noreferrer" style={{ color: "#c9974a", fontWeight: 700, marginRight: 8, whiteSpace: "nowrap" }}>{t} ↗</a>
+    ))}
+    {def.path && <div style={{ color: "#5a6274" }}>메뉴: {def.path}</div>}
+  </div>
+) : null);
 // 단순 선그래프 (점은 균등 간격). ma가 있으면 이동평균선을 같이 그린다.
 const MarketLineChart = ({ points, ma, color, unit }) => {
   const [touchIdx, setTouchIdx] = useState(null);
@@ -930,6 +938,7 @@ function PortfolioApp() {
   const [marketAutoMsg, setMarketAutoMsg] = useState("");
   const [marketTab, setMarketTab] = useState("mcap");
   const [marketOpen, setMarketOpen] = useState(null);
+  const [quickVal, setQuickVal] = useState({});
   const [marketInput, setMarketInput] = useState({ d: "", v: "" });
   const [strengthData, setStrengthData] = useState({}); // { [key(코드:period)]: candles[] }
   const [strengthLoading, setStrengthLoading] = useState(false);
@@ -3689,7 +3698,7 @@ function PortfolioApp() {
           return { last, gap, pct, ma, maSeries, years: Math.round(pts.length / 12) };
         };
         const ks = idxStats(marketIdx.kospi), qs = idxStats(marketIdx.kosdaq);
-        const mcap = lastOf("mcap"), gdp = lastOf("gdp"), margin = lastOf("margin"), foreign = lastOf("foreign"), pbr = lastOf("pbr"), per = lastOf("per");
+        const mcap = lastOf("mcap"), gdp = lastOf("gdp"), margin = lastOf("margin"), pbr = lastOf("pbr"), per = lastOf("per");
         const buffett = mcap && gdp && gdp.v ? (mcap.v / gdp.v) * 100 : null;
         const marginRatio = margin && mcap && mcap.v ? (margin.v / mcap.v) * 100 : null;
         // 두 시리즈의 비율 추이 (분자 날짜 이전의 가장 가까운 분모값과 짝지음)
@@ -3726,7 +3735,6 @@ function PortfolioApp() {
         const kGdp = realRatio(marketIdx.kospi, "gdp", 0), kExp = realRatio(marketIdx.kospi, "export", 12);
         const qGdp = realRatio(marketIdx.kosdaq, "gdp", 0), qExp = realRatio(marketIdx.kosdaq, "export", 12);
         const realVal = (r) => (r ? `과거 ${r.pct.toFixed(0)}% 지점 · 평균比 ${r.gap >= 0 ? "+" : ""}${r.gap.toFixed(0)}%` : null);
-        const fprev = (() => { const a = ser("foreign"); return a.length >= 2 ? a[a.length - 2].v : null; })();
         const idxRows = (mk, nm, st, pts, col) => [
           { id: `${mk}-gap`, mk, name: `${nm} 120개월 이격도`, val: st ? `${st.gap >= 0 ? "+" : ""}${st.gap.toFixed(1)}%` : "-", j: st ? judge(st.gap, -5, 25) : null, rule: "-5%↓ 저 / +25%↑ 고", chart: { points: pts, ma: st ? st.maSeries : null, color: col, note: "실선=지수, 점선=120개월 평균" } },
           { id: `${mk}-pos`, mk, name: `${nm} 장기 위치`, val: st ? `하위 ${st.pct.toFixed(0)}% 지점 (${st.years}년)` : "-", j: st ? judge(st.pct, 25, 85) : null, rule: "25%↓ 저 / 85%↑ 고", chart: { points: pts, color: col, note: "월봉 지수 추이" } },
@@ -3797,6 +3805,26 @@ function PortfolioApp() {
         };
         const delPoint = (d) => setMarketSeries((prev) => ({ ...prev, [def.key]: (prev[def.key] || []).filter((p) => p.d !== d) }));
         const goInput = (k) => { setMarketTab(k); setTimeout(() => { const el = document.getElementById("market-input-card"); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }, 50); };
+        const todayYmd = () => { const t = new Date(); return `${t.getFullYear()}${String(t.getMonth() + 1).padStart(2, "0")}${String(t.getDate()).padStart(2, "0")}`; };
+        const quickAdd = (k) => {
+          const v = Number(String(quickVal[k] || "").replace(/,/g, ""));
+          if (!quickVal[k] || isNaN(v)) return;
+          const d = todayYmd();
+          setMarketSeries((prev) => ({ ...prev, [k]: [...(prev[k] || []).filter((p) => p.d !== d), { d, v }] }));
+          setQuickVal((q) => ({ ...q, [k]: "" }));
+        };
+        const quickBox = (k) => {
+          const df = MARKET_SERIES_DEFS.find((x) => x.key === k);
+          return (
+            <div>
+              <MarketSrcLinks def={df} />
+              <div style={{ display: "flex", gap: 6, justifyContent: "center", alignItems: "center" }}>
+                <input type="text" inputMode="decimal" className="field" placeholder={`오늘 값(${df ? df.unit : ""})`} value={quickVal[k] || ""} onChange={(e) => setQuickVal((q) => ({ ...q, [k]: e.target.value }))} style={{ width: 110, minWidth: 0 }} />
+                <button onClick={() => quickAdd(k)} style={{ padding: "5px 12px", borderRadius: 8, border: "1px solid #c9974a", background: "none", color: "#c9974a", fontWeight: 700, fontSize: 12 }}>저장</button>
+              </div>
+            </div>
+          );
+        };
         const card = { margin: "0 16px 5px", padding: 7 };
         return (
           <div style={{ padding: "calc(env(safe-area-inset-top, 0px) + 4px) 0 0" }}>
@@ -3843,13 +3871,12 @@ function PortfolioApp() {
                     <div style={{ padding: "2px 0 4px" }}>
                       <MarketLineChart points={r.chart.points} ma={r.chart.ma} color={r.chart.color} unit={r.chart.unit || ""} />
                       {r.chart.note && <div style={{ fontSize: 9, color: "#5a6274", textAlign: "center", marginTop: 2 }}>{r.chart.note}</div>}
-                      {r.go && <div style={{ textAlign: "center", marginTop: 4 }}><button onClick={() => goInput(r.go)} style={{ padding: "4px 10px", borderRadius: 8, border: "1px solid #c9974a", background: "none", color: "#c9974a", fontWeight: 700, fontSize: 11 }}>값 입력·확인하러 가기 ↗</button></div>}
+                      {r.go && quickBox(r.go)}
                     </div>
                   )}
                 </div>
               );
               const head = (t) => <div style={{ fontSize: 12, fontWeight: 700, color: "#8993a6", margin: "2px 0 0" }}>{t}</div>;
-              const fOpen = marketOpen === "foreign";
               return (
                 <div className="card tnum" style={card}>
                   {head("코스피")}
@@ -3860,22 +3887,6 @@ function PortfolioApp() {
                   <div style={{ height: 2 }} />
                   {head("시장 공통 (코스피·코스닥 모두 반영)")}
                   {cRows.map(renderRow)}
-                  <div style={{ borderTop: "1px solid #1a1f28" }}>
-                    <div onClick={() => setMarketOpen(fOpen ? null : "foreign")} style={{ display: "grid", gridTemplateColumns: "minmax(0,1.1fr) minmax(0,1.7fr) 46px", gap: 6, alignItems: "center", padding: "2px 0", cursor: "pointer" }}>
-                      <div>
-                        <div style={{ fontSize: 11, color: "#c3c9d4" }}>외국인 보유비중 {fOpen ? "▴" : "▾"}</div>
-                        <div style={{ fontSize: 9, color: "#5a6274" }}>판정 제외(참고)</div>
-                      </div>
-                      <div style={{ fontSize: 12, fontWeight: 700, textAlign: "right" }}>{foreign ? `${foreign.v.toFixed(1)}%` : "입력 필요"}</div>
-                      <div style={{ fontSize: 11, fontWeight: 800, textAlign: "right", color: fprev === null || !foreign ? GRAY : foreign.v > fprev ? RED : foreign.v < fprev ? BLUE : GRAY }}>{fprev === null || !foreign ? "-" : foreign.v > fprev ? "▲" : foreign.v < fprev ? "▼" : "-"}</div>
-                    </div>
-                    {fOpen && (
-                      <div style={{ padding: "2px 0 4px" }}>
-                        <MarketLineChart points={ser("foreign")} color="#c9974a" unit="%" />
-                        <div style={{ textAlign: "center", marginTop: 4 }}><button onClick={() => goInput("foreign")} style={{ padding: "4px 10px", borderRadius: 8, border: "1px solid #c9974a", background: "none", color: "#c9974a", fontWeight: 700, fontSize: 11 }}>값 입력·확인하러 가기 ↗</button></div>
-                      </div>
-                    )}
-                  </div>
                 </div>
               );
             })()}
@@ -3892,12 +3903,7 @@ function PortfolioApp() {
                   </button>
                 ))}
               </div>
-              {def.src && (
-                <div style={{ fontSize: 10, color: "#8993a6", marginBottom: 6, lineHeight: 1.5 }}>
-                  값은 여기서 확인해요: <a href={def.src} target="_blank" rel="noopener noreferrer" style={{ color: "#c9974a", fontWeight: 700 }}>한국거래소 정보데이터시스템 열기 ↗</a>
-                  <div style={{ color: "#5a6274" }}>메뉴: {def.path}</div>
-                </div>
-              )}
+              <MarketSrcLinks def={def} />
               <div style={{ fontSize: 10, color: "#5a6274", marginBottom: 4 }}>{def.label} ({def.unit}){def.hint ? ` · ${def.hint}` : ""} — 날짜와 값을 넣고 추가를 누르면 저장돼요.</div>
               <MarketLineChart points={tabSer.map((p) => ({ d: p.d, v: p.v }))} color="#e7eaf0" unit={def.unit === "%" ? "%" : ""} />
               <div style={{ display: "flex", gap: 6, margin: "8px 0" }}>
