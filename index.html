@@ -790,6 +790,12 @@ const MARKET_SERIES_DEFS = [
   { key: "export", label: "일평균수출", unit: "억$", hint: "월별 일평균 수출(억달러/일)" },
   { key: "foreign", label: "외국인보유", unit: "%", hint: "시가총액 대비 보유비중", src: "https://data.krx.co.kr", path: "통계 → 기본통계 → 주식 → 외국인 보유량(시장별)" },
   { key: "margin", label: "신용융자잔고", unit: "조원", hint: "코스피+코스닥 합산" },
+  { key: "cape", label: "CAPE", unit: "배", hint: "코스피 실러 PER(10년 평균이익 기준) — 직접 입력" },
+  { key: "conc", label: "시장집중도", unit: "%", hint: "코스피 시총 상위 10종목 비중" },
+  { key: "breadthK", label: "코스피 상승비율", unit: "%", hint: "상승 종목 수 ÷ 전체 종목" },
+  { key: "breadthQ", label: "코스닥 상승비율", unit: "%", hint: "상승 종목 수 ÷ 전체 종목" },
+  { key: "bond10", label: "국채10년", unit: "%", hint: "국고채 10년 금리" },
+  { key: "sentiment", label: "투자심리", unit: "pt", hint: "소비자심리지수(100 기준)" },
   { key: "pbr", label: "코스피 PBR", unit: "배", hint: "", src: "https://data.krx.co.kr", path: "통계 → 기본통계 → 지수 → PER/PBR/배당수익률(코스피)" },
   { key: "per", label: "코스피 PER", unit: "배", hint: "", src: "https://data.krx.co.kr", path: "통계 → 기본통계 → 지수 → PER/PBR/배당수익률(코스피)" },
 ];
@@ -1228,13 +1234,13 @@ function PortfolioApp() {
     (() => {
       const base0 = proxyUrl.replace(/\/$/, "");
       const headers0 = appSecret ? { "x-app-secret": appSecret } : {};
-      setMarketAutoMsg("GDP·수출·시가총액·신용융자 자동 수집 중...");
+      setMarketAutoMsg("지표 자동 수집 중...");
       fetch(`${base0}/market-data`, { headers: headers0 }).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`서버 응답 ${r.status} (서버에 marketData.route.js가 배포됐는지 확인)`)))).then((d) => {
-        const names = { mcap: "시가총액", margin: "신용융자잔고", gdp: "GDP", export: "일평균수출" };
+        const names = { mcap: "시가총액", margin: "신용융자잔고", gdp: "GDP", export: "일평균수출", conc: "시장집중도", breadthK: "코스피상승비율", breadthQ: "코스닥상승비율", bond10: "국채10년", sentiment: "투자심리" };
         const ok = [], fail = [];
         setMarketSeries((prev) => {
           const next = { ...prev };
-          ["mcap", "margin", "gdp", "export"].forEach((k) => {
+          ["mcap", "margin", "gdp", "export", "conc", "breadthK", "breadthQ", "bond10", "sentiment"].forEach((k) => {
             if (Array.isArray(d[k]) && d[k].length) {
               const map = {};
               (prev[k] || []).forEach((p) => { map[p.d] = p; });
@@ -1244,7 +1250,7 @@ function PortfolioApp() {
           });
           return next;
         });
-        ["mcap", "margin", "gdp", "export"].forEach((k) => { if (Array.isArray(d[k]) && d[k].length) ok.push(names[k]); else fail.push(`${names[k]}: ${(d.errors && d.errors[k]) || "데이터 없음"}`); });
+        ["mcap", "margin", "gdp", "export", "conc", "breadthK", "breadthQ", "bond10", "sentiment"].forEach((k) => { if (Array.isArray(d[k]) && d[k].length) ok.push(names[k]); else fail.push(`${names[k]}: ${(d.errors && d.errors[k]) || "데이터 없음"}`); });
         setMarketAutoMsg(`${ok.length ? "✅ 자동 수집: " + ok.join(", ") : ""}${fail.length ? (ok.length ? "\n" : "") + "⚠️ " + fail.join("\n⚠️ ") : ""}`);
       }).catch((e) => setMarketAutoMsg(`⚠️ 자동 수집 실패: ${e.message || e}`));
     })();
@@ -3742,13 +3748,44 @@ function PortfolioApp() {
           { id: "buffett", mk: "both", name: "버핏지수(시총÷GDP)", val: buffett !== null ? `${buffett.toFixed(0)}%` : "시총·GDP 입력 필요", j: judge(buffett, 80, 120), rule: "80%↓ 저 / 120%↑ 고", chart: { points: ratioSeries("mcap", "gdp", 100), color: "#c9974a", unit: "%" } },
           { id: "margin", mk: "both", name: "신용융자÷시총", val: marginRatio !== null ? `${marginRatio.toFixed(2)}%` : "융자·시총 입력 필요", j: judge(marginRatio, 0.5, 1.0), rule: "0.5%↓ 저 / 1.0%↑ 고(과열)", chart: { points: ratioSeries("margin", "mcap", 100), color: "#c9974a", unit: "%" } },
         ];
+        // 추가 지표 ─ CAPE, 위험프리미엄, 신용융자 증가율, 시장집중도, 투자심리, 상승종목 비율
+        const cape = lastOf("cape"), conc = lastOf("conc"), bond = lastOf("bond10"), sent = lastOf("sentiment");
+        const avgLast = (k, n) => { const a = ser(k).slice(-n); return a.length ? a.reduce((x, y) => x + y.v, 0) / a.length : null; };
+        const erp = per && bond && per.v > 0 ? 100 / per.v - bond.v : null;
+        const erpSeries = ser("per").map((p) => { let b = null; const bs = ser("bond10"); for (let i = bs.length - 1; i >= 0; i--) { if (bs[i].d <= p.d) { b = bs[i]; break; } } return b && p.v > 0 ? { d: p.d, v: 100 / p.v - b.v } : null; }).filter(Boolean);
+        const mSer = ser("margin");
+        const mGrowthSeries = mSer.map((p) => { const t = new Date(Number(p.d.slice(0, 4)) - 1, Number(p.d.slice(4, 6)) - 1, Number(p.d.slice(6, 8))); const key = `${t.getFullYear()}${String(t.getMonth() + 1).padStart(2, "0")}${String(t.getDate()).padStart(2, "0")}`; let b = null; for (let i = mSer.length - 1; i >= 0; i--) { if (mSer[i].d <= key) { b = mSer[i]; break; } } return b && b.v ? { d: p.d, v: (p.v / b.v - 1) * 100 } : null; }).filter(Boolean);
+        const mGrowth = mGrowthSeries.length ? mGrowthSeries[mGrowthSeries.length - 1] : null;
+        const breadthVal = (k) => { const l = lastOf(k); if (!l) return null; const a20 = avgLast(k, 20); return { last: l.v, avg: a20, n: ser(k).length }; };
+        const bK = breadthVal("breadthK"), bQ = breadthVal("breadthQ");
+        const breadthTxt = (b) => (b ? (b.n >= 3 ? `오늘 ${b.last.toFixed(0)}% · 평균 ${b.avg.toFixed(0)}%` : `오늘 ${b.last.toFixed(0)}%`) : "시세 연동 필요");
+        const breadthJ = (b) => (b ? judge(b.n >= 3 ? b.avg : b.last, 40, 60) : null);
+        kRows.push(
+          { id: "cape", go: "cape", mk: "kospi", name: "CAPE(실러 PER)", val: cape ? `${cape.v.toFixed(1)}배` : "입력 필요", j: cape ? judge(cape.v, 12, 20) : null, rule: "12↓ 저 / 20↑ 고 (10년 평균이익)", chart: { points: ser("cape"), color: "#e8544b", unit: "배" } },
+          { id: "erp", go: "per", mk: "kospi", name: "주식 위험프리미엄", val: erp !== null ? `${erp.toFixed(1)}%p` : "PER·국채금리 필요", j: erp !== null ? judge(-erp, -6, -3) : null, rule: "6↑ 저 / 3↓ 고 (1/PER−국채10년)", chart: { points: erpSeries, color: "#e8544b", unit: "%p", note: "이익수익률(1/PER) − 국채10년. 높을수록 주식이 싸다는 뜻" } },
+          { id: "conc", go: "conc", mk: "kospi", name: "시장집중도(상위10)", val: conc ? `${conc.v.toFixed(1)}%` : "시세 연동 필요", j: conc ? judge(conc.v, 40, 55) : null, rule: "40%↓ 저 / 55%↑ 고(쏠림)", chart: { points: ser("conc"), color: "#e8544b", unit: "%" } },
+          { id: "breadthK", go: "breadthK", mk: "kospi", name: "코스피 상승종목 비율", val: breadthTxt(bK), j: breadthJ(bK), rule: "40%↓ 침체 / 60%↑ 과열(20일평균)", chart: { points: ser("breadthK"), color: "#e8544b", unit: "%" } },
+        );
+        qRows.push(
+          { id: "breadthQ", go: "breadthQ", mk: "kosdaq", name: "코스닥 상승종목 비율", val: breadthTxt(bQ), j: breadthJ(bQ), rule: "40%↓ 침체 / 60%↑ 과열(20일평균)", chart: { points: ser("breadthQ"), color: "#4c8dff", unit: "%" } },
+        );
+        cRows.push(
+          { id: "mgrowth", mk: "both", name: "신용융자 증가율(1년)", val: mGrowth ? `${mGrowth.v >= 0 ? "+" : ""}${mGrowth.v.toFixed(1)}%` : "융자 1년치 필요", j: mGrowth ? judge(mGrowth.v, -5, 25) : null, rule: "-5%↓ 저 / +25%↑ 고(과열)", chart: { points: mGrowthSeries, color: "#c9974a", unit: "%" } },
+          { id: "sentiment", go: "sentiment", mk: "both", name: "투자심리(소비자심리)", val: sent ? `${sent.v.toFixed(1)}pt` : "수집 필요", j: sent ? judge(sent.v, 92, 108) : null, rule: "92↓ 비관 / 108↑ 낙관(100 기준)", chart: { points: ser("sentiment"), color: "#c9974a", unit: "pt" } },
+        );
         const compOf = (mk) => {
           const rs = [...(mk === "kospi" ? kRows : qRows), ...cRows].filter((r) => r.j !== null);
           const total = (mk === "kospi" ? kRows : qRows).length + cRows.length;
           const avg = rs.length ? rs.reduce((a, r) => a + r.j, 0) / rs.length : null;
-          return { avg, n: rs.length, total, overall: avg === null ? null : avg >= 0.4 ? 1 : avg <= -0.4 ? -1 : 0 };
+          return { avg, n: rs.length, total, score: avg === null ? null : Math.round(100 + avg * 100), overall: avg === null ? null : avg >= 0.4 ? 1 : avg <= -0.4 ? -1 : 0 };
         };
         const kComp = compOf("kospi"), qComp = compOf("kosdaq");
+        const allScored = [...kRows, ...qRows, ...cRows].filter((r) => r.j !== null);
+        const allAvg = allScored.length ? allScored.reduce((a, r) => a + r.j, 0) / allScored.length : null;
+        const allScore = allAvg === null ? null : Math.round(100 + allAvg * 100);
+        const scoreLabel = (sc) => (sc === null ? "데이터 부족" : sc >= 100 ? "거품" : "저평가");
+        const scoreColor = (sc) => (sc === null ? GRAY : sc >= 100 ? RED : BLUE);
+        const allOverall = allAvg === null ? null : allAvg >= 0.4 ? 1 : allAvg <= -0.4 ? -1 : 0;
         const def = MARKET_SERIES_DEFS.find((d) => d.key === marketTab) || MARKET_SERIES_DEFS[0];
         const tabSer = ser(def.key);
         const addPoint = () => {
@@ -3760,35 +3797,41 @@ function PortfolioApp() {
         };
         const delPoint = (d) => setMarketSeries((prev) => ({ ...prev, [def.key]: (prev[def.key] || []).filter((p) => p.d !== d) }));
         const goInput = (k) => { setMarketTab(k); setTimeout(() => { const el = document.getElementById("market-input-card"); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }, 50); };
-        const card = { margin: "0 16px 8px", padding: 10 };
+        const card = { margin: "0 16px 5px", padding: 7 };
         return (
-          <div style={{ padding: "calc(env(safe-area-inset-top, 0px) + 10px) 0 0" }}>
-            <div style={{ padding: "0 16px 10px", position: "sticky", top: "env(safe-area-inset-top, 0px)", zIndex: 20, background: "#12151b" }}>
+          <div style={{ padding: "calc(env(safe-area-inset-top, 0px) + 4px) 0 0" }}>
+            <div style={{ padding: "0 16px 4px", position: "sticky", top: "env(safe-area-inset-top, 0px)", zIndex: 20, background: "#12151b" }}>
               <button onClick={() => setMainView("home")} className="iconbtn" style={{ color: "#c9974a", fontWeight: 700, fontSize: 14 }}>← 뒤로</button>
             </div>
-            <div style={{ display: "flex", gap: 8, margin: "0 16px 8px" }}>
+            <div className="card" style={{ ...card, textAlign: "center" }}>
+              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center", gap: 8 }}>
+                <span style={{ fontSize: 11, color: "#8993a6" }}>🌡 시장 전체</span>
+                <span style={{ fontSize: 26, fontWeight: 800, lineHeight: 1.1, color: scoreColor(allScore) }}>{allScore === null ? "-" : allScore}</span>
+                <span style={{ fontSize: 14, fontWeight: 800, color: scoreColor(allScore) }}>{scoreLabel(allScore)}</span>
+              </div>
+              <div style={{ fontSize: 9, color: "#5a6274" }}>기준 100 · 100 이상 거품 / 100 미만 저평가 · 지표 {allScored.length}개 평균 · 참고용 · 지표를 누르면 차트</div>
+            </div>
+            <div style={{ display: "flex", gap: 6, margin: "0 16px 5px" }}>
               {[["코스피", kComp], ["코스닥", qComp]].map(([nm, c]) => (
-                <div key={nm} className="card" style={{ flex: 1, minWidth: 0, padding: 10, textAlign: "center", margin: 0 }}>
-                  <div style={{ fontSize: 11, color: "#8993a6", marginBottom: 2 }}>🌡 {nm} 종합판정</div>
-                  <div style={{ fontSize: 22, fontWeight: 800, color: c.overall === null ? GRAY : colorOf(c.overall) }}>{c.overall === null ? "데이터 부족" : label(c.overall)}</div>
+                <div key={nm} className="card" style={{ flex: 1, minWidth: 0, padding: "6px 8px", textAlign: "center", margin: 0 }}>
+                  <div style={{ fontSize: 10, color: "#8993a6" }}>{nm} 종합 · 지표 {c.n}/{c.total}</div>
+                  <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center", gap: 6 }}>
+                    <span style={{ fontSize: 20, fontWeight: 800, color: scoreColor(c.score) }}>{c.score === null ? "-" : c.score}</span>
+                    <span style={{ fontSize: 13, fontWeight: 800, color: scoreColor(c.score) }}>{scoreLabel(c.score)}</span>
+                  </div>
                   {c.avg !== null && (
-                    <div style={{ margin: "6px auto 2px" }}>
-                      <div style={{ position: "relative", height: 8, borderRadius: 4, background: "linear-gradient(90deg, #4c8dff, #8993a6, #e8544b)" }}>
-                        <div style={{ position: "absolute", top: -3, left: `calc(${((c.avg + 1) / 2) * 100}% - 7px)`, width: 14, height: 14, borderRadius: 7, background: "#e7eaf0", border: "2px solid #12151b" }} />
-                      </div>
-                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: "#5a6274", marginTop: 3 }}><span>저평가</span><span>적정</span><span>고평가</span></div>
+                    <div style={{ position: "relative", height: 5, borderRadius: 3, margin: "4px 4px 2px", background: "linear-gradient(90deg, #4c8dff, #8993a6, #e8544b)" }}>
+                      <div style={{ position: "absolute", top: -3, left: `calc(${((c.avg + 1) / 2) * 100}% - 5px)`, width: 10, height: 10, borderRadius: 5, background: "#e7eaf0", border: "2px solid #12151b" }} />
                     </div>
                   )}
-                  <div style={{ fontSize: 9, color: "#5a6274", marginTop: 3 }}>판정 지표 {c.n}/{c.total}개 평균</div>
                 </div>
               ))}
             </div>
-            <div style={{ margin: "0 16px 8px", fontSize: 10, color: "#5a6274", textAlign: "center" }}>참고용이에요 · 아래 지표를 누르면 차트가 나와요</div>
 
             {(() => {
               const renderRow = (r) => (
                 <div key={r.id} style={{ borderTop: "1px solid #1a1f28" }}>
-                  <div onClick={() => setMarketOpen(marketOpen === r.id ? null : r.id)} style={{ display: "grid", gridTemplateColumns: "minmax(0,1.1fr) minmax(0,1.7fr) 46px", gap: 6, alignItems: "center", padding: "4px 0", cursor: "pointer" }}>
+                  <div onClick={() => setMarketOpen(marketOpen === r.id ? null : r.id)} style={{ display: "grid", gridTemplateColumns: "minmax(0,1.1fr) minmax(0,1.7fr) 46px", gap: 6, alignItems: "center", padding: "2px 0", cursor: "pointer" }}>
                     <div>
                       <div style={{ fontSize: 11, color: "#c3c9d4" }}>{r.name} {marketOpen === r.id ? "▴" : "▾"}</div>
                       <div style={{ fontSize: 9, color: "#5a6274", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.rule}</div>
@@ -3797,7 +3840,7 @@ function PortfolioApp() {
                     <div style={{ fontSize: 11, fontWeight: 800, textAlign: "right", color: colorOf(r.j) }}>{label(r.j)}</div>
                   </div>
                   {marketOpen === r.id && r.chart && (
-                    <div style={{ padding: "4px 0 8px" }}>
+                    <div style={{ padding: "2px 0 4px" }}>
                       <MarketLineChart points={r.chart.points} ma={r.chart.ma} color={r.chart.color} unit={r.chart.unit || ""} />
                       {r.chart.note && <div style={{ fontSize: 9, color: "#5a6274", textAlign: "center", marginTop: 2 }}>{r.chart.note}</div>}
                       {r.go && <div style={{ textAlign: "center", marginTop: 4 }}><button onClick={() => goInput(r.go)} style={{ padding: "4px 10px", borderRadius: 8, border: "1px solid #c9974a", background: "none", color: "#c9974a", fontWeight: 700, fontSize: 11 }}>값 입력·확인하러 가기 ↗</button></div>}
@@ -3805,21 +3848,20 @@ function PortfolioApp() {
                   )}
                 </div>
               );
-              const head = (t) => <div style={{ fontSize: 12, fontWeight: 700, color: "#8993a6", margin: "4px 0 2px" }}>{t}</div>;
+              const head = (t) => <div style={{ fontSize: 12, fontWeight: 700, color: "#8993a6", margin: "2px 0 0" }}>{t}</div>;
               const fOpen = marketOpen === "foreign";
               return (
                 <div className="card tnum" style={card}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: "#e7eaf0", marginBottom: 4 }}>지표별 판정</div>
                   {head("코스피")}
                   {kRows.map(renderRow)}
-                  <div style={{ height: 6 }} />
+                  <div style={{ height: 2 }} />
                   {head("코스닥")}
                   {qRows.map(renderRow)}
-                  <div style={{ height: 6 }} />
+                  <div style={{ height: 2 }} />
                   {head("시장 공통 (코스피·코스닥 모두 반영)")}
                   {cRows.map(renderRow)}
                   <div style={{ borderTop: "1px solid #1a1f28" }}>
-                    <div onClick={() => setMarketOpen(fOpen ? null : "foreign")} style={{ display: "grid", gridTemplateColumns: "minmax(0,1.1fr) minmax(0,1.7fr) 46px", gap: 6, alignItems: "center", padding: "4px 0", cursor: "pointer" }}>
+                    <div onClick={() => setMarketOpen(fOpen ? null : "foreign")} style={{ display: "grid", gridTemplateColumns: "minmax(0,1.1fr) minmax(0,1.7fr) 46px", gap: 6, alignItems: "center", padding: "2px 0", cursor: "pointer" }}>
                       <div>
                         <div style={{ fontSize: 11, color: "#c3c9d4" }}>외국인 보유비중 {fOpen ? "▴" : "▾"}</div>
                         <div style={{ fontSize: 9, color: "#5a6274" }}>판정 제외(참고)</div>
@@ -3828,7 +3870,7 @@ function PortfolioApp() {
                       <div style={{ fontSize: 11, fontWeight: 800, textAlign: "right", color: fprev === null || !foreign ? GRAY : foreign.v > fprev ? RED : foreign.v < fprev ? BLUE : GRAY }}>{fprev === null || !foreign ? "-" : foreign.v > fprev ? "▲" : foreign.v < fprev ? "▼" : "-"}</div>
                     </div>
                     {fOpen && (
-                      <div style={{ padding: "4px 0 8px" }}>
+                      <div style={{ padding: "2px 0 4px" }}>
                         <MarketLineChart points={ser("foreign")} color="#c9974a" unit="%" />
                         <div style={{ textAlign: "center", marginTop: 4 }}><button onClick={() => goInput("foreign")} style={{ padding: "4px 10px", borderRadius: 8, border: "1px solid #c9974a", background: "none", color: "#c9974a", fontWeight: 700, fontSize: 11 }}>값 입력·확인하러 가기 ↗</button></div>
                       </div>
@@ -3838,10 +3880,10 @@ function PortfolioApp() {
               );
             })()}
 
-            {marketMsg && <div style={{ margin: "0 16px 8px", fontSize: 12, color: "#8993a6", textAlign: "center" }}>{marketMsg}</div>}
-            {marketAutoMsg && <div style={{ margin: "0 16px 8px", fontSize: 11, color: "#8993a6", textAlign: "center", whiteSpace: "pre-line" }}>{marketAutoMsg}</div>}
+            {marketMsg && <div style={{ margin: "0 16px 4px", fontSize: 11, color: "#8993a6", textAlign: "center" }}>{marketMsg}</div>}
+            {marketAutoMsg && <div style={{ margin: "0 16px 4px", fontSize: 9, lineHeight: 1.3, color: "#8993a6", textAlign: "center", whiteSpace: "pre-line" }}>{marketAutoMsg}</div>}
             <div id="market-input-card" className="card tnum" style={card}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "#8993a6", marginBottom: 6 }}>지표 데이터 (GDP·시가총액·신용융자는 자동, 나머지는 직접 입력)</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#8993a6", marginBottom: 6 }}>지표 데이터 (자동 수집되는 값 외에는 직접 입력)</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 8 }}>
                 {MARKET_SERIES_DEFS.map((d) => (
                   <button key={d.key} onClick={() => { setMarketTab(d.key); setMarketInput({ d: "", v: "" }); }} className="iconbtn"
@@ -3872,7 +3914,7 @@ function PortfolioApp() {
               ))}
             </div>
 
-            <div style={{ margin: "0 16px 24px", fontSize: 10, color: "#5a6274", lineHeight: 1.5 }}>
+            <div style={{ margin: "0 16px 16px", fontSize: 9, color: "#5a6274", lineHeight: 1.35 }}>
               코스피·코스닥은 한투 API 월봉을 자동으로 받아와요. 이격도는 현재 지수가 최근 120개월(10년) 평균보다 얼마나 위·아래인지, 장기 위치는 받아온 전체 기간 중 현재 지수가 하위 몇 %에 해당하는지예요. GDP·시가총액·신용융자잔고는 서버가 한국은행 ECOS와 공공데이터포털에서 자동으로 받아와요(화면을 열 때마다, 서버에서 6시간 캐시). 외국인보유비중·PBR·PER은 자동으로 받아올 곳이 없어 직접 입력해요. 판정 기준선(저/고)은 일반적인 참고 구간이라 시기에 따라 달라질 수 있고, 투자 판단의 보조 자료로만 쓰세요.
             </div>
           </div>
