@@ -3774,8 +3774,8 @@ function PortfolioApp() {
         const mGrowth = mGrowthSeries.length ? mGrowthSeries[mGrowthSeries.length - 1] : null;
         const breadthVal = (k) => { const l = lastOf(k); if (!l) return null; const a20 = avgLast(k, 20); return { last: l.v, avg: a20, n: ser(k).length }; };
         const bK = breadthVal("breadthK"), bQ = breadthVal("breadthQ");
-        const breadthTxt = (b) => (b ? (b.n >= 3 ? `오늘 ${b.last.toFixed(0)}% · 평균 ${b.avg.toFixed(0)}%` : `오늘 ${b.last.toFixed(0)}%`) : "시세 연동 필요");
-        const breadthJ = (b) => (b ? judge(b.n >= 3 ? b.avg : b.last, 40, 60) : null);
+        const breadthTxt = (b) => (b ? (b.n >= 3 ? `오늘 ${b.last.toFixed(0)}% · 평균 ${b.avg.toFixed(0)}%` : `오늘 ${b.last.toFixed(0)}% · 누적 ${b.n}/3일`) : "시세 연동 필요");
+        const breadthJ = (b) => (b && b.n >= 3 ? judge(b.avg, 40, 60) : null); // 하루 값은 변동이 커서 3일 이상 쌓인 뒤부터 판정
         kRows.push(
           { id: "cape", go: "cape", mk: "kospi", name: "CAPE(실러 PER)", val: cape ? `${cape.v.toFixed(1)}배` : "입력 필요", j: cape ? judge(cape.v, 12, 20) : null, rule: "12↓ 저 / 20↑ 고 (10년 평균이익)", chart: { points: ser("cape"), color: "#e8544b", unit: "배" } },
           { id: "erp", go: "per", mk: "kospi", name: "주식 위험프리미엄", val: erp !== null ? `${erp.toFixed(1)}%p` : "PER·국채금리 필요", j: erp !== null ? judge(-erp, -6, -3) : null, rule: "6↑ 저 / 3↓ 고 (1/PER−국채10년)", chart: { points: erpSeries, color: "#e8544b", unit: "%p", note: "이익수익률(1/PER) − 국채10년. 높을수록 주식이 싸다는 뜻" } },
