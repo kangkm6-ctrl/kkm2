@@ -1298,11 +1298,11 @@ function PortfolioApp() {
       const headers0 = appSecret ? { "x-app-secret": appSecret } : {};
       setMarketAutoMsg("지표 자동 수집 중...");
       fetch(`${base0}/market-data`, { headers: headers0 }).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`서버 응답 ${r.status} (서버에 marketData.route.js가 배포됐는지 확인)`)))).then((d) => {
-        const names = { mcap: "시가총액", margin: "신용융자잔고", gdp: "GDP", export: "일평균수출", deposit: "고객예탁금", conc: "시장집중도", breadthK: "코스피상승비율", breadthQ: "코스닥상승비율", bond10: "국채10년", bond3: "국채3년", sentiment: "투자심리" };
+        const names = { mcap: "시가총액", margin: "신용융자잔고", gdp: "GDP", export: "일평균수출", deposit: "고객예탁금", conc: "시장집중도", breadthK: "코스피상승비율", breadthQ: "코스닥상승비율", bond10: "국채10년", bond3: "국채3년", mcapK: "코스피시총", mcapQ: "코스닥시총", sentiment: "투자심리" };
         const ok = [], fail = [];
         setMarketSeries((prev) => {
           const next = { ...prev };
-          ["mcap", "margin", "gdp", "export", "deposit", "conc", "breadthK", "breadthQ", "bond10", "bond3", "sentiment"].forEach((k) => {
+          ["mcap", "margin", "gdp", "export", "deposit", "conc", "breadthK", "breadthQ", "bond10", "bond3", "sentiment", "mcapK", "mcapQ"].forEach((k) => {
             if (Array.isArray(d[k]) && d[k].length) {
               const map = {};
               (prev[k] || []).forEach((p) => { map[p.d] = p; });
@@ -1312,7 +1312,7 @@ function PortfolioApp() {
           });
           return next;
         });
-        ["mcap", "margin", "gdp", "export", "deposit", "conc", "breadthK", "breadthQ", "bond10", "bond3", "sentiment"].forEach((k) => { if (Array.isArray(d[k]) && d[k].length) ok.push(names[k]); else fail.push(`${names[k]}: ${String((d.errors && d.errors[k]) || "데이터 없음").replace(/\s+/g, " ").replace(/"/g, "").slice(0, 110)}`); });
+        ["mcap", "margin", "gdp", "export", "deposit", "conc", "breadthK", "breadthQ", "bond10", "bond3", "sentiment", "mcapK", "mcapQ"].forEach((k) => { if (Array.isArray(d[k]) && d[k].length) ok.push(names[k]); else if ((k === "conc" || k === "breadthK" || k === "breadthQ" || k === "mcapK" || k === "mcapQ") && !(d.errors && d.errors[k])) { /* 장 시작 전·휴장일에는 종목 수 값이 없어서 정상 — 경고 생략 */ } else fail.push(`${names[k]}: ${String((d.errors && d.errors[k]) || "데이터 없음").replace(/\s+/g, " ").replace(/"/g, "").slice(0, 110)}`); });
         setMarketAutoMsg(`${ok.length ? "✅ 자동 수집: " + ok.join(", ") : ""}${fail.length ? (ok.length ? "\n" : "") + "⚠️ " + fail.join("\n⚠️ ") : ""}`);
       }).catch((e) => setMarketAutoMsg(`⚠️ 자동 수집 실패: ${e.message || e}`));
     })();
@@ -1334,28 +1334,29 @@ function PortfolioApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mainView]);
 
-  // 시장평가에서 코스피/코스닥 종합을 펼치면 일봉·주봉 지수를 받아온다 (월봉은 위에서 받아 둔 값을 쓴다).
+  // 시장평가에서 일봉·주봉 지수를 코스피·코스닥 둘 다 가능한 한 길게 받아온다 (월봉은 위에서 받아 둔 20년치를 쓴다).
   useEffect(() => {
-    if (mainView !== "marketHL" || !marketSel || marketPer === "M" || !proxyUrl) return;
-    const code = marketSel === "kospi" ? "0001" : "1001";
-    const key = `${code}:${marketPer}`;
-    if (marketCandles[key] && marketCandles[key].length) return;
+    if (mainView !== "marketHL" || marketPer === "M" || !proxyUrl) return;
     let cancelled = false;
     const base = proxyUrl.replace(/\/$/, "");
     const headers = appSecret ? { "x-app-secret": appSecret } : {};
-    const days = marketPer === "D" ? 420 : 1900;
-    setMarketCandleMsg("지수 불러오는 중...");
-    fetch(`${base}/index-history/${code}?period=${marketPer}&days=${days}`, { headers })
-      .then((r) => (r.ok ? r.json() : null)).catch(() => null)
-      .then((d) => {
+    const days = marketPer === "D" ? 1500 : 7300; // 일봉 약 4년, 주봉 약 20년
+    (async () => {
+      for (const code of ["0001", "1001"]) {
+        const key = `${code}:${marketPer}`;
+        if (marketCandles[key] && marketCandles[key].length) continue;
+        setMarketCandleMsg("지수 불러오는 중...");
+        const d = await fetch(`${base}/index-history/${code}?period=${marketPer}&days=${days}`, { headers }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
         if (cancelled) return;
         const pts = d && Array.isArray(d.candles) ? d.candles.map((c) => ({ d: c.date, v: Number(c.close) })).filter((p) => p.v > 0).sort((a, b) => (a.d < b.d ? -1 : 1)) : [];
-        if (pts.length) { setMarketCandles((prev) => ({ ...prev, [key]: pts })); setMarketCandleMsg(""); }
-        else setMarketCandleMsg("지수를 불러오지 못했어요. 잠시 후 다시 눌러 주세요.");
-      });
+        if (pts.length) setMarketCandles((prev) => ({ ...prev, [key]: pts }));
+        else { setMarketCandleMsg("지수를 불러오지 못했어요. 잠시 후 다시 눌러 주세요."); return; }
+      }
+      if (!cancelled) setMarketCandleMsg("");
+    })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mainView, marketSel, marketPer, proxyUrl]);
+  }, [mainView, marketPer, proxyUrl]);
 
   useEffect(() => {
     if (!loaded) return;
@@ -3816,28 +3817,65 @@ function PortfolioApp() {
           const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
           return { cur, pct, gap: (cur / avg - 1) * 100, hist };
         };
+        // 시가총액 과거값 추정: 코스피·코스닥 시총을 지금 값에 지수 변화율을 곱해 거꾸로 계산한다(최근 3년, 월 단위). 실제로 받아 저장한 값이 있는 날짜부터는 그 값을 쓴다.
+        // 선택한 봉(일·주·월) 기준의 지수 점들과 이동평균 — 모든 지수 기반 차트가 같은 봉을 쓴다
+        const idxPtsOf = (mk) => (marketPer === "M" ? (marketIdx[mk] || []) : (marketCandles[`${mk === "kospi" ? "0001" : "1001"}:${marketPer}`] || []));
+        const kPts = idxPtsOf("kospi"), qPts = idxPtsOf("kosdaq");
+        const maWin = marketPer === "M" ? 120 : marketPer === "W" ? 520 : 200;
+        const maLabelStr = marketPer === "M" ? "120개월 평균" : marketPer === "W" ? "520주(약 10년) 평균" : "200일 평균";
+        const maOf = (pts) => {
+          if (!pts || pts.length < maWin) return null;
+          const out = []; let acc = 0;
+          pts.forEach((p, i) => { acc += p.v; if (i >= maWin) acc -= pts[i - maWin].v; out.push(i + 1 < maWin ? null : acc / maWin); });
+          return out;
+        };
+        // 날짜순으로 정렬된 두 배열을 짝짓기: a의 각 날짜 이전(또는 같은 날) 가장 가까운 b 값을 돌려준다
+        const alignPrev = (aPts, bPts, fn) => {
+          const out = []; let j = -1;
+          aPts.forEach((p) => { while (j + 1 < bPts.length && bPts[j + 1].d <= p.d) j++; if (j >= 0) { const v = fn(p, bPts[j]); if (v !== null && !isNaN(v)) out.push({ d: p.d, v }); } });
+          return out;
+        };
+        // 시가총액 과거값 추정: 코스피·코스닥 시총을 지금 값에 지수 변화율을 곱해 거꾸로 계산한다. 실제로 받아 저장한 날짜부터는 그 값을 쓴다.
+        const mcapFull = (() => {
+          const real = ser("mcap");
+          const kL = lastOf("mcapK"), qL = lastOf("mcapQ");
+          let est = [];
+          if (kL && qL && kPts.length && qPts.length) {
+            const ikLast = kPts[kPts.length - 1].v, iqLast = qPts[qPts.length - 1].v;
+            const firstReal = real.length ? real[0].d : "99999999";
+            est = alignPrev(kPts.filter((p) => p.d < firstReal), qPts, (pk, pq) => Math.round(((kL.v * pk.v) / ikLast + (qL.v * pq.v) / iqLast) * 10) / 10);
+          }
+          return { points: [...est, ...real], estCount: est.length };
+        })();
+        const ratioPts = (numPts, denKey, mul) => alignPrev(numPts, ser(denKey), (p, q) => (q.v ? (p.v / q.v) * mul : null));
+        // 지수 ÷ 실물지표 추이(선택한 봉 간격). 수출은 12개월 평균을 쓴다.
+        const ratioChart = (idxPts, sKey, smooth) => {
+          let sp = ser(sKey);
+          if (smooth) sp = sp.map((p, i) => (i + 1 < smooth ? null : { d: p.d, v: sp.slice(i + 1 - smooth, i + 1).reduce((a, b) => a + b.v, 0) / smooth })).filter(Boolean);
+          return alignPrev(idxPts, sp, (p, q) => (q.v ? p.v / q.v : null));
+        };
         const kGdp = realRatio(marketIdx.kospi, "gdp", 0), kExp = realRatio(marketIdx.kospi, "export", 12);
         const qGdp = realRatio(marketIdx.kosdaq, "gdp", 0), qExp = realRatio(marketIdx.kosdaq, "export", 12);
         const realVal = (r) => (r ? `과거 ${r.pct.toFixed(0)}% 지점 · 평균比 ${r.gap >= 0 ? "+" : ""}${r.gap.toFixed(0)}%` : null);
         const idxRows = (mk, nm, st, pts, col) => [
-          { id: `${mk}-gap`, mk, name: `${nm} 120개월 이격도`, val: st ? `${st.gap >= 0 ? "+" : ""}${st.gap.toFixed(1)}%` : "-", j: st ? judge(st.gap, -5, 25) : null, rule: "-5%↓ 저 / +25%↑ 고", chart: { points: pts, ma: st ? st.maSeries : null, color: col, note: "실선=지수, 점선=120개월 평균" } },
-          { id: `${mk}-pos`, mk, name: `${nm} 장기 위치`, val: st ? `하위 ${st.pct.toFixed(0)}% 지점 (${st.years}년)` : "-", j: st ? judge(st.pct, 25, 85) : null, rule: "25%↓ 저 / 85%↑ 고", chart: { points: pts, color: col, note: "월봉 지수 추이" } },
+          { id: `${mk}-gap`, mk, name: `${nm} 120개월 이격도`, val: st ? `${st.gap >= 0 ? "+" : ""}${st.gap.toFixed(1)}%` : "-", j: st ? judge(st.gap, -5, 25) : null, rule: "-5%↓ 저 / +25%↑ 고", chart: { points: pts, ma: maOf(pts), color: col, idx: true, note: "실선=지수, 점선=" + maLabelStr } },
+          { id: `${mk}-pos`, mk, name: `${nm} 장기 위치`, val: st ? `하위 ${st.pct.toFixed(0)}% 지점 (${st.years}년)` : "-", j: st ? judge(st.pct, 25, 85) : null, rule: "25%↓ 저 / 85%↑ 고", chart: { points: pts, color: col, idx: true, note: "지수 추이" } },
         ];
-        const ratioRow = (id, mk, name, r, miss, rule, col) => ({ id, mk, name, val: r ? realVal(r) : miss, j: r ? judge(r.pct, 20, 80) : null, rule, chart: { points: r ? r.hist : [], color: col, note: "비율 추이(높을수록 지수가 실물보다 비쌈)" } });
+        const ratioRow = (id, mk, name, r, miss, rule, col, idxP, sKey, smooth) => ({ id, mk, name, val: r ? realVal(r) : miss, j: r ? judge(r.pct, 20, 80) : null, rule, chart: { points: ratioChart(idxP, sKey, smooth), idx: true, color: col, note: "비율 추이(높을수록 지수가 실물보다 비쌈)" } });
         const kRows = [
-          ...idxRows("kospi", "코스피", ks, marketIdx.kospi, "#e8544b"),
-          ratioRow("kospi-gdp", "kospi", "코스피÷명목GDP", kGdp, "GDP 입력 필요", "20%↓ 저 / 80%↑ 고", "#e8544b"),
-          ratioRow("kospi-exp", "kospi", "코스피÷일평균수출", kExp, "수출 입력 필요", "12개월평균 20%↓ 저 / 80%↑ 고", "#e8544b"),
+          ...idxRows("kospi", "코스피", ks, kPts, "#e8544b"),
+          ratioRow("kospi-gdp", "kospi", "코스피÷명목GDP", kGdp, "GDP 입력 필요", "20%↓ 저 / 80%↑ 고", "#e8544b", kPts, "gdp", 0),
+          ratioRow("kospi-exp", "kospi", "코스피÷일평균수출", kExp, "수출 입력 필요", "12개월평균 20%↓ 저 / 80%↑ 고", "#e8544b", kPts, "export", 12),
           { id: "pbr", go: "pbr", mk: "kospi", name: "코스피 PBR", val: pbr ? `${pbr.v.toFixed(2)}배` : "입력 필요", j: pbr ? judge(pbr.v, 0.9, 1.3) : null, rule: "0.9↓ 저 / 1.3↑ 고", chart: { points: ser("pbr"), color: "#e8544b", unit: "배" } },
           { id: "per", go: "per", mk: "kospi", name: "코스피 PER", val: per ? `${per.v.toFixed(1)}배` : "입력 필요", j: per ? judge(per.v, 10, 16) : null, rule: "10↓ 저 / 16↑ 고", chart: { points: ser("per"), color: "#e8544b", unit: "배" } },
         ];
         const qRows = [
-          ...idxRows("kosdaq", "코스닥", qs, marketIdx.kosdaq, "#4c8dff"),
-          ratioRow("kosdaq-gdp", "kosdaq", "코스닥÷명목GDP", qGdp, "GDP 입력 필요", "20%↓ 저 / 80%↑ 고", "#4c8dff"),
-          ratioRow("kosdaq-exp", "kosdaq", "코스닥÷일평균수출", qExp, "수출 입력 필요", "12개월평균 20%↓ 저 / 80%↑ 고", "#4c8dff"),
+          ...idxRows("kosdaq", "코스닥", qs, qPts, "#4c8dff"),
+          ratioRow("kosdaq-gdp", "kosdaq", "코스닥÷명목GDP", qGdp, "GDP 입력 필요", "20%↓ 저 / 80%↑ 고", "#4c8dff", qPts, "gdp", 0),
+          ratioRow("kosdaq-exp", "kosdaq", "코스닥÷일평균수출", qExp, "수출 입력 필요", "12개월평균 20%↓ 저 / 80%↑ 고", "#4c8dff", qPts, "export", 12),
         ];
         const cRows = [
-          { id: "buffett", mk: "both", name: "버핏지수(시총÷GDP)", val: buffett !== null ? `${buffett.toFixed(0)}%` : "시총·GDP 입력 필요", j: judge(buffett, 80, 120), rule: "80%↓ 저 / 120%↑ 고", chart: { points: ratioSeries("mcap", "gdp", 100), color: "#c9974a", unit: "%" } },
+          { id: "buffett", mk: "both", name: "버핏지수(시총÷GDP)", val: buffett !== null ? `${buffett.toFixed(0)}%` : "시총·GDP 입력 필요", j: judge(buffett, 80, 120), rule: "80%↓ 저 / 120%↑ 고", chart: { points: ratioPts(mcapFull.points, "gdp", 100), idx: true, color: "#c9974a", unit: "%", note: mcapFull.estCount ? "과거 시총은 지수 변화율로 추정한 값이에요(실제와 다를 수 있음)" : undefined } },
         ];
         // 추가 지표 ─ CAPE, 위험프리미엄, 신용융자 증가율, 시장집중도, 투자심리, 상승종목 비율
         const vk = lastOf("vkospi");
@@ -3881,10 +3919,8 @@ function PortfolioApp() {
           return { avg, n: rs.length, total, score: avg === null ? null : Math.round(100 + avg * 100), overall: avg === null ? null : avg >= 0.4 ? 1 : avg <= -0.4 ? -1 : 0 };
         };
         const kComp = compOf("kospi"), qComp = compOf("kosdaq");
-        const selCode = marketSel === "kospi" ? "0001" : "1001";
-        const selPts = !marketSel ? [] : marketPer === "M" ? (marketIdx[marketSel] || []) : (marketCandles[`${selCode}:${marketPer}`] || []);
-        const maWin = marketPer === "M" ? 120 : 60;
-        const selMa = selPts.map((_, i) => (i + 1 < maWin ? null : selPts.slice(i + 1 - maWin, i + 1).reduce((a, q) => a + q.v, 0) / maWin));
+        const selPts = marketSel === "kospi" ? kPts : marketSel === "kosdaq" ? qPts : [];
+        const selMa = maOf(selPts);
         const selName = marketSel === "kospi" ? "코스피" : "코스닥";
         const selColor = marketSel === "kospi" ? "#e8544b" : "#4c8dff";
         const allScored = [...kRows, ...qRows, ...cRows].filter((r) => r.j !== null);
@@ -3924,6 +3960,13 @@ function PortfolioApp() {
             </div>
           );
         };
+        const perToggle = (
+          <div style={{ display: "flex", gap: 6, marginBottom: 4 }}>
+            {[["D", "일봉"], ["W", "주봉"], ["M", "월봉"]].map(([k, lb]) => (
+              <button key={k} onClick={() => setMarketPer(k)} className="iconbtn" style={{ flex: 1, padding: "3px 0", borderRadius: 8, fontSize: 11, fontWeight: 700, border: marketPer === k ? "1px solid #c9974a" : "1px solid #262c37", background: marketPer === k ? "rgba(201,151,74,0.15)" : "#1a1f28", color: marketPer === k ? "#c9974a" : "#8993a6" }}>{lb}</button>
+            ))}
+          </div>
+        );
         const card = { margin: "0 16px 5px", padding: 7 };
         return (
           <div style={{ padding: "calc(env(safe-area-inset-top, 0px) + 4px) 0 0" }}>
@@ -3968,7 +4011,8 @@ function PortfolioApp() {
                   </div>
                   {marketOpen === r.id && r.chart && (
                     <div style={{ padding: "2px 0 4px" }}>
-                      <MarketLineChart points={r.chart.points} ma={r.chart.ma} color={r.chart.color} unit={r.chart.unit || ""} />
+                      {r.chart.idx && perToggle}
+                      {r.chart.idx && r.chart.points.length < 2 && marketCandleMsg ? <div style={{ fontSize: 11, color: "#8993a6", textAlign: "center", padding: "10px 0" }}>{marketCandleMsg}</div> : <MarketLineChart points={r.chart.points} ma={r.chart.ma} color={r.chart.color} unit={r.chart.unit || ""} maLabel={r.chart.ma ? maLabelStr : undefined} />}
                       {r.chart.note && <div style={{ fontSize: 9, color: "#5a6274", textAlign: "center", marginTop: 2 }}>{r.chart.note}</div>}
                       {r.go && quickBox(r.go)}
                     </div>
@@ -3989,7 +4033,7 @@ function PortfolioApp() {
                         <button key={k} onClick={() => setMarketPer(k)} className="iconbtn" style={{ flex: 1, padding: "4px 0", borderRadius: 8, fontSize: 12, fontWeight: 700, border: marketPer === k ? "1px solid #c9974a" : "1px solid #262c37", background: marketPer === k ? "rgba(201,151,74,0.15)" : "#1a1f28", color: marketPer === k ? "#c9974a" : "#8993a6" }}>{lb}</button>
                       ))}
                     </div>
-                    {selPts.length < 2 && marketCandleMsg ? <div style={{ fontSize: 11, color: "#8993a6", textAlign: "center", padding: "12px 0" }}>{marketCandleMsg}</div> : <MarketLineChart points={selPts} ma={selMa} color={selColor} maLabel={`${maWin}${marketPer === "D" ? "일" : marketPer === "W" ? "주" : "개월"} 평균`} />}
+                    {selPts.length < 2 && marketCandleMsg ? <div style={{ fontSize: 11, color: "#8993a6", textAlign: "center", padding: "12px 0" }}>{marketCandleMsg}</div> : <MarketLineChart points={selPts} ma={selMa} color={selColor} maLabel={maLabelStr} />}
                   </div>
                   <div className="card tnum" style={card}>
                     {head(`${selName} 지표`)}
@@ -4016,7 +4060,9 @@ function PortfolioApp() {
               </div>
               <MarketSrcLinks def={def} />
               <div style={{ fontSize: 10, color: "#5a6274", marginBottom: 4 }}>{def.label} ({def.unit}){def.hint ? ` · ${def.hint}` : ""} — 날짜와 값을 넣고 추가를 누르면 저장돼요.</div>
-              <MarketLineChart points={tabSer.map((p) => ({ d: p.d, v: p.v }))} color="#e7eaf0" unit={def.unit === "%" ? "%" : ""} />
+              {def.key === "mcap" && perToggle}
+              <MarketLineChart points={(def.key === "mcap" ? mcapFull.points : tabSer).map((p) => ({ d: p.d, v: p.v }))} color="#e7eaf0" unit={def.unit === "%" ? "%" : ""} />
+              {def.key === "mcap" && mcapFull.estCount > 0 && <div style={{ fontSize: 9, color: "#5a6274", textAlign: "center", marginTop: 2 }}>과거 {mcapFull.estCount}개 구간은 지수 변화율로 추정한 값이에요(오래될수록 실제와 차이가 커질 수 있음). 아래 목록은 실제로 받은 값만 보여요.</div>}
               <div style={{ display: "flex", gap: 6, margin: "8px 0" }}>
                 <input type="date" className="field" value={marketInput.d} onChange={(e) => setMarketInput({ ...marketInput, d: e.target.value })} style={{ flex: 1.2, minWidth: 0 }} />
                 <input type="text" inputMode="decimal" className="field" placeholder={def.unit} value={marketInput.v} onChange={(e) => setMarketInput({ ...marketInput, v: e.target.value })} style={{ flex: 1, minWidth: 0 }} />
