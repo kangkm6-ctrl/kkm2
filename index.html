@@ -857,7 +857,7 @@ const MarketSrcLinks = ({ def }) => (def && def.links ? (
   </div>
 ) : null);
 // 단순 선그래프 (점은 균등 간격). ma가 있으면 이동평균선을 같이 그린다.
-const MarketLineChart = ({ points, ma, color, unit }) => {
+const MarketLineChart = ({ points, ma, color, unit, maLabel }) => {
   const [touchIdx, setTouchIdx] = useState(null);
   const svgRef = useRef(null);
   if (!points || points.length < 2) return <div style={{ fontSize: 12, color: "#5a6274", textAlign: "center", padding: "14px 0" }}>그래프를 그리려면 값이 2개 이상 필요해요.</div>;
@@ -902,7 +902,7 @@ const MarketLineChart = ({ points, ma, color, unit }) => {
         )}
       </svg>
       <div className="tnum" style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#5a6274" }}>
-        <span>{fmtD(points[0].d)}</span>{ma && <span style={{ color: "#c9974a" }}>점선=120개월 평균</span>}<span>{fmtD(points[points.length - 1].d)}</span>
+        <span>{fmtD(points[0].d)}</span>{ma && <span style={{ color: "#c9974a" }}>점선={maLabel || "120개월 평균"}</span>}<span>{fmtD(points[points.length - 1].d)}</span>
       </div>
     </div>
   );
@@ -987,6 +987,10 @@ function PortfolioApp() {
   const [marketAutoMsg, setMarketAutoMsg] = useState("");
   const [marketTab, setMarketTab] = useState("mcap");
   const [marketOpen, setMarketOpen] = useState(null);
+  const [marketSel, setMarketSel] = useState(null); // 'kospi' | 'kosdaq' | null — 시장평가에서 펼친 시장
+  const [marketPer, setMarketPer] = useState("W"); // 'D' | 'W' | 'M'
+  const [marketCandles, setMarketCandles] = useState({}); // { "0001:D": [{d,v}] }
+  const [marketCandleMsg, setMarketCandleMsg] = useState("");
   const [quickVal, setQuickVal] = useState({});
   const [marketInput, setMarketInput] = useState({ d: "", v: "" });
   const [strengthData, setStrengthData] = useState({}); // { [key(코드:period)]: candles[] }
@@ -1329,6 +1333,29 @@ function PortfolioApp() {
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mainView]);
+
+  // 시장평가에서 코스피/코스닥 종합을 펼치면 일봉·주봉 지수를 받아온다 (월봉은 위에서 받아 둔 값을 쓴다).
+  useEffect(() => {
+    if (mainView !== "marketHL" || !marketSel || marketPer === "M" || !proxyUrl) return;
+    const code = marketSel === "kospi" ? "0001" : "1001";
+    const key = `${code}:${marketPer}`;
+    if (marketCandles[key] && marketCandles[key].length) return;
+    let cancelled = false;
+    const base = proxyUrl.replace(/\/$/, "");
+    const headers = appSecret ? { "x-app-secret": appSecret } : {};
+    const days = marketPer === "D" ? 420 : 1900;
+    setMarketCandleMsg("지수 불러오는 중...");
+    fetch(`${base}/index-history/${code}?period=${marketPer}&days=${days}`, { headers })
+      .then((r) => (r.ok ? r.json() : null)).catch(() => null)
+      .then((d) => {
+        if (cancelled) return;
+        const pts = d && Array.isArray(d.candles) ? d.candles.map((c) => ({ d: c.date, v: Number(c.close) })).filter((p) => p.v > 0).sort((a, b) => (a.d < b.d ? -1 : 1)) : [];
+        if (pts.length) { setMarketCandles((prev) => ({ ...prev, [key]: pts })); setMarketCandleMsg(""); }
+        else setMarketCandleMsg("지수를 불러오지 못했어요. 잠시 후 다시 눌러 주세요.");
+      });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mainView, marketSel, marketPer, proxyUrl]);
 
   useEffect(() => {
     if (!loaded) return;
@@ -3854,6 +3881,12 @@ function PortfolioApp() {
           return { avg, n: rs.length, total, score: avg === null ? null : Math.round(100 + avg * 100), overall: avg === null ? null : avg >= 0.4 ? 1 : avg <= -0.4 ? -1 : 0 };
         };
         const kComp = compOf("kospi"), qComp = compOf("kosdaq");
+        const selCode = marketSel === "kospi" ? "0001" : "1001";
+        const selPts = !marketSel ? [] : marketPer === "M" ? (marketIdx[marketSel] || []) : (marketCandles[`${selCode}:${marketPer}`] || []);
+        const maWin = marketPer === "M" ? 120 : 60;
+        const selMa = selPts.map((_, i) => (i + 1 < maWin ? null : selPts.slice(i + 1 - maWin, i + 1).reduce((a, q) => a + q.v, 0) / maWin));
+        const selName = marketSel === "kospi" ? "코스피" : "코스닥";
+        const selColor = marketSel === "kospi" ? "#e8544b" : "#4c8dff";
         const allScored = [...kRows, ...qRows, ...cRows].filter((r) => r.j !== null);
         const allAvg = allScored.length ? allScored.reduce((a, r) => a + r.j, 0) / allScored.length : null;
         const allScore = allAvg === null ? null : Math.round(100 + allAvg * 100);
@@ -3906,9 +3939,9 @@ function PortfolioApp() {
               <div style={{ fontSize: 9, color: "#5a6274" }}>기준 100 · 100 이상 거품 / 100 미만 저평가 · 지표 {allScored.length}개 평균 · 참고용 · 지표를 누르면 차트</div>
             </div>
             <div style={{ display: "flex", gap: 6, margin: "0 16px 5px" }}>
-              {[["코스피", kComp], ["코스닥", qComp]].map(([nm, c]) => (
-                <div key={nm} className="card" style={{ flex: 1, minWidth: 0, padding: "6px 8px", textAlign: "center", margin: 0 }}>
-                  <div style={{ fontSize: 10, color: "#8993a6" }}>{nm} 종합 · 지표 {c.n}/{c.total}</div>
+              {[["kospi", "코스피", kComp], ["kosdaq", "코스닥", qComp]].map(([mk, nm, c]) => (
+                <div key={nm} className="card" onClick={() => { setMarketSel(marketSel === mk ? null : mk); setMarketOpen(null); }} style={{ flex: 1, minWidth: 0, padding: "6px 8px", textAlign: "center", margin: 0, cursor: "pointer", border: marketSel === mk ? "1px solid #c9974a" : undefined }}>
+                  <div style={{ fontSize: 10, color: marketSel === mk ? "#c9974a" : "#8993a6" }}>{nm} 종합 · 지표 {c.n}/{c.total} {marketSel === mk ? "▴" : "▾"}</div>
                   <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center", gap: 6 }}>
                     <span style={{ fontSize: 20, fontWeight: 800, color: scoreColor(c.score) }}>{c.score === null ? "-" : c.score}</span>
                     <span style={{ fontSize: 13, fontWeight: 800, color: scoreColor(c.score) }}>{scoreLabel(c.score)}</span>
@@ -3943,17 +3976,29 @@ function PortfolioApp() {
                 </div>
               );
               const head = (t) => <div style={{ fontSize: 12, fontWeight: 700, color: "#8993a6", margin: "2px 0 0" }}>{t}</div>;
+              if (!marketSel) return <div style={{ margin: "0 16px 6px", fontSize: 10, color: "#5a6274", textAlign: "center" }}>코스피·코스닥 종합을 누르면 지수 차트와 지표가 나와요</div>;
               return (
-                <div className="card tnum" style={card}>
-                  {head("코스피")}
-                  {kRows.map(renderRow)}
-                  <div style={{ height: 2 }} />
-                  {head("코스닥")}
-                  {qRows.map(renderRow)}
-                  <div style={{ height: 2 }} />
-                  {head("시장 공통 (코스피·코스닥 모두 반영)")}
-                  {cRows.map(renderRow)}
-                </div>
+                <>
+                  <div className="card tnum" style={card}>
+                    <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 4 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: "#e7eaf0" }}>{selName} 지수</span>
+                      <span style={{ fontSize: 12, fontWeight: 700 }}>{selPts.length ? fmt(selPts[selPts.length - 1].v) : "-"}</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+                      {[["D", "일봉"], ["W", "주봉"], ["M", "월봉"]].map(([k, lb]) => (
+                        <button key={k} onClick={() => setMarketPer(k)} className="iconbtn" style={{ flex: 1, padding: "4px 0", borderRadius: 8, fontSize: 12, fontWeight: 700, border: marketPer === k ? "1px solid #c9974a" : "1px solid #262c37", background: marketPer === k ? "rgba(201,151,74,0.15)" : "#1a1f28", color: marketPer === k ? "#c9974a" : "#8993a6" }}>{lb}</button>
+                      ))}
+                    </div>
+                    {selPts.length < 2 && marketCandleMsg ? <div style={{ fontSize: 11, color: "#8993a6", textAlign: "center", padding: "12px 0" }}>{marketCandleMsg}</div> : <MarketLineChart points={selPts} ma={selMa} color={selColor} maLabel={`${maWin}${marketPer === "D" ? "일" : marketPer === "W" ? "주" : "개월"} 평균`} />}
+                  </div>
+                  <div className="card tnum" style={card}>
+                    {head(`${selName} 지표`)}
+                    {(marketSel === "kospi" ? kRows : qRows).map(renderRow)}
+                    <div style={{ height: 2 }} />
+                    {head("시장 공통 (코스피·코스닥 모두 반영)")}
+                    {cRows.map(renderRow)}
+                  </div>
+                </>
               );
             })()}
 
