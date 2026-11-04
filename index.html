@@ -845,6 +845,8 @@ const MARKET_SERIES_DEFS = [
   { key: "vkospi", label: "VKOSPI", unit: "pt", hint: "변동성지수 — 직접 입력", path: "페이지에 보이는 현재 값을 입력", links: [["인베스팅닷컴 VKOSPI", "https://kr.investing.com/indices/kospi-volatility"]] },
   { key: "sentiment", label: "투자심리", unit: "pt", hint: "소비자심리지수(100 기준)" },
   { key: "pbr", label: "코스피 PBR", unit: "배", hint: "", src: "https://data.krx.co.kr", path: "통계 → 기본통계 → 지수 → PER/PBR/배당수익률(코스피)", links: [["KRX 정보데이터시스템", "https://data.krx.co.kr"], ["네이버 증권 코스피", "https://finance.naver.com/sise/sise_index.naver?code=KOSPI"]] },
+  { key: "pbrQ", label: "코스닥 PBR", unit: "배", hint: "", src: "https://data.krx.co.kr", path: "통계 → 기본통계 → 지수 → PER/PBR/배당수익률(코스닥)", links: [["KRX 정보데이터시스템", "https://data.krx.co.kr"], ["네이버 증권 코스닥", "https://finance.naver.com/sise/sise_index.naver?code=KOSDAQ"]] },
+  { key: "perQ", label: "코스닥 PER", unit: "배", hint: "", src: "https://data.krx.co.kr", path: "통계 → 기본통계 → 지수 → PER/PBR/배당수익률(코스닥)", links: [["KRX 정보데이터시스템", "https://data.krx.co.kr"], ["네이버 증권 코스닥", "https://finance.naver.com/sise/sise_index.naver?code=KOSDAQ"]] },
   { key: "per", label: "코스피 PER", unit: "배", hint: "", src: "https://data.krx.co.kr", path: "통계 → 기본통계 → 지수 → PER/PBR/배당수익률(코스피)", links: [["KRX 정보데이터시스템", "https://data.krx.co.kr"], ["네이버 증권 코스피", "https://finance.naver.com/sise/sise_index.naver?code=KOSPI"]] },
 ];
 const MarketSrcLinks = ({ def }) => (def && def.links ? (
@@ -860,21 +862,26 @@ const MarketSrcLinks = ({ def }) => (def && def.links ? (
 const MarketLineChart = ({ points, ma, color, unit, maLabel, lines, bands }) => {
   const [touchIdx, setTouchIdx] = useState(null);
   const svgRef = useRef(null);
+  const [hid, setHid] = useState({}); // 탭해서 숨긴 기준지표(이동평균·기준선·밴드) 목록
+  const togHid = (k) => setHid((h) => ({ ...h, [k]: !h[k] }));
   if (!points || points.length < 2) return <div style={{ fontSize: 12, color: "#5a6274", textAlign: "center", padding: "14px 0" }}>그래프를 그리려면 값이 2개 이상 필요해요.</div>;
   const W = 300, H = 120, padX = 6, padY = 12;
-  const all = points.map((p) => p.v).concat((ma || []).filter((v) => v !== null));
+  const showMa = !!ma && !hid.ma;
+  const all = points.map((p) => p.v).concat(showMa ? ma.filter((v) => v !== null) : []);
   let vMin = Math.min(...all), vMax = Math.max(...all);
   // 기준선: 데이터 범위에서 너무 멀리 떨어진 선은 그리지 않는다(차트가 납작해지는 것을 막기 위해)
   const span0 = (vMax - vMin) || Math.abs(vMax) || 1;
-  const refLines = (lines || []).filter((l) => l && isFinite(l.v) && l.v >= vMin - span0 * 0.6 && l.v <= vMax + span0 * 0.6);
-  const refBands = (bands || []).filter((b) => b && Array.isArray(b.vals) && b.vals.some((v) => v !== null && isFinite(v)));
+  const allLines = (lines || []).filter((l) => l && isFinite(l.v) && l.v >= vMin - span0 * 0.6 && l.v <= vMax + span0 * 0.6);
+  const allBands = (bands || []).filter((b) => b && Array.isArray(b.vals) && b.vals.some((v) => v !== null && isFinite(v)));
+  const refLines = allLines.filter((l, i) => !hid["l" + i]);
+  const refBands = allBands.filter((b, i) => !hid["b" + i]);
   refLines.forEach((l) => { vMin = Math.min(vMin, l.v); vMax = Math.max(vMax, l.v); });
   refBands.forEach((b) => b.vals.forEach((v) => { if (v !== null && isFinite(v)) { vMin = Math.min(vMin, v); vMax = Math.max(vMax, v); } }));
   if (vMax === vMin) { vMax += 1; vMin -= 1; }
   const xOf = (i) => padX + (i / (points.length - 1)) * (W - padX * 2);
   const yOf = (v) => padY + ((vMax - v) / (vMax - vMin)) * (H - padY * 2);
   const line = points.map((p, i) => `${xOf(i)},${yOf(p.v)}`).join(" ");
-  const maLine = ma ? ma.map((v, i) => (v === null ? null : `${xOf(i)},${yOf(v)}`)).filter(Boolean).join(" ") : "";
+  const maLine = showMa ? ma.map((v, i) => (v === null ? null : `${xOf(i)},${yOf(v)}`)).filter(Boolean).join(" ") : "";
   const fmtV = (v) => (Math.abs(v) >= 100 ? Math.round(v).toLocaleString("ko-KR") : v.toFixed(2).replace(/\.?0+$/, ""));
   const fmtD = (d) => (d && d.length === 8 ? `${d.slice(2, 4)}.${d.slice(4, 6)}.${d.slice(6, 8)}` : d || "");
   const idxAt = (e) => {
@@ -887,7 +894,7 @@ const MarketLineChart = ({ points, ma, color, unit, maLabel, lines, bands }) => 
   const onMove = (e) => { if (touchIdx !== null) setTouchIdx(idxAt(e)); };
   const onEnd = () => setTouchIdx(null);
   const tp = touchIdx !== null ? points[touchIdx] : null;
-  const tma = touchIdx !== null && ma ? ma[touchIdx] : null;
+  const tma = touchIdx !== null && showMa ? ma[touchIdx] : null;
   return (
     <div>
       <div className="tnum" style={{ fontSize: 11, fontWeight: 700, color: "#c9974a", height: 16, textAlign: "center" }}>
@@ -922,8 +929,14 @@ const MarketLineChart = ({ points, ma, color, unit, maLabel, lines, bands }) => 
         )}
       </svg>
       <div className="tnum" style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#5a6274" }}>
-        <span>{fmtD(points[0].d)}</span>{ma && <span style={{ color: "#c9974a" }}>점선={maLabel || "120개월 평균"}</span>}<span>{fmtD(points[points.length - 1].d)}</span>
-      </div>
+        <span>{fmtD(points[0].d)}</span><span>{fmtD(points[points.length - 1].d)}</span></div>
+      {(ma || allLines.length > 0 || allBands.length > 0) && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
+          {ma && <span onClick={() => togHid("ma")} style={{ fontSize: 10, padding: "2px 7px", borderRadius: 10, border: "1px solid #c9974a", color: "#c9974a", opacity: hid.ma ? 0.35 : 1, textDecoration: hid.ma ? "line-through" : "none", cursor: "pointer" }}>{maLabel || "120개월 평균"}</span>}
+          {allLines.map((l, i) => { const c = l.c === "hi" ? "#e8544b" : l.c === "lo" ? "#4c8dff" : "#8993a6"; return <span key={"cl" + i} onClick={() => togHid("l" + i)} style={{ fontSize: 10, padding: "2px 7px", borderRadius: 10, border: `1px solid ${c}`, color: c, opacity: hid["l" + i] ? 0.35 : 1, textDecoration: hid["l" + i] ? "line-through" : "none", cursor: "pointer" }}>{l.label || fmtV(l.v)}</span>; })}
+          {allBands.map((b, i) => { const c = b.c === "hi" ? "#e8544b" : b.c === "lo" ? "#4c8dff" : "#8993a6"; return <span key={"cb" + i} onClick={() => togHid("b" + i)} style={{ fontSize: 10, padding: "2px 7px", borderRadius: 10, border: `1px solid ${c}`, color: c, opacity: hid["b" + i] ? 0.35 : 1, textDecoration: hid["b" + i] ? "line-through" : "none", cursor: "pointer" }}>{b.label || (b.c === "hi" ? "고평가선" : "저평가선")}</span>; })}
+        </div>
+      )}
     </div>
   );
 };
@@ -1006,6 +1019,7 @@ function PortfolioApp() {
   const [marketMsg, setMarketMsg] = useState("");
   const [marketAutoMsg, setMarketAutoMsg] = useState("");
   const [marketTab, setMarketTab] = useState("mcap");
+  const [marketTabChart, setMarketTabChart] = useState(false); // 지표 데이터 카드의 차트: 기본 숨김, 탭하면 보이고 다시 탭하면 숨김
   const [marketOpen, setMarketOpen] = useState(null);
   const [marketSel, setMarketSel] = useState(null); // 'kospi' | 'kosdaq' | null — 시장평가에서 펼친 시장
   const [marketPer, setMarketPer] = useState("W"); // 'D' | 'W' | 'M'
@@ -3901,10 +3915,13 @@ function PortfolioApp() {
           { id: "pbr", go: "pbr", mk: "kospi", name: "코스피 PBR", val: pbr ? `${pbr.v.toFixed(2)}배` : "입력 필요", j: pbr ? judge(pbr.v, 0.9, 1.3) : null, rule: "0.9↓ 저 / 1.3↑ 고", chart: { points: ser("pbr"), color: "#e8544b", unit: "배", lines: L2(0.9, 1.3, "0.9", "1.3") } },
           { id: "per", go: "per", mk: "kospi", name: "코스피 PER", val: per ? `${per.v.toFixed(1)}배` : "입력 필요", j: per ? judge(per.v, 10, 16) : null, rule: "10↓ 저 / 16↑ 고", chart: { points: ser("per"), color: "#e8544b", unit: "배", lines: L2(10, 16, "10", "16") } },
         ];
+        const pbrQ = lastOf("pbrQ"), perQ = lastOf("perQ");
         const qRows = [
           ...idxRows("kosdaq", "코스닥", qs, qPts, "#4c8dff"),
           ratioRow("kosdaq-gdp", "kosdaq", "코스닥÷명목GDP", qGdp, "GDP 입력 필요", "20%↓ 저 / 80%↑ 고", "#4c8dff", qPts, "gdp", 0),
           ratioRow("kosdaq-exp", "kosdaq", "코스닥÷일평균수출", qExp, "수출 입력 필요", "12개월평균 20%↓ 저 / 80%↑ 고", "#4c8dff", qPts, "export", 12),
+          { id: "pbrQ", go: "pbrQ", mk: "kosdaq", name: "코스닥 PBR", val: pbrQ ? `${pbrQ.v.toFixed(2)}배` : "입력 필요", j: pbrQ ? judge(pbrQ.v, 1.5, 2.5) : null, rule: "1.5↓ 저 / 2.5↑ 고", chart: { points: ser("pbrQ"), color: "#4c8dff", unit: "배", lines: L2(1.5, 2.5, "1.5", "2.5") } },
+          { id: "perQ", go: "perQ", mk: "kosdaq", name: "코스닥 PER", val: perQ ? `${perQ.v.toFixed(1)}배` : "입력 필요", j: perQ ? judge(perQ.v, 15, 25) : null, rule: "15↓ 저 / 25↑ 고", chart: { points: ser("perQ"), color: "#4c8dff", unit: "배", lines: L2(15, 25, "15", "25") } },
         ];
         const cRows = [
           { id: "buffett", mk: "both", name: "버핏지수(시총÷GDP)", val: buffett !== null ? `${buffett.toFixed(0)}%` : "시총·GDP 입력 필요", j: judge(buffett, 80, 120), rule: "80%↓ 저 / 120%↑ 고", chart: { points: ratioPts(mcapFull.points, "gdp", 100), idx: true, color: "#c9974a", unit: "%", lines: L2(80, 120, "80%", "120%"), note: mcapFull.estCount ? "과거 시총은 지수 변화율로 추정한 값이에요(실제와 다를 수 있음)" : undefined } },
@@ -3944,23 +3961,19 @@ function PortfolioApp() {
           { id: "sentiment", go: "sentiment", mk: "both", name: "투자심리(소비자심리)", val: sent ? `${sent.v.toFixed(1)}pt` : "수집 필요", j: sent ? judge(sent.v, 92, 108) : null, rule: "92↓ 비관 / 108↑ 낙관(100 기준)", chart: { points: ser("sentiment"), color: "#c9974a", unit: "pt", lines: L2(92, 108, "92 비관", "108 낙관") } },
         );
         const compOf = (mk) => {
-          const base = [...(mk === "kospi" ? kRows : qRows), ...cRows].filter((r) => !r.ref);
+          const base = (mk === "kospi" ? kRows : mk === "kosdaq" ? qRows : cRows).filter((r) => !r.ref);
           const rs = base.filter((r) => r.j !== null);
           const total = base.length;
           const avg = rs.length ? rs.reduce((a, r) => a + r.j, 0) / rs.length : null;
           return { avg, n: rs.length, total, score: avg === null ? null : Math.round(100 + avg * 100), overall: avg === null ? null : avg >= 0.4 ? 1 : avg <= -0.4 ? -1 : 0 };
         };
-        const kComp = compOf("kospi"), qComp = compOf("kosdaq");
+        const kComp = compOf("kospi"), qComp = compOf("kosdaq"), aComp = compOf("all");
         const selPts = marketSel === "kospi" ? kPts : marketSel === "kosdaq" ? qPts : [];
         const selMa = maOf(selPts);
-        const selName = marketSel === "kospi" ? "코스피" : "코스닥";
+        const selName = marketSel === "kospi" ? "코스피" : marketSel === "kosdaq" ? "코스닥" : "시장 전체";
         const selColor = marketSel === "kospi" ? "#e8544b" : "#4c8dff";
-        const allScored = [...kRows, ...qRows, ...cRows].filter((r) => r.j !== null);
-        const allAvg = allScored.length ? allScored.reduce((a, r) => a + r.j, 0) / allScored.length : null;
-        const allScore = allAvg === null ? null : Math.round(100 + allAvg * 100);
         const scoreLabel = (sc) => (sc === null ? "데이터 부족" : sc >= 100 ? "거품" : "저평가");
         const scoreColor = (sc) => (sc === null ? GRAY : sc >= 100 ? RED : BLUE);
-        const allOverall = allAvg === null ? null : allAvg >= 0.4 ? 1 : allAvg <= -0.4 ? -1 : 0;
         const def = MARKET_SERIES_DEFS.find((d) => d.key === marketTab) || MARKET_SERIES_DEFS[0];
         const tabSer = ser(def.key);
         const addPoint = () => {
@@ -3971,7 +3984,7 @@ function PortfolioApp() {
           setMarketInput({ d: marketInput.d, v: "" });
         };
         const delPoint = (d) => setMarketSeries((prev) => ({ ...prev, [def.key]: (prev[def.key] || []).filter((p) => p.d !== d) }));
-        const goInput = (k) => { setMarketTab(k); setTimeout(() => { const el = document.getElementById("market-input-card"); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }, 50); };
+        const goInput = (k) => { setMarketTab(k); setMarketTabChart(true); setTimeout(() => { const el = document.getElementById("market-input-card"); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }, 50); };
         const todayYmd = () => { const t = new Date(); return `${t.getFullYear()}${String(t.getMonth() + 1).padStart(2, "0")}${String(t.getDate()).padStart(2, "0")}`; };
         const quickAdd = (k) => {
           const v = Number(String(quickVal[k] || "").replace(/,/g, ""));
@@ -4005,18 +4018,10 @@ function PortfolioApp() {
             <div style={{ padding: "0 16px 4px", position: "sticky", top: "env(safe-area-inset-top, 0px)", zIndex: 20, background: "#12151b" }}>
               <button onClick={() => setMainView("home")} className="iconbtn" style={{ color: "#c9974a", fontWeight: 700, fontSize: 14 }}>← 뒤로</button>
             </div>
-            <div className="card" style={{ ...card, textAlign: "center" }}>
-              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center", gap: 8 }}>
-                <span style={{ fontSize: 11, color: "#8993a6" }}>🌡 시장 전체</span>
-                <span style={{ fontSize: 26, fontWeight: 800, lineHeight: 1.1, color: scoreColor(allScore) }}>{allScore === null ? "-" : allScore}</span>
-                <span style={{ fontSize: 14, fontWeight: 800, color: scoreColor(allScore) }}>{scoreLabel(allScore)}</span>
-              </div>
-              <div style={{ fontSize: 9, color: "#5a6274" }}>기준 100 · 100 이상 거품 / 100 미만 저평가 · 지표 {allScored.length}개 평균 · 참고용 · 지표를 누르면 차트</div>
-            </div>
             <div style={{ display: "flex", gap: 6, margin: "0 16px 5px" }}>
-              {[["kospi", "코스피", kComp], ["kosdaq", "코스닥", qComp]].map(([mk, nm, c]) => (
+              {[["all", "시장전체", aComp], ["kospi", "코스피", kComp], ["kosdaq", "코스닥", qComp]].map(([mk, nm, c]) => (
                 <div key={nm} className="card" onClick={() => { setMarketSel(marketSel === mk ? null : mk); setMarketOpen(null); }} style={{ flex: 1, minWidth: 0, padding: "6px 8px", textAlign: "center", margin: 0, cursor: "pointer", border: marketSel === mk ? "1px solid #c9974a" : undefined }}>
-                  <div style={{ fontSize: 10, color: marketSel === mk ? "#c9974a" : "#8993a6" }}>{nm} 종합 · 지표 {c.n}/{c.total} {marketSel === mk ? "▴" : "▾"}</div>
+                  <div style={{ fontSize: 10, color: marketSel === mk ? "#c9974a" : "#8993a6" }}>{nm}{mk === "all" ? "" : " 종합"} · {c.n}/{c.total} {marketSel === mk ? "▴" : "▾"}</div>
                   <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center", gap: 6 }}>
                     <span style={{ fontSize: 20, fontWeight: 800, color: scoreColor(c.score) }}>{c.score === null ? "-" : c.score}</span>
                     <span style={{ fontSize: 13, fontWeight: 800, color: scoreColor(c.score) }}>{scoreLabel(c.score)}</span>
@@ -4052,9 +4057,10 @@ function PortfolioApp() {
                 </div>
               );
               const head = (t) => <div style={{ fontSize: 12, fontWeight: 700, color: "#8993a6", margin: "2px 0 0" }}>{t}</div>;
-              if (!marketSel) return <div style={{ margin: "0 16px 6px", fontSize: 10, color: "#5a6274", textAlign: "center" }}>코스피·코스닥 종합을 누르면 지수 차트와 지표가 나와요</div>;
+              if (!marketSel) return <div style={{ margin: "0 16px 6px", fontSize: 10, color: "#5a6274", textAlign: "center" }}>코스피·코스닥·시장전체를 누르면 지표와 차트가 나와요</div>;
               return (
                 <>
+                  {marketSel !== "all" && (
                   <div className="card tnum" style={card}>
                     <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 4 }}>
                       <span style={{ fontSize: 12, fontWeight: 700, color: "#e7eaf0" }}>{selName} 지수</span>
@@ -4067,12 +4073,10 @@ function PortfolioApp() {
                     </div>
                     {selPts.length < 2 && marketCandleMsg ? <div style={{ fontSize: 11, color: "#8993a6", textAlign: "center", padding: "12px 0" }}>{marketCandleMsg}</div> : <MarketLineChart points={selPts} ma={selMa} color={selColor} maLabel={maLabelStr} />}
                   </div>
+                  )}
                   <div className="card tnum" style={card}>
-                    {head(`${selName} 지표`)}
-                    {(marketSel === "kospi" ? kRows : qRows).map(renderRow)}
-                    <div style={{ height: 2 }} />
-                    {head("시장 공통 (코스피·코스닥 모두 반영)")}
-                    {cRows.map(renderRow)}
+                    {head(marketSel === "all" ? "시장 전체 지표 (코스피·코스닥 공통)" : `${selName} 지표`)}
+                    {(marketSel === "kospi" ? kRows : marketSel === "kosdaq" ? qRows : cRows).map(renderRow)}
                   </div>
                 </>
               );
@@ -4084,7 +4088,7 @@ function PortfolioApp() {
               <div style={{ fontSize: 12, fontWeight: 700, color: "#8993a6", marginBottom: 6 }}>지표 데이터 (자동 수집되는 값 외에는 직접 입력)</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 8 }}>
                 {MARKET_SERIES_DEFS.map((d) => (
-                  <button key={d.key} onClick={() => { setMarketTab(d.key); setMarketInput({ d: "", v: "" }); }} className="iconbtn"
+                  <button key={d.key} onClick={() => { if (marketTab === d.key) { setMarketTabChart((v) => !v); } else { setMarketTab(d.key); setMarketTabChart(true); setMarketInput({ d: "", v: "" }); } }} className="iconbtn"
                     style={{ fontSize: 11, padding: "4px 8px", borderRadius: 8, border: marketTab === d.key ? "1px solid #c9974a" : "1px solid #262c37", background: marketTab === d.key ? "rgba(201,151,74,0.15)" : "#1a1f28", color: marketTab === d.key ? "#c9974a" : "#8993a6", fontWeight: marketTab === d.key ? 700 : 400 }}>
                     {d.label}
                   </button>
@@ -4092,9 +4096,9 @@ function PortfolioApp() {
               </div>
               <MarketSrcLinks def={def} />
               <div style={{ fontSize: 10, color: "#5a6274", marginBottom: 4 }}>{def.label} ({def.unit}){def.hint ? ` · ${def.hint}` : ""} — 날짜와 값을 넣고 추가를 누르면 저장돼요.</div>
-              {def.key === "mcap" && perToggle}
-              <MarketLineChart points={(def.key === "mcap" ? mcapFull.points : tabSer).map((p) => ({ d: p.d, v: p.v }))} color="#e7eaf0" unit={def.unit === "%" ? "%" : ""} />
-              {def.key === "mcap" && mcapFull.estCount > 0 && <div style={{ fontSize: 9, color: "#5a6274", textAlign: "center", marginTop: 2 }}>과거 {mcapFull.estCount}개 구간은 지수 변화율로 추정한 값이에요(오래될수록 실제와 차이가 커질 수 있음). 아래 목록은 실제로 받은 값만 보여요.</div>}
+              {marketTabChart && def.key === "mcap" && perToggle}
+              {marketTabChart && <MarketLineChart points={(def.key === "mcap" ? mcapFull.points : tabSer).map((p) => ({ d: p.d, v: p.v }))} color="#e7eaf0" unit={def.unit === "%" ? "%" : ""} />}
+              {marketTabChart && def.key === "mcap" && mcapFull.estCount > 0 && <div style={{ fontSize: 9, color: "#5a6274", textAlign: "center", marginTop: 2 }}>과거 {mcapFull.estCount}개 구간은 지수 변화율로 추정한 값이에요(오래될수록 실제와 차이가 커질 수 있음). 아래 목록은 실제로 받은 값만 보여요.</div>}
               <div style={{ display: "flex", gap: 6, margin: "8px 0" }}>
                 <input type="date" className="field" value={marketInput.d} onChange={(e) => setMarketInput({ ...marketInput, d: e.target.value })} style={{ flex: 1.2, minWidth: 0 }} />
                 <input type="text" inputMode="decimal" className="field" placeholder={def.unit} value={marketInput.v} onChange={(e) => setMarketInput({ ...marketInput, v: e.target.value })} style={{ flex: 1, minWidth: 0 }} />
