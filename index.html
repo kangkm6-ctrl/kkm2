@@ -3904,7 +3904,15 @@ function PortfolioApp() {
         const L2 = (lo, hi, loLab, hiLab) => [{ v: lo, c: "lo", label: loLab }, { v: hi, c: "hi", label: hiLab }];
         const qtl = (pts, q) => { if (!pts || pts.length < 8) return NaN; const a = pts.map((p) => p.v).sort((x, y) => x - y); return a[Math.min(a.length - 1, Math.max(0, Math.round(q * (a.length - 1))))]; };
         const idxRows = (mk, nm, st, pts, col) => [
-          { id: `${mk}-gap`, mk, name: `${nm} 120개월 이격도`, val: st ? `${st.gap >= 0 ? "+" : ""}${st.gap.toFixed(1)}%` : "-", j: st ? judge(st.gap, -5, 25) : null, rule: "-5%↓ 저 / +25%↑ 고", chart: (() => { const m = maOf(pts); const gp = pts.map((p, k) => (m && m[k] ? { ...p, v: (p.v / m[k] - 1) * 100 } : null)).filter(Boolean); return { points: gp.length ? gp : pts, color: col, idx: true, unit: "%", note: "이격도 = (지수 ÷ " + maLabelStr + " − 1)×100 · 파랑 −5%(저평가) / 빨강 +25%(고평가) / 회색 0%=평균", lines: [{ v: -5, c: "lo", label: "−5%" }, { v: 0, c: "mid", label: "0%" }, { v: 25, c: "hi", label: "+25%" }] }; })() },
+          { id: `${mk}-gap`, mk, name: `${nm} 120개월 이격도`, val: st ? `${st.gap >= 0 ? "+" : ""}${st.gap.toFixed(1)}%` : "-", j: st ? judge(st.gap, -5, 25) : null, rule: "-5%↓ 저 / +25%↑ 고", chart: (() => {
+            // 120개월 이동평균은 월봉으로 계산하고(판정 값과 동일), 일봉·주봉은 그 평균 대비 이격을 그린다.
+            // (주봉·일봉 자체 데이터가 520주/200일보다 짧을 수 있어 직접 평균을 내면 비어버린다)
+            const mp = marketIdx[mk] || [];
+            const mMa = []; let acc = 0;
+            mp.forEach((p, k) => { acc += p.v; if (k >= 120) acc -= mp[k - 120].v; if (k >= 119) mMa.push({ d: p.d, v: acc / 120 }); });
+            const gp = marketPer === "M" ? mMa.map((b) => { const p = mp.find((x) => x.d === b.d); return { d: b.d, v: (p.v / b.v - 1) * 100 }; }) : alignPrev(pts, mMa, (p, b) => (p.v / b.v - 1) * 100);
+            return { points: gp, color: col, idx: true, unit: "%", note: "이격도 = (지수 ÷ 120개월 평균 − 1)×100 · 파랑 −5%(저평가) / 빨강 +25%(고평가) / 회색 0%=평균", lines: [{ v: -5, c: "lo", label: "−5%" }, { v: 0, c: "mid", label: "0%" }, { v: 25, c: "hi", label: "+25%" }] };
+          })() },
           { id: `${mk}-pos`, mk, name: `${nm} 장기 위치`, val: st ? `하위 ${st.pct.toFixed(0)}% 지점 (${st.years}년)` : "-", j: st ? judge(st.pct, 25, 85) : null, rule: "25%↓ 저 / 85%↑ 고", chart: { points: pts, color: col, idx: true, note: "지수 추이 · 파랑=하위 25% 선(저평가), 빨강=상위 15% 선(고평가)", lines: L2(qtl(pts, 0.25), qtl(pts, 0.85), "25%선", "85%선") } },
         ];
         const ratioRow = (id, mk, name, r, miss, rule, col, idxP, sKey, smooth) => ({ id, mk, name, val: r ? realVal(r) : miss, j: r ? judge(r.pct, 20, 80) : null, rule, chart: (() => { const pp = ratioChart(idxP, sKey, smooth); return { points: pp, idx: true, color: col, note: "비율 추이(높을수록 지수가 실물보다 비쌈) · 파랑=하위 20%, 빨강=상위 20% 선", lines: L2(qtl(pp, 0.2), qtl(pp, 0.8), "20%선", "80%선") }; })() });
@@ -3968,8 +3976,6 @@ function PortfolioApp() {
           return { avg, n: rs.length, total, score: avg === null ? null : Math.round(100 + avg * 100), overall: avg === null ? null : avg >= 0.4 ? 1 : avg <= -0.4 ? -1 : 0 };
         };
         const kComp = compOf("kospi"), qComp = compOf("kosdaq"), aComp = compOf("all");
-        const selPts = marketSel === "kospi" ? kPts : marketSel === "kosdaq" ? qPts : [];
-        const selMa = maOf(selPts);
         const selName = marketSel === "kospi" ? "코스피" : marketSel === "kosdaq" ? "코스닥" : "시장 전체";
         const selColor = marketSel === "kospi" ? "#e8544b" : "#4c8dff";
         const scoreLabel = (sc) => (sc === null ? "데이터 부족" : sc >= 100 ? "거품" : "저평가");
@@ -4060,20 +4066,6 @@ function PortfolioApp() {
               if (!marketSel) return <div style={{ margin: "0 16px 6px", fontSize: 10, color: "#5a6274", textAlign: "center" }}>코스피·코스닥·시장전체를 누르면 지표와 차트가 나와요</div>;
               return (
                 <>
-                  {marketSel !== "all" && (
-                  <div className="card tnum" style={card}>
-                    <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 4 }}>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: "#e7eaf0" }}>{selName} 지수</span>
-                      <span style={{ fontSize: 12, fontWeight: 700 }}>{selPts.length ? fmt(selPts[selPts.length - 1].v) : "-"}</span>
-                    </div>
-                    <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
-                      {[["D", "일봉"], ["W", "주봉"], ["M", "월봉"]].map(([k, lb]) => (
-                        <button key={k} onClick={() => setMarketPer(k)} className="iconbtn" style={{ flex: 1, padding: "4px 0", borderRadius: 8, fontSize: 12, fontWeight: 700, border: marketPer === k ? "1px solid #c9974a" : "1px solid #262c37", background: marketPer === k ? "rgba(201,151,74,0.15)" : "#1a1f28", color: marketPer === k ? "#c9974a" : "#8993a6" }}>{lb}</button>
-                      ))}
-                    </div>
-                    {selPts.length < 2 && marketCandleMsg ? <div style={{ fontSize: 11, color: "#8993a6", textAlign: "center", padding: "12px 0" }}>{marketCandleMsg}</div> : <MarketLineChart points={selPts} ma={selMa} color={selColor} maLabel={maLabelStr} />}
-                  </div>
-                  )}
                   <div className="card tnum" style={card}>
                     {head(marketSel === "all" ? "시장 전체 지표 (코스피·코스닥 공통)" : `${selName} 지표`)}
                     {(marketSel === "kospi" ? kRows : marketSel === "kosdaq" ? qRows : cRows).map(renderRow)}
@@ -4095,6 +4087,7 @@ function PortfolioApp() {
                 ))}
               </div>
               <MarketSrcLinks def={def} />
+              {marketTabChart && (<>
               <div style={{ fontSize: 10, color: "#5a6274", marginBottom: 4 }}>{def.label} ({def.unit}){def.hint ? ` · ${def.hint}` : ""} — 날짜와 값을 넣고 추가를 누르면 저장돼요.</div>
               {marketTabChart && def.key === "mcap" && perToggle}
               {marketTabChart && <MarketLineChart points={(def.key === "mcap" ? mcapFull.points : tabSer).map((p) => ({ d: p.d, v: p.v }))} color="#e7eaf0" unit={def.unit === "%" ? "%" : ""} />}
@@ -4111,6 +4104,7 @@ function PortfolioApp() {
                   <button onClick={() => delPoint(p.d)} style={{ color: "#5a6274", background: "none", border: "none", fontSize: 13 }}>🗑</button>
                 </div>
               ))}
+              </>)}
             </div>
 
             <div style={{ margin: "0 16px 16px", fontSize: 9, color: "#5a6274", lineHeight: 1.35 }}>
