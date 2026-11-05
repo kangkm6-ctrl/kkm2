@@ -941,6 +941,67 @@ const MarketLineChart = ({ points, ma, color, unit, maLabel, lines, bands }) => 
   );
 };
 
+// 시장평가 메인: 시장전체·코스피·코스닥 종합점수를 한 차트에 겹쳐 그린다(기준 100 선 포함)
+const MarketScoreChart = ({ series, base }) => {
+  const [touchIdx, setTouchIdx] = useState(null);
+  const [hid, setHid] = useState({});
+  const svgRef = useRef(null);
+  const shown = series.filter((s) => s.points.length > 1 && !hid[s.key]);
+  const axis = Array.from(new Set(series.flatMap((s) => s.points.map((p) => p.d)))).sort();
+  if (axis.length < 2) return <div style={{ fontSize: 12, color: "#5a6274", textAlign: "center", padding: "14px 0" }}>점수 차트를 그릴 데이터가 아직 부족해요.</div>;
+  const W = 300, H = 130, padX = 6, padY = 12;
+  const vals = shown.flatMap((s) => s.points.map((p) => p.v)).concat([base]);
+  let vMin = Math.min(...vals), vMax = Math.max(...vals);
+  if (vMax === vMin) { vMax += 1; vMin -= 1; }
+  const xOf = (d) => padX + (axis.indexOf(d) / (axis.length - 1)) * (W - padX * 2);
+  const xi = (i) => padX + (i / (axis.length - 1)) * (W - padX * 2);
+  const yOf = (v) => padY + ((vMax - v) / (vMax - vMin)) * (H - padY * 2);
+  const fmtD = (d) => (d && d.length === 8 ? `${d.slice(2, 4)}.${d.slice(4, 6)}.${d.slice(6, 8)}` : d || "");
+  const idxAt = (e) => {
+    const el = svgRef.current; if (!el) return null;
+    const r = el.getBoundingClientRect(); if (!r.width) return null;
+    const fx = ((e.clientX - r.left) / r.width) * W;
+    return Math.max(0, Math.min(axis.length - 1, Math.round(((fx - padX) / (W - padX * 2)) * (axis.length - 1))));
+  };
+  const onDown = (e) => { setTouchIdx(idxAt(e)); try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) {} };
+  const onMove = (e) => { if (touchIdx !== null) setTouchIdx(idxAt(e)); };
+  const onEnd = () => setTouchIdx(null);
+  const td = touchIdx !== null ? axis[touchIdx] : null;
+  const valAt = (s, d) => { let r = null; for (let i = 0; i < s.points.length; i++) { if (s.points[i].d <= d) r = s.points[i]; else break; } return r ? r.v : null; };
+  const polyOf = (s) => s.points.map((p) => `${xOf(p.d)},${yOf(p.v)}`).join(" ");
+  return (
+    <div>
+      <div className="tnum" style={{ fontSize: 11, fontWeight: 700, color: "#c9974a", height: 16, textAlign: "center" }}>
+        {td ? `${fmtD(td)} · ` + shown.map((s) => { const v = valAt(s, td); return `${s.name} ${v === null ? "-" : v}`; }).join(" · ") : ""}
+      </div>
+      <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", display: "block", touchAction: "none", WebkitUserSelect: "none", userSelect: "none" }} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onEnd} onPointerCancel={onEnd} onPointerLeave={onEnd}>
+        <text x={W - padX} y={yOf(vMax) + 9} fill="#5a6274" fontSize="10" textAnchor="end">{Math.round(vMax)}</text>
+        <text x={W - padX} y={yOf(vMin) - 3} fill="#5a6274" fontSize="10" textAnchor="end">{Math.round(vMin)}</text>
+        {!hid.base && (
+          <g>
+            <line x1={padX} y1={yOf(base)} x2={W - padX} y2={yOf(base)} stroke="#8993a6" strokeWidth="1" strokeDasharray="4 3" />
+            <text x={padX + 2} y={yOf(base) - 2} fill="#8993a6" fontSize="8.5">{base} (위 거품 / 아래 저평가)</text>
+          </g>
+        )}
+        {shown.map((s) => <polyline key={s.key} fill="none" stroke={s.color} strokeWidth={s.key === "all" ? 2 : 1.4} points={polyOf(s)} />)}
+        {td && (
+          <>
+            <line x1={xi(touchIdx)} y1={0} x2={xi(touchIdx)} y2={H} stroke="#c9974a" strokeWidth="1" strokeDasharray="3 2" />
+            {shown.map((s) => { const v = valAt(s, td); return v === null ? null : <circle key={s.key} cx={xi(touchIdx)} cy={yOf(v)} r="3" fill={s.color} />; })}
+          </>
+        )}
+      </svg>
+      <div className="tnum" style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#5a6274" }}>
+        <span>{fmtD(axis[0])}</span><span>{fmtD(axis[axis.length - 1])}</span>
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
+        {series.map((s) => <span key={s.key} onClick={() => setHid((h) => ({ ...h, [s.key]: !h[s.key] }))} style={{ fontSize: 10, padding: "2px 7px", borderRadius: 10, border: `1px solid ${s.color}`, color: s.color, opacity: hid[s.key] ? 0.35 : 1, textDecoration: hid[s.key] ? "line-through" : "none", cursor: "pointer" }}>{s.name}</span>)}
+        <span onClick={() => setHid((h) => ({ ...h, base: !h.base }))} style={{ fontSize: 10, padding: "2px 7px", borderRadius: 10, border: "1px solid #8993a6", color: "#8993a6", opacity: hid.base ? 0.35 : 1, textDecoration: hid.base ? "line-through" : "none", cursor: "pointer" }}>기준 {base}</span>
+      </div>
+    </div>
+  );
+};
+
 function PortfolioApp() {
   const [stocks, setStocks] = useState(seedStocks);
   const [cashAccounts, setCashAccounts] = useState(seedCash);
@@ -1022,7 +1083,7 @@ function PortfolioApp() {
   const [marketTabChart, setMarketTabChart] = useState(false); // 지표 데이터 카드의 차트: 기본 숨김, 탭하면 보이고 다시 탭하면 숨김
   const [marketOpen, setMarketOpen] = useState(null);
   const [marketSel, setMarketSel] = useState(null); // 'kospi' | 'kosdaq' | null — 시장평가에서 펼친 시장
-  const [marketPer, setMarketPer] = useState("W"); // 'D' | 'W' | 'M'
+  const [marketPer, setMarketPer] = useState("D"); // 'D' | 'W' | 'M'
   const [marketCandles, setMarketCandles] = useState({}); // { "0001:D": [{d,v}] }
   const [marketCandleMsg, setMarketCandleMsg] = useState("");
   const [quickVal, setQuickVal] = useState({});
@@ -3976,6 +4037,29 @@ function PortfolioApp() {
           return { avg, n: rs.length, total, score: avg === null ? null : Math.round(100 + avg * 100), overall: avg === null ? null : avg >= 0.4 ? 1 : avg <= -0.4 ? -1 : 0 };
         };
         const kComp = compOf("kospi"), qComp = compOf("kosdaq"), aComp = compOf("all");
+        // 날짜별 종합점수: 각 지표 차트의 기준선(저/고)으로 그 시점의 값을 -1/0/+1 판정해 평균 → 100 + 평균×100
+        const rowJudger = (r) => {
+          const ls = r.chart && r.chart.lines; if (!ls) return null;
+          const lo = ls.find((l) => l.c === "lo"), hi = ls.find((l) => l.c === "hi");
+          if (!lo || !hi || !isFinite(lo.v) || !isFinite(hi.v)) return null;
+          return hi.v > lo.v ? (v) => (v >= hi.v ? 1 : v <= lo.v ? -1 : 0) : (v) => (v >= lo.v ? -1 : v <= hi.v ? 1 : 0);
+        };
+        const scoreAxis = (kPts.length ? kPts : qPts).map((p) => p.d);
+        const scoreSeries = (rows) => {
+          const rs = rows.filter((r) => !r.ref && r.chart && r.chart.points && r.chart.points.length > 1).map((r) => ({ pts: r.chart.points, f: rowJudger(r), p: -1 })).filter((x) => x.f);
+          const out = [];
+          scoreAxis.forEach((d) => {
+            let sum = 0, n = 0;
+            rs.forEach((x) => { while (x.p + 1 < x.pts.length && x.pts[x.p + 1].d <= d) x.p++; if (x.p >= 0) { sum += x.f(x.pts[x.p].v); n++; } });
+            if (n >= 2) out.push({ d, v: Math.round(100 + (sum / n) * 100) });
+          });
+          return out;
+        };
+        const scoreLines = [
+          { key: "all", name: "시장전체", color: "#e7eaf0", points: scoreSeries(cRows) },
+          { key: "kospi", name: "코스피종합", color: "#e8544b", points: scoreSeries(kRows) },
+          { key: "kosdaq", name: "코스닥종합", color: "#4c8dff", points: scoreSeries(qRows) },
+        ];
         const selName = marketSel === "kospi" ? "코스피" : marketSel === "kosdaq" ? "코스닥" : "시장 전체";
         const selColor = marketSel === "kospi" ? "#e8544b" : "#4c8dff";
         const scoreLabel = (sc) => (sc === null ? "데이터 부족" : sc >= 100 ? "거품" : "저평가");
@@ -4023,6 +4107,11 @@ function PortfolioApp() {
           <div style={{ padding: "calc(env(safe-area-inset-top, 0px) + 4px) 0 0" }}>
             <div style={{ padding: "0 16px 4px", position: "sticky", top: "env(safe-area-inset-top, 0px)", zIndex: 20, background: "#12151b" }}>
               <button onClick={() => setMainView("home")} className="iconbtn" style={{ color: "#c9974a", fontWeight: 700, fontSize: 14 }}>← 뒤로</button>
+            </div>
+            <div className="card tnum" style={card}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#8993a6", marginBottom: 3 }}>종합점수 추이 (100 이상 거품 / 미만 저평가)</div>
+              {perToggle}
+              {scoreAxis.length < 2 && marketCandleMsg ? <div style={{ fontSize: 11, color: "#8993a6", textAlign: "center", padding: "12px 0" }}>{marketCandleMsg}</div> : <MarketScoreChart series={scoreLines} base={100} />}
             </div>
             <div style={{ display: "flex", gap: 6, margin: "0 16px 5px" }}>
               {[["all", "시장전체", aComp], ["kospi", "코스피", kComp], ["kosdaq", "코스닥", qComp]].map(([mk, nm, c]) => (
