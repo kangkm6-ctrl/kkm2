@@ -4056,7 +4056,6 @@ function PortfolioApp() {
           return out;
         };
         const scoreLines = [
-          { key: "all", name: "시장전체", color: "#e7eaf0", points: scoreSeries(cRows) },
           { key: "kospi", name: "코스피종합", color: "#e8544b", points: scoreSeries(kRows) },
           { key: "kosdaq", name: "코스닥종합", color: "#4c8dff", points: scoreSeries(qRows) },
         ];
@@ -6420,7 +6419,7 @@ function PortfolioApp() {
           ⚙ 설정
         </button>
         <button onClick={() => setMainView("marketHL")} className="iconbtn" style={{ flex: "0 0 calc((100% - 18px) / 4)", padding: "8px 4px", whiteSpace: "nowrap", borderRadius: 10, border: "1px solid #262c37", background: "#1a1f28", color: "#c9974a", fontWeight: 700, fontSize: 13 }}>
-          🌡 시장평가
+          🚦 시장평가
         </button>
       </div>
 
