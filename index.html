@@ -941,6 +941,30 @@ const MarketLineChart = ({ points, ma, color, unit, maLabel, lines, bands }) => 
   );
 };
 
+const MARKET_DESC = {
+  gap: "지수가 최근 10년(120개월) 평균에서 몇 % 떨어져 있는지 보는 지표예요. 평균보다 많이 위(+25% 이상)면 과열·고평가, 평균 아래(−5% 이하)면 저평가로 봐요.",
+  pos: "지수가 받아온 전체 기간 중 어느 높이에 있는지(하위 몇 %)를 봐요. 상위권(85% 이상)일수록 역사적으로 비싼 구간, 하위(25% 이하)일수록 싼 구간이에요.",
+  "kospi-gdp": "코스피 지수를 명목 GDP로 나눈 비율이에요. 나라 경제 규모에 비해 주가가 얼마나 올랐는지 보여주며, 과거 분포의 상위 20%면 고평가, 하위 20%면 저평가로 봐요.",
+  "kosdaq-gdp": "코스닥 지수를 명목 GDP로 나눈 비율이에요. 경제 규모에 비해 주가가 얼마나 올랐는지 보여주며, 과거 분포의 상위 20%면 고평가, 하위 20%면 저평가로 봐요.",
+  "kospi-exp": "코스피 지수를 일평균 수출액(12개월 평균)으로 나눈 비율이에요. 수출 중심 경제에서 실물 실적 대비 주가 수준을 보는 지표예요.",
+  "kosdaq-exp": "코스닥 지수를 일평균 수출액(12개월 평균)으로 나눈 비율이에요. 실물 실적 대비 주가 수준을 보는 지표예요.",
+  pbr: "주가÷주당순자산이에요. 1배면 장부가치와 같은 가격이에요. 코스피는 0.9배 이하면 싸고 1.3배 이상이면 비싸다고 봐요.",
+  per: "주가÷주당순이익이에요. 이익 대비 주가가 몇 배인지 보여주며, 코스피는 10배 이하면 싸고 16배 이상이면 비싸다고 봐요.",
+  pbrQ: "주가÷주당순자산이에요. 성장주가 많은 코스닥은 코스피보다 높게 형성돼 1.5배 이하면 싸고 2.5배 이상이면 비싸다고 봐요.",
+  perQ: "주가÷주당순이익이에요. 적자 기업이 많아 왜곡되기 쉬워 참고용으로 보세요. 15배 이하면 싸고 25배 이상이면 비싸다고 봐요.",
+  buffett: "워런 버핏이 즐겨 본 지표로, 주식시장 시가총액을 명목 GDP로 나눈 값이에요. 80% 이하면 저평가, 120% 이상이면 고평가로 봐요.",
+  cape: "실러 PER이라고도 하며, 최근 10년 평균 이익으로 계산한 PER이에요. 경기 변동 영향을 줄여 장기 밸류에이션을 보며, 12배 이하면 싸고 20배 이상이면 비싸다고 봐요.",
+  erp: "주식을 가지고 있을 때 국채 대비 더 받는 기대수익이에요(1/PER − 국채 10년금리). 6%p 이상이면 주식이 매력적(저평가), 3%p 이하면 매력이 낮아 고평가로 봐요.",
+  conc: "시가총액 상위 10종목이 시장 전체에서 차지하는 비중이에요. 55% 이상이면 소수 종목에 쏠린 과열 국면, 40% 이하면 고르게 분산된 상태로 봐요.",
+  breadthK: "코스피에서 상승한 종목의 비율(20일 평균)이에요. 60% 이상이면 시장 전반이 오르는 과열, 40% 이하면 침체 국면으로 봐요. 최소 3일치가 쌓여야 판정해요.",
+  breadthQ: "코스닥에서 상승한 종목의 비율(20일 평균)이에요. 60% 이상이면 과열, 40% 이하면 침체 국면으로 봐요. 최소 3일치가 쌓여야 판정해요.",
+  vkospi: "코스피200의 예상 변동성, 이른바 '공포지수'예요. 30 이상이면 시장이 공포에 빠진 바닥권(저평가 신호), 15 이하면 지나치게 안심한 과열권(고평가 신호)으로 봐요.",
+  spread: "국채 10년 금리에서 3년 금리를 뺀 값이에요. 0 아래로 내려가면(장단기 금리 역전) 과거에 경기 침체의 경고로 읽혀 왔어요. 점수에는 넣지 않아요.",
+  mdep: "신용융자 잔고를 고객예탁금으로 나눈 값이에요. 빚을 내서 투자하는 비중을 보여주며, 40% 이상이면 빚투 과열, 25% 이하면 안정적이라고 봐요.",
+  mgrowth: "신용융자 잔고가 1년 전보다 얼마나 늘었는지 보여줘요. +25% 이상이면 빚투가 빠르게 늘어난 과열, −5% 이하면 위축된 상태로 봐요.",
+  sentiment: "소비자심리지수로, 100이 기준이에요. 108 이상이면 사람들이 낙관적으로 쏠린 상태(고평가 쪽), 92 이하면 비관적인 상태(저평가 쪽)로 봐요.",
+};
+const marketDescOf = (id) => MARKET_DESC[id] || MARKET_DESC[String(id).replace(/^(kospi|kosdaq)-/, "")] || "";
 // 시장평가 메인: 시장전체·코스피·코스닥 종합점수를 한 차트에 겹쳐 그린다(기준 100 선 포함)
 const MarketScoreChart = ({ series, base }) => {
   const [touchIdx, setTouchIdx] = useState(null);
@@ -4142,6 +4166,7 @@ function PortfolioApp() {
                   </div>
                   {marketOpen === r.id && r.chart && (
                     <div style={{ padding: "2px 0 4px" }}>
+                      {marketDescOf(r.id) && <div style={{ fontSize: 10, lineHeight: 1.4, color: "#8993a6", background: "#161a22", borderRadius: 6, padding: "5px 7px", margin: "2px 0 5px" }}>{marketDescOf(r.id)}</div>}
                       {r.chart.idx && perToggle}
                       {r.chart.idx && r.chart.points.length < 2 && marketCandleMsg ? <div style={{ fontSize: 11, color: "#8993a6", textAlign: "center", padding: "10px 0" }}>{marketCandleMsg}</div> : <MarketLineChart points={r.chart.points} ma={r.chart.ma} color={r.chart.color} unit={r.chart.unit || ""} maLabel={r.chart.ma ? maLabelStr : undefined} lines={r.chart.lines} bands={r.chart.bands} />}
                       {r.chart.note && <div style={{ fontSize: 9, color: "#5a6274", textAlign: "center", marginTop: 2 }}>{r.chart.note}</div>}
