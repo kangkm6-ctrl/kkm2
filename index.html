@@ -2373,12 +2373,13 @@ function PortfolioApp() {
   }, [proxyUrl, appSecret, stockCodes]);
 
   useEffect(() => {
-    if (!loaded || (mainView !== "chart" && mainView !== "strengthChart")) return;
+    // 보유종목 목록의 "기본" 칩이 바로 보이도록, 화면과 상관없이 앱을 열면 보유종목 재무비율을 미리 받아둔다.
+    if (!loaded || !proxyUrl) return;
     const missing = stockCodes.filter((c) => !fundamentalsData[c]);
     if (missing.length === 0 || fundamentalsLoading) return;
     fetchFundamentals();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loaded, mainView, stockCodes]);
+  }, [loaded, proxyUrl, stockCodes]);
 
   // 보유종목에서 강약챠트(캔들)를 펼치면, 기본적 분석 신호를 만들기 위해 그 종목의 재무비율을 받아온다.
   useEffect(() => {
@@ -5902,6 +5903,7 @@ function PortfolioApp() {
                 const badgeText = adv === "buy" ? "매수시점" : adv === "sell" ? "매도시점" : "중도시점";
                 return (
                   <div style={{ marginTop: 6, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
                     <div style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "3px 8px", borderRadius: 6, fontSize: 11, fontWeight: 700, color, background: `${color}22`, border: `1px solid ${color}` }}>
                       {badgeText}
                       {(adv === "buy" || adv === "sell") && (
@@ -5917,13 +5919,14 @@ function PortfolioApp() {
                     {(() => {
                       const tc = r.code ? stockTech[r.code] : null;
                       const fs = r.code ? calcFundSignal(fundamentalsData[r.code], num(r.cur)) : null;
-                      const chip = (txt, c) => <span style={{ padding: "2px 6px", borderRadius: 6, fontSize: 10, fontWeight: 700, color: c, background: `${c}22`, border: `1px solid ${c}`, whiteSpace: "nowrap" }}>{txt}</span>;
+                      const chip = (txt, c) => <span style={{ display: "inline-flex", alignItems: "center", padding: "3px 8px", borderRadius: 6, fontSize: 11, fontWeight: 700, color: c, background: `${c}22`, border: `1px solid ${c}`, whiteSpace: "nowrap" }}>{txt}</span>;
                       const tCol = !tc ? "#5a6274" : tc.label === "buy" ? "#e8544b" : tc.label === "sell" ? "#4c8dff" : "#8993a6";
                       const tTxt = !tc ? "기술 -" : tc.label === "buy" ? "기술 매수" : tc.label === "sell" ? "기술 매도" : "기술 관망";
                       const fCol = !fs ? "#5a6274" : fs.label === "good" ? "#e8544b" : fs.label === "warn" ? "#4c8dff" : "#8993a6";
                       const fTxt = !fs ? "기본 -" : fs.label === "good" ? "기본 양호" : fs.label === "warn" ? "기본 주의" : "기본 보통";
-                      return <div style={{ display: "flex", gap: 4, flex: 1, minWidth: 0, justifyContent: "center" }}>{chip(tTxt, tCol)}{chip(fTxt, fCol)}</div>;
+                      return <>{chip(tTxt, tCol)}{chip(fTxt, fCol)}</>;
                     })()}
+                    </div>
                     <span className="tnum" style={{ fontWeight: 700, fontSize: 13, color: isUp ? "#e8544b" : isDown ? "#4c8dff" : "#e7eaf0" }}>
                       {r.returnRate !== null ? (r.returnRate * 100).toFixed(1) + "%" : "-"}
                     </span>
