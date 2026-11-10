@@ -461,23 +461,7 @@ const calcFundSignal = (f, price) => {
   const m = have.reduce((a, c) => a + c.v, 0) / have.length;
   return { label: m >= 0.3 ? "good" : m <= -0.2 ? "warn" : "mid", parts: cats.map((c) => ({ n: c.n, v: c.v === null ? null : c.v >= 0.5 ? 1 : c.v <= -0.5 ? -1 : 0 })) };
 };
-const fundSigString = (sig) => (sig ? `${sig.label}|${sig.parts.map((p) => `${p.n}:${p.v === null ? "x" : p.v}`).join(",")}` : "");
-const CandleChart = React.memo(function CandleChart({ title, candles, period, subCandles, archiveForCode, adviceLabel, fundSig }) {
-  const [touchIdx, setTouchIdx] = useState(null);
-  const fundInfo = useMemo(() => {
-    if (!fundSig) return null;
-    const [label, rest] = fundSig.split("|");
-    return { label, parts: (rest || "").split(",").map((x) => { const [n, v] = x.split(":"); return { n, v: v === "x" ? null : Number(v) }; }) };
-  }, [fundSig]);
-  const svgRef = useRef(null);
-  const draggingRef = useRef(false);
-  // 손가락 제스처를 "누르고 있기(크로스헤어)"와 "옆으로 밀기(가로 스크롤)"로 구분하기 위한 상태.
-  // pending: 누른 직후 판정 대기 / crosshair: 크로스헤어 추적 중 / scroll: 차트를 옆으로 미는 중 / vertical: 세로 스와이프라 페이지 스크롤에 맡김
-  const gestureRef = useRef({ mode: "none", startX: 0, startY: 0, startScrollLeft: 0, startWindowScrollTop: 0, timer: null });
-  const [scrollLeftSnap, setScrollLeftSnap] = useState(0);
-  // 기술적 분석 신호: 이동평균(5/20)·RSI(14)·MACD(12,26,9)·볼린저밴드(20,2) 4가지를 각각 +1(매수)/0/-1(매도)로 보고 합산한다.
-  // 합계 +2 이상이면 매수, -2 이하면 매도, 그 사이는 관망. (선택한 기간 봉 기준 — 5분/일/주/월/년)
-  const techSignal = useMemo(() => {
+const calcTechSignal = (candles) => {
     const cl = (candles || []).map((c) => num(c.close)).filter((v) => v > 0);
     if (cl.length < 35) return null;
     const n = cl.length;
@@ -506,7 +490,24 @@ const CandleChart = React.memo(function CandleChart({ title, candles, period, su
     votes.push({ name: "볼린저", v: last < mid - 2 * sd ? 1 : last > mid + 2 * sd ? -1 : 0 });
     const total = votes.reduce((a, x) => a + x.v, 0);
     return { total, label: total >= 2 ? "buy" : total <= -2 ? "sell" : "hold", votes };
-  }, [candles]);
+};
+const fundSigString = (sig) => (sig ? `${sig.label}|${sig.parts.map((p) => `${p.n}:${p.v === null ? "x" : p.v}`).join(",")}` : "");
+const CandleChart = React.memo(function CandleChart({ title, candles, period, subCandles, archiveForCode, adviceLabel, fundSig }) {
+  const [touchIdx, setTouchIdx] = useState(null);
+  const fundInfo = useMemo(() => {
+    if (!fundSig) return null;
+    const [label, rest] = fundSig.split("|");
+    return { label, parts: (rest || "").split(",").map((x) => { const [n, v] = x.split(":"); return { n, v: v === "x" ? null : Number(v) }; }) };
+  }, [fundSig]);
+  const svgRef = useRef(null);
+  const draggingRef = useRef(false);
+  // 손가락 제스처를 "누르고 있기(크로스헤어)"와 "옆으로 밀기(가로 스크롤)"로 구분하기 위한 상태.
+  // pending: 누른 직후 판정 대기 / crosshair: 크로스헤어 추적 중 / scroll: 차트를 옆으로 미는 중 / vertical: 세로 스와이프라 페이지 스크롤에 맡김
+  const gestureRef = useRef({ mode: "none", startX: 0, startY: 0, startScrollLeft: 0, startWindowScrollTop: 0, timer: null });
+  const [scrollLeftSnap, setScrollLeftSnap] = useState(0);
+  // 기술적 분석 신호: 이동평균(5/20)·RSI(14)·MACD(12,26,9)·볼린저밴드(20,2) 4가지를 각각 +1(매수)/0/-1(매도)로 보고 합산한다.
+  // 합계 +2 이상이면 매수, -2 이하면 매도, 그 사이는 관망. (선택한 기간 봉 기준 — 5분/일/주/월/년)
+  const techSignal = useMemo(() => calcTechSignal(candles), [candles]);
   const scrollRef1 = useRef(null); // 캔들차트
   const scrollRefVol = useRef(null); // 거래량 (선색 표시 카드를 캔들차트와 거래량 사이에 넣으려고 분리함)
   const scrollRef2 = useRef(null); // 강약표시/도트
@@ -1107,7 +1108,7 @@ function PortfolioApp() {
   const [marketTabChart, setMarketTabChart] = useState(false); // 지표 데이터 카드의 차트: 기본 숨김, 탭하면 보이고 다시 탭하면 숨김
   const [marketOpen, setMarketOpen] = useState(null);
   const [marketSel, setMarketSel] = useState(null); // 'kospi' | 'kosdaq' | null — 시장평가에서 펼친 시장
-  const [marketPer, setMarketPer] = useState("D"); // 'D' | 'W' | 'M'
+  const [marketPer, setMarketPer] = useState("W"); // 'D' | 'W' | 'M'
   const [marketCandles, setMarketCandles] = useState({}); // { "0001:D": [{d,v}] }
   const [marketCandleMsg, setMarketCandleMsg] = useState("");
   const [quickVal, setQuickVal] = useState({});
@@ -1155,6 +1156,7 @@ function PortfolioApp() {
   const [refreshing, setRefreshing] = useState(false);
   const [marketIndices, setMarketIndices] = useState({ kospi: null, kosdaq: null });
   const [weeklySignal, setWeeklySignal] = useState({ kospi: null, kosdaq: null }); // { ma5Now, ma20Now, state: 'golden'|'dead'|null }
+  const [stockTech, setStockTech] = useState({}); // { [code]: { total, label } | null } — 주봉 기준 기술적 신호(보유종목 목록 표시용)
   const [stockWeeklySignal, setStockWeeklySignal] = useState({}); // { [code]: { state } }
   // 매수시점 → 현금비중 10%가 될 때까지, 매도시점 → 현금비중 30%가 될 때까지 유지되는 상태값.
   // { market: { kospi: 'buy'|'sell'|'neutral', kosdaq: ... }, stocks: { [code]: 'buy'|'sell'|'neutral' } }
@@ -2284,8 +2286,8 @@ function PortfolioApp() {
     try { stored = JSON.parse(localStorage.getItem(STOCK_WEEKLY_SIGNAL_STORE_KEY) || "null"); } catch (e) {}
     if (stored && stored.date === todayStr) {
       // 오늘 이미 계산해둔 값이 있고, 지금 보유한 종목코드가 전부 "성공적으로(null 아님)" 들어있으면 재조회 안 함
-      const hasAll = codes.every((c) => Object.prototype.hasOwnProperty.call(stored.data || {}, c) && stored.data[c]);
-      if (hasAll) { setStockWeeklySignal(stored.data); return; }
+      const hasAll = codes.every((c) => Object.prototype.hasOwnProperty.call(stored.data || {}, c) && stored.data[c] && stored.tech && Object.prototype.hasOwnProperty.call(stored.tech, c));
+      if (hasAll) { setStockWeeklySignal(stored.data); setStockTech(stored.tech); return; }
     }
     if (!proxyUrl) return;
     const base = proxyUrl.replace(/\/$/, "");
@@ -2299,16 +2301,19 @@ function PortfolioApp() {
             .catch(() => ({ code, data: null }))
         )
       );
-      const next = {};
+      const next = {}, nextTech = {};
       results.forEach(({ code, data }) => {
         if (!data || !Array.isArray(data.candles)) { next[code] = null; return; }
         next[code] = computeMaState(data.candles);
+        const t = calcTechSignal(data.candles.slice().sort((a, b) => (String(a.date) < String(b.date) ? -1 : 1)));
+        nextTech[code] = t ? { total: t.total, label: t.label } : null;
       });
       setStockWeeklySignal((prev) => ({ ...prev, ...next }));
+      setStockTech((prev) => ({ ...prev, ...nextTech }));
       // 모든 종목이 정상적으로 계산됐을 때만 "오늘 완료"로 저장 — 하나라도 실패하면 저장 안 해서 다음에 자동 재시도
       const allOk = codes.every((c) => next[c]);
       if (allOk) {
-        try { localStorage.setItem(STOCK_WEEKLY_SIGNAL_STORE_KEY, JSON.stringify({ date: todayStr, data: next })); } catch (e) {}
+        try { localStorage.setItem(STOCK_WEEKLY_SIGNAL_STORE_KEY, JSON.stringify({ date: todayStr, data: next, tech: nextTech })); } catch (e) {}
       }
     } catch (e) {}
   }, [proxyUrl, appSecret, stockCodes]);
@@ -5909,6 +5914,16 @@ function PortfolioApp() {
                         </button>
                       )}
                     </div>
+                    {(() => {
+                      const tc = r.code ? stockTech[r.code] : null;
+                      const fs = r.code ? calcFundSignal(fundamentalsData[r.code], num(r.cur)) : null;
+                      const chip = (txt, c) => <span style={{ padding: "2px 6px", borderRadius: 6, fontSize: 10, fontWeight: 700, color: c, background: `${c}22`, border: `1px solid ${c}`, whiteSpace: "nowrap" }}>{txt}</span>;
+                      const tCol = !tc ? "#5a6274" : tc.label === "buy" ? "#e8544b" : tc.label === "sell" ? "#4c8dff" : "#8993a6";
+                      const tTxt = !tc ? "기술 -" : tc.label === "buy" ? "기술 매수" : tc.label === "sell" ? "기술 매도" : "기술 관망";
+                      const fCol = !fs ? "#5a6274" : fs.label === "good" ? "#e8544b" : fs.label === "warn" ? "#4c8dff" : "#8993a6";
+                      const fTxt = !fs ? "기본 -" : fs.label === "good" ? "기본 양호" : fs.label === "warn" ? "기본 주의" : "기본 보통";
+                      return <div style={{ display: "flex", gap: 4, flex: 1, minWidth: 0, justifyContent: "center" }}>{chip(tTxt, tCol)}{chip(fTxt, fCol)}</div>;
+                    })()}
                     <span className="tnum" style={{ fontWeight: 700, fontSize: 13, color: isUp ? "#e8544b" : isDown ? "#4c8dff" : "#e7eaf0" }}>
                       {r.returnRate !== null ? (r.returnRate * 100).toFixed(1) + "%" : "-"}
                     </span>
