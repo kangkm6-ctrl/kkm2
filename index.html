@@ -2330,7 +2330,7 @@ function PortfolioApp() {
 
   // PSR/ROE 화면용: 보유 종목 전체의 재무비율(ROE, 주당매출액)을 가져온다.
   // 우선주는 재무비율 데이터가 없는 경우가 많아서, 실패하면 본주 코드로 한 번 더 시도한다.
-  const fetchFundamentals = useCallback(async () => {
+  const fetchFundamentals = useCallback(async (skipCodes) => {
     const codes = stockCodes.filter(Boolean);
     if (codes.length === 0) { setFundamentalsMsg("종목코드가 있는 보유종목이 없어요."); return; }
     if (!proxyUrl) { setFundamentalsMsg("먼저 설정에서 프록시 서버 주소를 입력하세요."); return; }
@@ -2342,31 +2342,33 @@ function PortfolioApp() {
       fetch(`${base}/stock-fundamentals/${code}`, { headers })
         .then((r) => (r.ok ? r.json() : null))
         .catch(() => null);
+    const okData = (d) => d && Array.isArray(d.periods) && d.periods.length > 0;
+    const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+    // 종목을 한꺼번에 조회하면 한투 API의 초당 호출 제한에 걸려 일부(또는 전부)가 실패하므로, 하나씩 차례로 받고 실패하면 몇 번 다시 시도한다.
+    let failCount = 0;
     try {
-      const results = await Promise.all(
-        codes.map(async (code) => {
-          let data = await fetchOne(code);
-          let usedCommon = false;
-          if (!data || !Array.isArray(data.periods) || data.periods.length === 0) {
+      for (const code of codes) {
+        if (fundamentalsData[code] || (skipCodes && skipCodes[code])) continue;
+        let data = null, usedCommon = false;
+        for (let attempt = 0; attempt < 3 && !okData(data); attempt++) {
+          if (attempt > 0) await sleep(800 * attempt);
+          data = await fetchOne(code);
+          if (!okData(data)) {
             const common = toCommonCode(code);
-            if (common) {
-              const data2 = await fetchOne(common);
-              if (data2 && Array.isArray(data2.periods) && data2.periods.length > 0) { data = data2; usedCommon = true; }
-            }
+            if (common) { const d2 = await fetchOne(common); if (okData(d2)) { data = d2; usedCommon = true; } }
           }
-          return { code, data, usedCommon };
-        })
-      );
-      setFundamentalsData((prev) => {
-        const next = { ...prev };
-        let failCount = 0;
-        results.forEach(({ code, data, usedCommon }) => {
-          if (!data || !Array.isArray(data.periods) || data.periods.length === 0) { failCount++; return; }
-          next[code] = { periods: data.periods, latest: data.latest, divUsed: data.divUsed, usedCommon };
-        });
-        if (failCount > 0) setFundamentalsMsg(`${failCount}개 종목은 재무비율을 못 받았어요 (해당 종목에 데이터가 없을 수 있어요).`);
-        return next;
-      });
+        }
+        if (!okData(data)) { failCount++; await sleep(250); continue; }
+        const entry = { periods: data.periods, latest: data.latest, divUsed: data.divUsed, usedCommon };
+        setFundamentalsData((prev) => ({ ...prev, [code]: entry }));
+        try {
+          const cache = JSON.parse(localStorage.getItem("fundamentals_cache_v1") || "{}");
+          cache[code] = { t: Date.now(), entry };
+          localStorage.setItem("fundamentals_cache_v1", JSON.stringify(cache));
+        } catch (e) {}
+        await sleep(250);
+      }
+      if (failCount > 0) setFundamentalsMsg(`${failCount}개 종목은 재무비율을 못 받았어요 (해당 종목에 데이터가 없을 수 있어요).`);
     } catch (e) {
       setFundamentalsMsg("재무비율을 가져오지 못했어요.");
     }
@@ -2375,10 +2377,18 @@ function PortfolioApp() {
 
   useEffect(() => {
     // 보유종목 목록의 "기본" 칩이 바로 보이도록, 화면과 상관없이 앱을 열면 보유종목 재무비율을 미리 받아둔다.
-    if (!loaded || !proxyUrl) return;
-    const missing = stockCodes.filter((c) => !fundamentalsData[c]);
+    if (!loaded) return;
+    // 3일 이내에 받아 저장해 둔 재무비율이 있으면 먼저 바로 보여준다(분기 자료라 자주 안 바뀜).
+    const fresh = {};
+    try {
+      const cache = JSON.parse(localStorage.getItem("fundamentals_cache_v1") || "{}");
+      stockCodes.forEach((c) => { if (!fundamentalsData[c] && cache[c] && Date.now() - cache[c].t < 3 * 86400000) fresh[c] = cache[c].entry; });
+      if (Object.keys(fresh).length) setFundamentalsData((prev) => ({ ...fresh, ...prev }));
+    } catch (e) {}
+    if (!proxyUrl) return;
+    const missing = stockCodes.filter((c) => !fundamentalsData[c] && !fresh[c]);
     if (missing.length === 0 || fundamentalsLoading) return;
-    fetchFundamentals();
+    fetchFundamentals(fresh);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded, proxyUrl, stockCodes]);
 
