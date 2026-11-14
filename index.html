@@ -2385,23 +2385,12 @@ function PortfolioApp() {
   }, [proxyUrl, appSecret, stockCodes]);
 
   useEffect(() => {
-    // 보유종목 목록의 "기본" 칩이 바로 보이도록, 화면과 상관없이 앱을 열면 보유종목 재무비율을 미리 받아둔다.
-    if (!loaded) return;
-    // 3일 이내에 받아 저장해 둔 재무비율이 있으면 먼저 바로 보여준다(분기 자료라 자주 안 바뀜).
-    const fresh = {};
-    try {
-      const cache = JSON.parse(localStorage.getItem("fundamentals_cache_v1") || "{}");
-      stockCodes.forEach((c) => { if (!fundamentalsData[c] && cache[c] && Date.now() - cache[c].t < 3 * 86400000) fresh[c] = cache[c].entry; });
-      if (Object.keys(fresh).length) setFundamentalsData((prev) => ({ ...fresh, ...prev }));
-    } catch (e) {}
-    if (!proxyUrl) return;
-    const missing = stockCodes.filter((c) => !fundamentalsData[c] && !fresh[c]);
+    if (!loaded || (mainView !== "chart" && mainView !== "strengthChart")) return;
+    const missing = stockCodes.filter((c) => !fundamentalsData[c]);
     if (missing.length === 0 || fundamentalsLoading) return;
-    // 앱을 열 때 시세·주봉 조회가 한꺼번에 몰려 한투 호출 제한에 걸리지 않도록, 조금 뒤에 받기 시작한다.
-    const t = setTimeout(() => fetchFundamentals(fresh), 6000);
-    return () => clearTimeout(t);
+    fetchFundamentals();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loaded, proxyUrl, stockCodes]);
+  }, [loaded, mainView, stockCodes]);
 
   // 보유종목에서 강약챠트(캔들)를 펼치면, 기본적 분석 신호를 만들기 위해 그 종목의 재무비율을 받아온다.
   useEffect(() => {
@@ -2420,16 +2409,15 @@ function PortfolioApp() {
     const fetchCode = toCommonCode(code) || code; // 우선주면 본주 코드로 조회
     try {
       const [baseRes, extraRes] = await Promise.all([
-        fundamentalsData[code] ? Promise.resolve(null) : fetch(`${base}/stock-fundamentals/${fetchCode}`, { headers }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
-        fetch(`${base}/stock-extra-fundamentals/${fetchCode}`, { headers }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+        fundamentalsData[code] ? Promise.resolve(null) : fetch(`${base}/stock-fundamentals/${fetchCode}`, { headers, signal: AbortSignal.timeout(30000) }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+        fetch(`${base}/stock-extra-fundamentals/${fetchCode}`, { headers, signal: AbortSignal.timeout(30000) }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
       ]);
       if (baseRes && Array.isArray(baseRes.periods) && baseRes.periods.length > 0) {
         setFundamentalsData((prev) => ({ ...prev, [code]: { periods: baseRes.periods, latest: baseRes.latest, divUsed: baseRes.divUsed, usedCommon: fetchCode !== code } }));
       }
-      setExtraFundamentalsData((prev) => ({ ...prev, [code]: extraRes && Array.isArray(extraRes.periods) ? { periods: extraRes.periods, divUsed: extraRes.divUsed } : { periods: [] } }));
-    } catch (e) {
-      setExtraFundamentalsData((prev) => ({ ...prev, [code]: { periods: [] } }));
-    }
+      // 서버 오류·시간초과로 못 받은 경우엔 "빈 자료"로 저장하지 않는다(저장하면 앱을 다시 켤 때까지 재시도가 막힘).
+      if (extraRes && Array.isArray(extraRes.periods)) setExtraFundamentalsData((prev) => ({ ...prev, [code]: { periods: extraRes.periods, divUsed: extraRes.divUsed } }));
+    } catch (e) {}
     setExtraFundamentalsLoading((prev) => { const next = { ...prev }; delete next[code]; return next; });
   }, [proxyUrl, appSecret, fundamentalsData, extraFundamentalsData, extraFundamentalsLoading]);
 
@@ -5924,20 +5912,10 @@ function PortfolioApp() {
                 const color = adv === "buy" ? "#e8544b" : adv === "sell" ? "#4c8dff" : "#8993a6";
                 const badgeText = adv === "buy" ? "매수시점" : adv === "sell" ? "매도시점" : "중도시점";
                 const tc0 = r.code ? stockTech[r.code] : null;
-                const fs0 = r.code ? calcFundSignal(fundamentalsData[r.code], num(r.cur)) : null;
-                const openK = sigInfo && sigInfo.id === r.id ? sigInfo.k : null;
+                                const openK = sigInfo && sigInfo.id === r.id ? sigInfo.k : null;
                 const tapSig = (k) => {
                   setSigInfo(openK === k ? null : { id: r.id, k });
-                  // 재무자료가 없는 종목의 "기본" 칩을 탭하면 다시 받아와 본다
-                  if (k === "fund" && openK !== "fund" && r.code && !fundamentalsData[r.code] && !fundamentalsLoading) fetchFundamentals();
                 };
-                const fd0 = r.code ? fundamentalsData[r.code] : null;
-                const fdMissing = (() => {
-                  if (!fd0 || !Array.isArray(fd0.periods)) return "";
-                  const has = (fld) => fd0.periods.some((p) => p[fld] !== null && p[fld] !== undefined && !isNaN(Number(p[fld])));
-                  const miss = [["ROE", has("roe")], ["부채비율", has("debtRatio")], ["매출증가율", has("revenueGrowth")], ["EPS", has("eps")], ["BPS", has("bps")]].filter((x) => !x[1]).map((x) => x[0]);
-                  return miss.length ? `서버가 주지 않은 항목: ${miss.join(", ")}` : "";
-                })();
                 const cashPct = (cashRatio * 100).toFixed(0);
                 const infoText = openK === "adv"
                   ? (adv === "buy" ? `매수시점 — 주봉에서 이동평균이 일부 역배열(단기<장기)인 상태에서 주가가 5주선 위로 올라오는 반등 신호가 나왔고, 현금비중이 30% 이상일 때 켜져요. 현금을 써서 현금비중이 10%가 될 때까지 유지돼요. (지금 현금비중 ${cashPct}%) ⇄전환을 누르면 중도로 돌아가요.`
@@ -5945,10 +5923,6 @@ function PortfolioApp() {
                     : `중도시점 — 지금은 매수 조건(역배열 후 5주선 회복 + 현금 30%↑)도, 매도 조건(정배열 후 5주선 이탈 + 현금 10%↓)도 아니라서 기존 비중을 유지하는 구간이에요. (지금 현금비중 ${cashPct}%)`)
                   : openK === "tech"
                   ? `기술적 분석(주봉 기준) — 이동평균(5·20주), RSI(14), MACD, 볼린저밴드 4가지를 각각 매수 +1 / 중립 0 / 매도 −1로 보고 합산해요. 합계 +2 이상 매수, −2 이하 매도, 그 사이는 관망이에요.` + (tc0 && tc0.votes ? ` 지금: ${tc0.votes.map((v) => `${v.name} ${v.v > 0 ? "+1" : v.v < 0 ? "−1" : "0"}`).join(" · ")} = 합계 ${tc0.total > 0 ? "+" : ""}${tc0.total}` : tc0 ? ` 지금 합계 ${tc0.total > 0 ? "+" : ""}${tc0.total}` : " (주봉 데이터가 35개 미만이라 아직 판정할 수 없어요.)")
-                  : openK === "fund"
-                  ? `기본적 분석 — 수익성(ROE 12%↑ 좋음), 성장(매출·EPS 증가율 10%↑), 안정(부채비율 100%↓), 가치(PER 12↓, PBR 1.5↓) 4가지를 종합해요. 평균이 높으면 양호, 낮으면 주의, 그 사이는 보통이에요. 4개 중 3개 이상 자료가 있어야 판정해요.` + (fs0 ? ` 지금: ${fs0.parts.map((p) => `${p.n}${p.v === null ? "-" : p.v > 0 ? "▲" : p.v < 0 ? "▼" : "●"}`).join(" ")}` : (!r.code ? " (종목코드가 없어서 재무자료를 받을 수 없어요. 코드 칸에 종목코드를 넣어주세요.)"
-                    : !fd0 ? ` (재무자료를 아직 못 받았어요. ${fundamentalsLoading ? "지금 받는 중이에요." : "방금 다시 요청했어요. 잠시 뒤 다시 확인해 주세요."}${r.code && fundErrors[r.code] ? " 이유: " + fundErrors[r.code] : fundamentalsMsg ? " " + fundamentalsMsg : ""})`
-                    : ` (재무자료는 받았지만 항목이 부족해 판정하지 못했어요. 받은 기간 ${fd0.periods.length}개. ${fdMissing})`))
                   : "";
                 return (
                   <>
@@ -5968,13 +5942,10 @@ function PortfolioApp() {
                     </div>
                     {(() => {
                       const tc = r.code ? stockTech[r.code] : null;
-                      const fs = r.code ? calcFundSignal(fundamentalsData[r.code], num(r.cur)) : null;
                       const chip = (txt, c, k) => <span onClick={() => tapSig(k)} style={{ display: "inline-flex", alignItems: "center", padding: "3px 8px", borderRadius: 6, fontSize: 11, fontWeight: 700, color: c, background: `${c}22`, border: `1px solid ${c}`, whiteSpace: "nowrap", cursor: "pointer", outline: openK === k ? "1px solid #c9974a" : "none" }}>{txt}</span>;
                       const tCol = !tc ? "#5a6274" : tc.label === "buy" ? "#e8544b" : tc.label === "sell" ? "#4c8dff" : "#8993a6";
                       const tTxt = !tc ? "기술 -" : tc.label === "buy" ? "기술 매수" : tc.label === "sell" ? "기술 매도" : "기술 관망";
-                      const fCol = !fs ? "#5a6274" : fs.label === "good" ? "#e8544b" : fs.label === "warn" ? "#4c8dff" : "#8993a6";
-                      const fTxt = !fs ? "기본 -" : fs.label === "good" ? "기본 양호" : fs.label === "warn" ? "기본 주의" : "기본 보통";
-                      return <>{chip(tTxt, tCol, "tech")}{chip(fTxt, fCol, "fund")}</>;
+                      return <>{chip(tTxt, tCol, "tech")}</>;
                     })()}
                     </div>
                     <span className="tnum" style={{ fontWeight: 700, fontSize: 13, color: isUp ? "#e8544b" : isDown ? "#4c8dff" : "#e7eaf0" }}>
