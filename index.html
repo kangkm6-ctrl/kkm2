@@ -2345,7 +2345,7 @@ function PortfolioApp() {
         .then(async (r) => {
           if (r.ok) return r.json();
           let msg = "";
-          try { const j = await r.json(); msg = j.error || ""; } catch (e) {}
+          try { const j = await r.json(); msg = (j.detail ? j.detail : j.error) || ""; } catch (e) {}
           errNow[code] = `HTTP ${r.status}${msg ? " · " + String(msg).slice(0, 120) : ""}`;
           return null;
         })
@@ -6296,8 +6296,11 @@ function PortfolioApp() {
                               </div>
                               {allYears.map((y) => {
                                 const p = pts.find((x) => x.year === y);
-                                const color = !p ? "#3a4150" : yoy(y);
-                                const isExcellent = p && colorFn && colorFn(p.value) === "#e8544b";
+                                // 기준선이 있는 지표(성장률·이익률·PER·ROE·PSR·PBR·부채비율·당좌비율)는 그 기준 등급 색으로,
+                                // 기준선이 없는 금액 지표(매출액·이익·EVA·EPS·BPS)는 전년(작년 같은 분기) 대비 증감 색으로 표시한다. 적자는 항상 파란색.
+                                const isLossRow = /영업이익\(|순이익\(|EVA|^EPS$/.test(label);
+                                const color = !p ? "#3a4150" : colorFn ? colorFn(p.value) : (isLossRow && p.value < 0) ? "#4c8dff" : yoy(y);
+                                const isExcellent = false;
                                 return (
                                   <div
                                     key={y}
@@ -6316,8 +6319,8 @@ function PortfolioApp() {
                           );
                         })}
                         <div style={{ marginTop: 4, fontSize: 9 }}>
-                          {quarterMode && <div style={{ marginBottom: 3, color: "#8993a6" }}>최근 4분기를 오래된 순서로 보여줘요(예: 25.3Q = 2025년 3분기). 매출액·영업이익·순이익·EPS는 그 분기 한 분기 값이에요(누적치에서 직전 분기를 뺀 값). PER·EVA는 그 분기 EPS·영업이익을 ×4로 연환산해 계산해요. 색은 작년 같은 분기와 비교해요. 아직 발표 안 된 분기는 나오지 않아요.</div>}
-                          <span style={{ color: "#c9974a" }}>*</span> 당해년 매출액·영업이익·순이익·EPS·PER·EVA는 아직 결산 전이라, 지금까지 발표된 누적치를 연환산(4÷지난 분기수)한 예상치예요. 당좌비율은 유동자산÷유동부채로 근사 계산했어요(재고자산 분리 불가). PER은 계산된 값 그대로 표시돼요. 부채비율은 늘면 파란색, 줄면 붉은색이에요. EVA는 세후영업이익-투하자본×WACC로 근사했어요(WACC는 업종별 고정 가정치). 우선주는 본주 재무데이터를 사용해요. 색은 전년 대비 증가(붉은색)·감소(파란색)로만 표시되고, 그 수치가 "우수" 기준을 만족하면 <span style={{ border: "1px solid #e8544b", padding: "0 3px", borderRadius: 3 }}>테두리</span>가 추가돼요.
+                          {quarterMode && <div style={{ marginBottom: 3, color: "#8993a6" }}>최근 4분기를 오래된 순서로 보여줘요(예: 25.3Q = 2025년 3분기). 매출액·영업이익·순이익·EPS는 그 분기 한 분기 값이에요(누적치에서 직전 분기를 뺀 값). PER·EVA는 그 분기 EPS·영업이익을 ×4로 연환산해 계산해요. 금액 지표의 색은 작년 같은 분기와 비교해요. 아직 발표 안 된 분기는 나오지 않아요.</div>}
+                          <span style={{ color: "#c9974a" }}>*</span> 당해년 매출액·영업이익·순이익·EPS·PER·EVA는 아직 결산 전이라, 지금까지 발표된 누적치를 연환산(4÷지난 분기수)한 예상치예요. 당좌비율은 유동자산÷유동부채로 근사 계산했어요(재고자산 분리 불가). PER은 계산된 값 그대로 표시돼요(적자면 파란색). EVA는 세후영업이익-투하자본×WACC로 근사했어요(WACC는 업종별 고정 가정치). 우선주는 본주 재무데이터를 사용해요. 기준선이 있는 지표(성장률·이익률·PER·ROE·PSR·PBR·부채비율·당좌비율)는 아래 등급 색으로 표시하고, 기준선이 없는 금액 지표(매출액·영업이익·순이익·EVA·EPS·BPS)는 전년 대비 증가(붉은색)·감소(파란색)로 표시해요(적자는 파란색).
                           <br /><span style={{ color: "#e8544b" }}>●우수</span> <span style={{ color: "#e0b93c" }}>●양호</span> <span style={{ color: "#8993a6" }}>●보통/적정</span> <span style={{ color: "#4c8dff" }}>●주의</span> · 업종명을 인식해 반도체·게임·2차전지는 전용 기준선을, 그 외는 일반 기준선을 적용해요. 업종별로 기준이 없는 지표는 일반 기준을 그대로 써요.
                         </div>
                       </>
