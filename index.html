@@ -946,9 +946,10 @@ const MARKET_DESC = {
   gap: "지수가 최근 10년(120개월) 평균에서 몇 % 떨어져 있는지 보는 지표예요. 평균보다 많이 위(+25% 이상)면 과열·고평가, 평균 아래(−5% 이하)면 저평가로 봐요.",
   pos: "지수가 받아온 전체 기간 중 어느 높이에 있는지(하위 몇 %)를 봐요. 상위권(85% 이상)일수록 역사적으로 비싼 구간, 하위(25% 이하)일수록 싼 구간이에요.",
   "kospi-gdp": "코스피 지수를 명목 GDP로 나눈 비율이에요. 나라 경제 규모에 비해 주가가 얼마나 올랐는지 보여주며, 과거 분포의 상위 20%면 고평가, 하위 20%면 저평가로 봐요.",
-  "kosdaq-gdp": "코스닥 지수를 명목 GDP로 나눈 비율이에요. 경제 규모에 비해 주가가 얼마나 올랐는지 보여주며, 과거 분포의 상위 20%면 고평가, 하위 20%면 저평가로 봐요.",
+  "kosdaq-gdp": "코스닥 지수를 명목 GDP로 나눈 비율이에요. 코스닥은 중소형·내수·바이오 비중이 커서 GDP와의 연결이 약하기 때문에 점수에는 넣지 않고 참고로만 보여줘요.",
   "kospi-exp": "코스피 지수를 일평균 수출액(12개월 평균)으로 나눈 비율이에요. 수출 중심 경제에서 실물 실적 대비 주가 수준을 보는 지표예요.",
-  "kosdaq-exp": "코스닥 지수를 일평균 수출액(12개월 평균)으로 나눈 비율이에요. 실물 실적 대비 주가 수준을 보는 지표예요.",
+  mcapexp: "코스피+코스닥 전체 시가총액을 일평균 수출액(12개월 평균)으로 나눈 값이에요. 버핏지수(시총÷GDP)의 수출 버전으로, 수출 중심인 한국 경제에서 시장 전체가 실물 실적보다 얼마나 비싼지 봐요. 과거 분포의 상위 20%면 고평가, 하위 20%면 저평가로 봐요.",
+  "kosdaq-exp": "코스닥 지수를 일평균 수출액(12개월 평균)으로 나눈 비율이에요. 코스닥 기업은 수출 비중이 낮아 연결이 약하므로 점수에는 넣지 않고 참고로만 보여줘요.",
   pbr: "주가÷주당순자산이에요. 1배면 장부가치와 같은 가격이에요. 코스피는 0.9배 이하면 싸고 1.3배 이상이면 비싸다고 봐요.",
   per: "주가÷주당순이익이에요. 이익 대비 주가가 몇 배인지 보여주며, 코스피는 10배 이하면 싸고 16배 이상이면 비싸다고 봐요.",
   pbrQ: "주가÷주당순자산이에요. 성장주가 많은 코스닥은 코스피보다 높게 형성돼 1.5배 이하면 싸고 2.5배 이상이면 비싸다고 봐요.",
@@ -965,7 +966,35 @@ const MARKET_DESC = {
   mgrowth: "신용융자 잔고가 1년 전보다 얼마나 늘었는지 보여줘요. +25% 이상이면 빚투가 빠르게 늘어난 과열, −5% 이하면 위축된 상태로 봐요.",
   sentiment: "소비자심리지수로, 100이 기준이에요. 108 이상이면 사람들이 낙관적으로 쏠린 상태(고평가 쪽), 92 이하면 비관적인 상태(저평가 쪽)로 봐요.",
 };
-const marketDescOf = (id) => MARKET_DESC[id] || MARKET_DESC[String(id).replace(/^(kospi|kosdaq)-/, "")] || "";
+const MARKET_REF_NOTE = {
+  pos: " 명목 지수는 장기적으로 오르기 때문에 이 위치는 늘 상위권으로 치우쳐서, 종합점수에는 넣지 않고 참고로만 보여줘요.",
+  breadthK: " 20일 단기 지표라 장기 밸류에이션 점수를 흔들 수 있어서 종합점수에는 넣지 않고 참고로만 보여줘요.",
+  breadthQ: " 20일 단기 지표라 장기 밸류에이션 점수를 흔들 수 있어서 종합점수에는 넣지 않고 참고로만 보여줘요.",
+  conc: " 쏠림 정도를 보여줄 뿐 그 자체가 고평가를 뜻하지는 않아서 종합점수에는 넣지 않고 참고로만 보여줘요.",
+  sentiment: " 소비자의 경기 체감이라 주식 투자심리와 연결이 약해서 종합점수에는 넣지 않고 참고로만 보여줘요.",
+};
+const MARKET_GROUP_NOTE = {
+  gap: " (이격도·÷GDP·÷수출은 같은 '지수 위치' 계열이라 묶어서 한 표로 반영해요.)",
+  "kospi-gdp": " (이격도·÷GDP·÷수출은 같은 '지수 위치' 계열이라 묶어서 한 표로 반영해요.)",
+  "kospi-exp": " (이격도·÷GDP·÷수출은 같은 '지수 위치' 계열이라 묶어서 한 표로 반영해요.)",
+  per: " (PER·CAPE·위험프리미엄은 같은 '이익' 계열이라 묶어서 한 표로 반영해요.)",
+  cape: " (PER·CAPE·위험프리미엄은 같은 '이익' 계열이라 묶어서 한 표로 반영해요.)",
+  erp: " (PER·CAPE·위험프리미엄은 같은 '이익' 계열이라 묶어서 한 표로 반영해요.)",
+  mcapexp: " (버핏지수와 같은 '경제 규모 대비 시총' 계열이라 묶어서 한 표로 반영해요.)",
+  buffett: " (전체시총÷수출과 같은 '경제 규모 대비 시총' 계열이라 묶어서 한 표로 반영해요.)",
+  mdep: " (신용융자 증가율과 같은 '빚투' 계열이라 묶어서 한 표로 반영해요.)",
+  mgrowth: " (신용잔고÷예탁금과 같은 '빚투' 계열이라 묶어서 한 표로 반영해요.)",
+};
+const marketDescOf = (id) => {
+  const k = String(id);
+  const short = k.replace(/^(kospi|kosdaq)-/, "");
+  const base = MARKET_DESC[k] || MARKET_DESC[short] || "";
+  if (!base) return "";
+  const ref = MARKET_REF_NOTE[k] || MARKET_REF_NOTE[short] || "";
+  const grp = k === "kosdaq-gap" ? "" : MARKET_GROUP_NOTE[k] || MARKET_GROUP_NOTE[short] || "";
+  const manual = { pbr: 1, per: 1, pbrQ: 1, perQ: 1, cape: 1, vkospi: 1 }[k] ? " 직접 입력한 값이 60일 넘게 지나면 '오래됨'으로 보고 점수에서 빼요." : "";
+  return base + ref + grp + manual;
+};
 // 시장평가 메인: 시장전체·코스피·코스닥 종합점수를 한 차트에 겹쳐 그린다(기준 100 선 포함)
 const MarketScoreChart = ({ series, base }) => {
   const [touchIdx, setTouchIdx] = useState(null);
@@ -1577,7 +1606,11 @@ function PortfolioApp() {
           });
           return next;
         });
-        ["mcap", "margin", "gdp", "export", "deposit", "conc", "breadthK", "breadthQ", "bond10", "bond3", "sentiment", "mcapK", "mcapQ"].forEach((k) => { if (Array.isArray(d[k]) && d[k].length) ok.push(names[k]); else if ((k === "conc" || k === "breadthK" || k === "breadthQ" || k === "mcapK" || k === "mcapQ") && !(d.errors && d.errors[k])) { /* 장 시작 전·휴장일에는 종목 수 값이 없어서 정상 — 경고 생략 */ } else fail.push(`${names[k]}: ${String((d.errors && d.errors[k]) || "데이터 없음").replace(/\s+/g, " ").replace(/"/g, "").slice(0, 110)}`); });
+        ["mcap", "margin", "gdp", "export", "deposit", "conc", "breadthK", "breadthQ", "bond10", "bond3", "sentiment", "mcapK", "mcapQ"].forEach((k) => { if (Array.isArray(d[k]) && d[k].length) ok.push(names[k]); else if ((k === "conc" || k === "breadthK" || k === "breadthQ" || k === "mcapK" || k === "mcapQ") && !(d.errors && d.errors[k])) { /* 장 시작 전·휴장일에는 종목 수 값이 없어서 정상 — 경고 생략 */ } else if (Array.isArray(marketSeries[k]) && marketSeries[k].length) {
+          // 이번에 못 받았어도 전에 저장해 둔 값이 있으면 그 값으로 계속 판정한다 — 긴 오류 문구 대신 짧게 알린다.
+          const lastD = String(marketSeries[k][marketSeries[k].length - 1].d || "");
+          fail.push(`${names[k]}: 이번엔 못 받아서 저장된 값(${lastD.slice(2, 4)}.${lastD.slice(4, 6)}.${lastD.slice(6, 8)}) 유지`);
+        } else fail.push(`${names[k]}: ${String((d.errors && d.errors[k]) || "데이터 없음").replace(/\s+/g, " ").replace(/"/g, "").slice(0, 110)}`); });
         setMarketAutoMsg(`${ok.length ? "✅ 자동 수집: " + ok.join(", ") : ""}${fail.length ? (ok.length ? "\n" : "") + "⚠️ " + fail.join("\n⚠️ ") : ""}`);
       }).catch((e) => setMarketAutoMsg(`⚠️ 자동 수집 실패: ${e.message || e}`));
     })();
@@ -4187,12 +4220,39 @@ function PortfolioApp() {
         const pbrQ = lastOf("pbrQ"), perQ = lastOf("perQ");
         const qRows = [
           ...idxRows("kosdaq", "코스닥", qs, qPts, "#4c8dff"),
-          ratioRow("kosdaq-gdp", "kosdaq", "코스닥÷명목GDP", qGdp, "GDP 입력 필요", "20%↓ 저 / 80%↑ 고", "#4c8dff", qPts, "gdp", 0),
-          ratioRow("kosdaq-exp", "kosdaq", "코스닥÷일평균수출", qExp, "수출 입력 필요", "12개월평균 20%↓ 저 / 80%↑ 고", "#4c8dff", qPts, "export", 12),
+          // 코스닥은 중소형·내수·바이오 비중이 커서 GDP·수출과의 연결이 약하다 → 점수에서 빼고 참고로만 보여준다.
+          { ...ratioRow("kosdaq-gdp", "kosdaq", "코스닥÷명목GDP (참고)", qGdp, "GDP 입력 필요", "점수 제외 · 참고용", "#4c8dff", qPts, "gdp", 0), ref: true },
+          { ...ratioRow("kosdaq-exp", "kosdaq", "코스닥÷일평균수출 (참고)", qExp, "수출 입력 필요", "점수 제외 · 참고용", "#4c8dff", qPts, "export", 12), ref: true },
           { id: "pbrQ", go: "pbrQ", mk: "kosdaq", name: "코스닥 PBR", val: pbrQ ? `${pbrQ.v.toFixed(2)}배` : "입력 필요", j: pbrQ ? judge(pbrQ.v, 1.5, 2.5) : null, rule: "1.5↓ 저 / 2.5↑ 고", chart: { points: ser("pbrQ"), color: "#4c8dff", unit: "배", lines: L2(1.5, 2.5, "1.5", "2.5") } },
           { id: "perQ", go: "perQ", mk: "kosdaq", name: "코스닥 PER", val: perQ ? `${perQ.v.toFixed(1)}배` : "입력 필요", j: perQ ? judge(perQ.v, 15, 25) : null, rule: "15↓ 저 / 25↑ 고", chart: { points: ser("perQ"), color: "#4c8dff", unit: "배", lines: L2(15, 25, "15", "25") } },
         ];
+        // 전체시총(코스피+코스닥) ÷ 일평균수출(12개월 평균) — 버핏지수의 수출 버전. 판정은 월 단위 과거 분포에서 지금 위치(하위 20%↓ 저 / 상위 20%↑ 고).
+        const exp12 = (() => { const sp = ser("export"); return sp.map((p, i) => (i + 1 < 12 ? null : { d: p.d, v: sp.slice(i - 11, i + 1).reduce((a, b) => a + b.v, 0) / 12 })).filter(Boolean); })();
+        const mcapMonthly = (() => {
+          const kL = lastOf("mcapK"), qL = lastOf("mcapQ");
+          const km = marketIdx.kospi || [], qm = marketIdx.kosdaq || [];
+          const real = ser("mcap");
+          if (!kL || !qL || !km.length || !qm.length) return real;
+          const ikLast = km[km.length - 1].v, iqLast = qm[qm.length - 1].v;
+          const firstReal = real.length ? real[0].d : "99999999";
+          const est = alignPrev(km.filter((p) => p.d < firstReal), qm, (pk, pq) => (kL.v * pk.v) / ikLast + (qL.v * pq.v) / iqLast);
+          // 실제 값은 월말 값만 남겨 월 단위로 맞춘다
+          const byM = {}; real.forEach((p) => { byM[p.d.slice(0, 6)] = p; });
+          return [...est, ...Object.values(byM)];
+        })();
+        const mcapExp = (() => {
+          const hist = alignPrev(mcapMonthly, exp12, (p, q) => (q.v ? p.v / q.v : null));
+          if (hist.length < 8) return null;
+          const cur = hist[hist.length - 1].v;
+          const vals = hist.map((h) => h.v);
+          const pct = (vals.filter((v) => v <= cur).length / vals.length) * 100;
+          const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+          return { cur, pct, gap: (cur / avg - 1) * 100 };
+        })();
+        const mcapExpChart = alignPrev(mcapFull.points, exp12, (p, q) => (q.v ? p.v / q.v : null));
         const cRows = [
+          { id: "mcapexp", mk: "both", name: "전체시총÷일평균수출", val: mcapExp ? realVal(mcapExp) : "시총·수출 수집 필요", j: mcapExp ? judge(mcapExp.pct, 20, 80) : null, rule: "과거 20%↓ 저 / 80%↑ 고",
+            chart: { points: mcapExpChart, idx: true, color: "#c9974a", note: "비율 추이(조원 ÷ 억달러) · 높을수록 수출 실적보다 시장이 비쌈 · 파랑=하위 20%, 빨강=상위 20% 선", lines: L2(qtl(mcapExpChart, 0.2), qtl(mcapExpChart, 0.8), "20%선", "80%선") } },
           { id: "buffett", mk: "both", name: "버핏지수(시총÷GDP)", val: buffett !== null ? `${buffett.toFixed(0)}%` : "시총·GDP 입력 필요", j: judge(buffett, 80, 120), rule: "80%↓ 저 / 120%↑ 고", chart: { points: ratioPts(mcapFull.points, "gdp", 100), idx: true, color: "#c9974a", unit: "%", lines: L2(80, 120, "80%", "120%"), note: mcapFull.estCount ? "과거 시총은 지수 변화율로 추정한 값이에요(실제와 다를 수 있음)" : undefined } },
         ];
         // 추가 지표 ─ CAPE, 위험프리미엄, 신용융자 증가율, 시장집중도, 투자심리, 상승종목 비율
@@ -4229,11 +4289,33 @@ function PortfolioApp() {
           { id: "mgrowth", mk: "both", name: "신용융자 증가율(1년)", val: mGrowth ? `${mGrowth.v >= 0 ? "+" : ""}${mGrowth.v.toFixed(1)}%` : "융자 1년치 필요", j: mGrowth ? judge(mGrowth.v, -5, 25) : null, rule: "-5%↓ 저 / +25%↑ 고(과열)", chart: { points: mGrowthSeries, color: "#c9974a", unit: "%", lines: L2(-5, 25, "-5%", "+25%") } },
           { id: "sentiment", go: "sentiment", mk: "both", name: "투자심리(소비자심리)", val: sent ? `${sent.v.toFixed(1)}pt` : "수집 필요", j: sent ? judge(sent.v, 92, 108) : null, rule: "92↓ 비관 / 108↑ 낙관(100 기준)", chart: { points: ser("sentiment"), color: "#c9974a", unit: "pt", lines: L2(92, 108, "92 비관", "108 낙관") } },
         );
+        // ── 종합점수 혼선 줄이기 ──
+        // ① 점수에서 빼고 참고로만 보여줄 지표: 장기위치(명목 지수라 늘 상위권으로 치우침), 상승종목 비율(20일 단기),
+        //    시장집중도(쏠림이지 고평가 아님), 소비자심리(주식 투자심리와 연결 약함)
+        const REF_IDS = { "kospi-pos": 1, "kosdaq-pos": 1, breadthK: 1, breadthQ: 1, conc: 1, sentiment: 1 };
+        // ② 직접 입력하는 지표는 60일이 지나면 "오래됨"으로 보고 점수에서 뺀다
+        const MANUAL_KEYS = { pbr: 1, per: 1, pbrQ: 1, perQ: 1, cape: 1, vkospi: 1 };
+        const daysSince = (d) => { const t = String(d || "").replace(/\D/g, ""); if (t.length < 8) return Infinity; const dt = new Date(+t.slice(0, 4), +t.slice(4, 6) - 1, +t.slice(6, 8)); return (Date.now() - dt.getTime()) / 86400000; };
+        [kRows, qRows, cRows].forEach((arr) => arr.forEach((r, i) => {
+          let x = r;
+          if (REF_IDS[x.id] && !x.ref) x = { ...x, ref: true, name: x.id === "sentiment" ? "소비자심리 (참고)" : `${x.name} (참고)`, rule: `점수 제외 · ${x.rule}` };
+          if (x.go && MANUAL_KEYS[x.go]) { const last = lastOf(x.go); if (last && daysSince(last.d) > 60) x = { ...x, j: null, stale: true, val: `${x.val} · 오래됨(60일↑)` }; }
+          arr[i] = x;
+        }));
+        // ③ 같은 계열 지표는 묶어서 평균낸 뒤 한 표로만 센다 (중복 반영 방지)
+        const GROUP_OF = { "kospi-gap": "idxK", "kospi-gdp": "idxK", "kospi-exp": "idxK", per: "earn", cape: "earn", erp: "earn", mcapexp: "econ", buffett: "econ", mdep: "credit", mgrowth: "credit" };
+        const groupAvg = (items) => { // items: [{ r, j }]
+          const g = {};
+          items.forEach(({ r, j }) => { const k = GROUP_OF[r.id] || r.id; (g[k] = g[k] || []).push(j); });
+          const vals = Object.values(g).map((a) => a.reduce((x, y) => x + y, 0) / a.length);
+          return vals.length ? { avg: vals.reduce((x, y) => x + y, 0) / vals.length, groups: vals.length } : null;
+        };
         const compOf = (mk) => {
           const base = (mk === "kospi" ? kRows : mk === "kosdaq" ? qRows : cRows).filter((r) => !r.ref);
           const rs = base.filter((r) => r.j !== null);
           const total = base.length;
-          const avg = rs.length ? rs.reduce((a, r) => a + r.j, 0) / rs.length : null;
+          const ga = groupAvg(rs.map((r) => ({ r, j: r.j })));
+          const avg = ga ? ga.avg : null;
           return { avg, n: rs.length, total, score: avg === null ? null : Math.round(100 + avg * 100), overall: avg === null ? null : avg >= 0.4 ? 1 : avg <= -0.4 ? -1 : 0 };
         };
         const kComp = compOf("kospi"), qComp = compOf("kosdaq"), aComp = compOf("all");
@@ -4246,12 +4328,13 @@ function PortfolioApp() {
         };
         const scoreAxis = (kPts.length ? kPts : qPts).map((p) => p.d);
         const scoreSeries = (rows) => {
-          const rs = rows.filter((r) => !r.ref && r.chart && r.chart.points && r.chart.points.length > 1).map((r) => ({ pts: r.chart.points, f: rowJudger(r), p: -1 })).filter((x) => x.f);
+          const rs = rows.filter((r) => !r.ref && !r.stale && r.chart && r.chart.points && r.chart.points.length > 1).map((r) => ({ r, pts: r.chart.points, f: rowJudger(r), p: -1 })).filter((x) => x.f);
           const out = [];
           scoreAxis.forEach((d) => {
-            let sum = 0, n = 0;
-            rs.forEach((x) => { while (x.p + 1 < x.pts.length && x.pts[x.p + 1].d <= d) x.p++; if (x.p >= 0) { sum += x.f(x.pts[x.p].v); n++; } });
-            if (n >= 2) out.push({ d, v: Math.round(100 + (sum / n) * 100) });
+            const items = [];
+            rs.forEach((x) => { while (x.p + 1 < x.pts.length && x.pts[x.p + 1].d <= d) x.p++; if (x.p >= 0) items.push({ r: x.r, j: x.f(x.pts[x.p].v) }); });
+            const ga = groupAvg(items);
+            if (ga && ga.groups >= 2) out.push({ d, v: Math.round(100 + ga.avg * 100) });
           });
           return out;
         };
