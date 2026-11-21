@@ -6299,7 +6299,19 @@ function PortfolioApp() {
                 </div>
               </div>
               {r.code && (
-                <div style={{ textAlign: "right", marginTop: -2, marginBottom: 6 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, marginTop: -2, marginBottom: 6 }}>
+                  {(() => {
+                    // 현재 적정주가 칩 — 매입가 칸 바로 아래. 탭하면 아래쪽 신호 설명 칸에 계산 근거가 나온다.
+                    const fv = calcFairNow(extraFundamentalsData[r.code], futureCloses[toCommonCode(r.code) || r.code], r.marketCap ? num(r.marketCap) : 0, num(r.cur));
+                    const fUp = fv ? fv.fair / num(r.cur) - 1 : null;
+                    const c = fUp === null ? "#5a6274" : fUp >= 0.3 ? "#e8544b" : fUp >= 0 ? "#e0b93c" : fUp >= -0.2 ? "#8993a6" : "#4c8dff";
+                    const open = sigInfo && sigInfo.id === r.id && sigInfo.k === "fair";
+                    return (
+                      <span className="tnum" onClick={() => setSigInfo(open ? null : { id: r.id, k: "fair" })} style={{ display: "inline-flex", alignItems: "center", padding: "3px 8px", borderRadius: 6, fontSize: 11, fontWeight: 700, color: c, background: `${c}22`, border: `1px solid ${c}`, whiteSpace: "nowrap", cursor: "pointer", outline: open ? "1px solid #c9974a" : "none" }}>
+                        {fv ? `적정 ${Math.round(fv.fair).toLocaleString("ko-KR")} ${fUp >= 0 ? "▲" : "▼"}${Math.abs(fUp * 100).toFixed(0)}%` : "적정 -"}
+                      </span>
+                    );
+                  })()}
                   {r.hasPrevClose ? (
                     <span className="tnum" style={{ fontSize: 12, fontWeight: 700, color: r.prevChangeAmt > 0 ? "#e8544b" : r.prevChangeAmt < 0 ? "#4c8dff" : "#e7eaf0" }}>
                       전일대비 {r.prevChangeAmt > 0 ? "▲ " : r.prevChangeAmt < 0 ? "▼ " : ""}{fmt(r.prevChangeAmt)}원 ({r.prevChangeRate >= 0 ? "+" : ""}{(r.prevChangeRate * 100).toFixed(2)}%)
@@ -6364,11 +6376,7 @@ function PortfolioApp() {
                       const chip = (txt, c, k) => <span onClick={() => tapSig(k)} style={{ display: "inline-flex", alignItems: "center", padding: "3px 8px", borderRadius: 6, fontSize: 11, fontWeight: 700, color: c, background: `${c}22`, border: `1px solid ${c}`, whiteSpace: "nowrap", cursor: "pointer", outline: openK === k ? "1px solid #c9974a" : "none" }}>{txt}</span>;
                       const tCol = !tc ? "#5a6274" : tc.label === "buy" ? "#e8544b" : tc.label === "sell" ? "#4c8dff" : "#8993a6";
                       const tTxt = !tc ? "기술 -" : tc.label === "buy" ? "기술 매수" : tc.label === "sell" ? "기술 매도" : "기술 관망";
-                      const fv = r.code ? calcFairNow(extraFundamentalsData[r.code], futureCloses[toCommonCode(r.code) || r.code], r.marketCap ? num(r.marketCap) : 0, num(r.cur)) : null;
-                      const fUp = fv ? fv.fair / num(r.cur) - 1 : null;
-                      const fCol = fUp === null ? "#5a6274" : fUp >= 0.3 ? "#e8544b" : fUp >= 0 ? "#e0b93c" : fUp >= -0.2 ? "#8993a6" : "#4c8dff";
-                      const fTxt = fv ? `적정 ${Math.round(fv.fair).toLocaleString("ko-KR")} ${fUp >= 0 ? "▲" : "▼"}${Math.abs(fUp * 100).toFixed(0)}%` : "적정 -";
-                      return <>{chip(tTxt, tCol, "tech")}{chip(fTxt, fCol, "fair")}</>;
+                      return <>{chip(tTxt, tCol, "tech")}</>;
                     })()}
                     </div>
                     <span className="tnum" style={{ fontWeight: 700, fontSize: 13, color: isUp ? "#e8544b" : isDown ? "#4c8dff" : "#e7eaf0" }}>
