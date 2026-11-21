@@ -2640,7 +2640,8 @@ function PortfolioApp() {
 
   // 보유종목 화면에서 "종목지표"를 펼치면, 그 종목의 재무비율(+매출액/당좌비율)을 받아온다. 우선주는 본주 코드로 조회한다.
   const fetchStockMetrics = useCallback(async (code) => {
-    if (!proxyUrl || !code || extraFundamentalsData[code] || extraFundamentalsLoading[code]) return;
+    // 적정가 칩이 재무제표(extra)만 미리 받아 두므로, 재무비율(base)과 재무제표(extra) 중 빠진 쪽만 받는다.
+    if (!proxyUrl || !code || (extraFundamentalsData[code] && fundamentalsData[code]) || extraFundamentalsLoading[code]) return;
     setExtraFundamentalsLoading((prev) => ({ ...prev, [code]: true }));
     const base = proxyUrl.replace(/\/$/, "");
     const headers = appSecret ? { "x-app-secret": appSecret } : {};
@@ -2648,7 +2649,7 @@ function PortfolioApp() {
     try {
       const [baseRes, extraRes] = await Promise.all([
         fundamentalsData[code] ? Promise.resolve(null) : fetch(`${base}/stock-fundamentals/${fetchCode}`, { headers, signal: AbortSignal.timeout(30000) }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
-        fetch(`${base}/stock-extra-fundamentals/${fetchCode}`, { headers, signal: AbortSignal.timeout(30000) }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+        extraFundamentalsData[code] ? Promise.resolve(null) : fetch(`${base}/stock-extra-fundamentals/${fetchCode}`, { headers, signal: AbortSignal.timeout(30000) }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
       ]);
       if (baseRes && Array.isArray(baseRes.periods) && baseRes.periods.length > 0) {
         setFundamentalsData((prev) => ({ ...prev, [code]: { periods: baseRes.periods, latest: baseRes.latest, divUsed: baseRes.divUsed, usedCommon: fetchCode !== code } }));
