@@ -1086,6 +1086,30 @@ const MarketScoreChart = ({ series, base }) => {
 // 시나리오 3개(1안 평균 / 2안 평균+α / 3안 M/S증가지속) × PER 3개 = 9가지 추정치의 최저·평균·최고를 보여준다.
 // 200%(3배) 이상 오를 여지가 있어야 투자 가능, 매수가능가 = 추정주가 ÷ 3 (안전마진).
 const FUTURE_INPUTS_KEY = "future_inputs_v1";
+// 현재 적정주가: 최근 연간 매출 × 평균 영업이익률(최근 4년) × 0.8 × 평균 PER(계산치) = 적정시총 → ÷현시총 × 현주가
+// (미래가치 1안과 같은 재료로, 3년 성장 없이 "지금 실적" 기준으로 계산)
+const calcFairNow = (ef, closes, curCap, curPrice) => {
+  if (!ef || !Array.isArray(ef.periods) || !curCap || !curPrice) return null;
+  const annual = ef.periods
+    .filter((p) => String(p.period).slice(4, 6) === "12" && Number(p.revenue) > 0)
+    .map((p) => ({ year: String(p.period).slice(0, 4), rev: Number(p.revenue), op: p.opProfit === null || p.opProfit === undefined ? null : Number(p.opProfit) }))
+    .sort((a, b) => (a.year < b.year ? -1 : 1)).slice(-4);
+  if (annual.length < 2) return null;
+  const avg = (a) => { const x = a.filter((v) => v !== null && isFinite(v)); return x.length ? x.reduce((p, q) => p + q, 0) / x.length : null; };
+  const mAvg = avg(annual.map((a) => (a.op === null ? null : a.op / a.rev)));
+  const latest = annual[annual.length - 1];
+  const pers = annual.map((a) => {
+    if (a.op === null || a.op <= 0) return null;
+    const c = closes && closes.years ? closes.years[a.year] : null;
+    const cap = c && closes.last ? curCap * (c / closes.last) : null;
+    return cap ? cap / (a.op * 0.8) : null;
+  }).filter((v) => v !== null && v > 0 && v < 200);
+  let perAvg = avg(pers);
+  if (perAvg === null && latest.op > 0) perAvg = curCap / (latest.op * 0.8);
+  if (mAvg === null || mAvg <= 0 || !perAvg) return null;
+  const fairCap = latest.rev * mAvg * 0.8 * perAvg;
+  return { fair: (fairCap / curCap) * curPrice, perAvg, mAvg, rev: latest.rev, year: latest.year, years: annual.length };
+};
 const FutureValuePanel = ({ name, ef, closes, curCap, curPrice, saved, onSave, loading }) => {
   const annual = useMemo(() => {
     if (!ef || !Array.isArray(ef.periods)) return [];
@@ -2634,6 +2658,53 @@ function PortfolioApp() {
     } catch (e) {}
     setExtraFundamentalsLoading((prev) => { const next = { ...prev }; delete next[code]; return next; });
   }, [proxyUrl, appSecret, fundamentalsData, extraFundamentalsData, extraFundamentalsLoading]);
+
+  // 보유종목 "적정가" 칩용: 모든 보유종목의 재무(DART)·월봉 연말종가를 천천히 하나씩 받아 둔다(하루 캐시).
+  useEffect(() => {
+    if (!loaded || !proxyUrl) return;
+    let cancelled = false;
+    const CK = "fair_raw_cache_v1";
+    let cache = {};
+    try { cache = JSON.parse(localStorage.getItem(CK) || "{}") || {}; } catch (e) {}
+    const fresh = (c) => c && Date.now() - c.t < 24 * 3600 * 1000;
+    const efAdd = {}, clAdd = {};
+    stockCodes.forEach((code) => {
+      const cc = toCommonCode(code) || code;
+      if (fresh(cache[cc])) { if (cache[cc].ef && !extraFundamentalsData[code]) efAdd[code] = cache[cc].ef; if (cache[cc].cl && !futureCloses[cc]) clAdd[cc] = cache[cc].cl; }
+    });
+    if (Object.keys(efAdd).length) setExtraFundamentalsData((p) => ({ ...efAdd, ...p }));
+    if (Object.keys(clAdd).length) setFutureCloses((p) => ({ ...clAdd, ...p }));
+    const base = proxyUrl.replace(/\/$/, "");
+    const headers = appSecret ? { "x-app-secret": appSecret } : {};
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const t = setTimeout(async () => {
+      for (const code of stockCodes) {
+        if (cancelled) return;
+        const cc = toCommonCode(code) || code;
+        if (fresh(cache[cc]) && cache[cc].ef && cache[cc].cl) continue;
+        const ef = await fetch(`${base}/stock-extra-fundamentals/${cc}`, { headers, signal: AbortSignal.timeout(30000) }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+        await sleep(300);
+        const h = await fetch(`${base}/stock-history/${cc}?period=M&days=2400`, { headers, signal: AbortSignal.timeout(30000) }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+        if (cancelled) return;
+        const efv = ef && Array.isArray(ef.periods) && ef.periods.length ? { periods: ef.periods, divUsed: ef.divUsed } : null;
+        let clv = null;
+        if (h && Array.isArray(h.candles) && h.candles.length) {
+          const cs = h.candles.slice().sort((a, b) => (String(a.date) < String(b.date) ? -1 : 1));
+          const years = {}; cs.forEach((c) => { years[String(c.date).slice(0, 4)] = Number(c.close); });
+          clv = { years, last: Number(cs[cs.length - 1].close) };
+        }
+        if (efv) setExtraFundamentalsData((p) => (p[code] ? p : { ...p, [code]: efv }));
+        if (clv) setFutureCloses((p) => (p[cc] ? p : { ...p, [cc]: clv }));
+        if (efv || clv) {
+          cache[cc] = { t: Date.now(), ef: efv, cl: clv };
+          try { localStorage.setItem(CK, JSON.stringify(cache)); } catch (e) {}
+        }
+        await sleep(400);
+      }
+    }, 8000); // 앱 시작 때 시세 조회와 겹치지 않게 조금 뒤에 시작
+    return () => { cancelled = true; clearTimeout(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, proxyUrl, stockCodes]);
 
   useEffect(() => {
     const openId = metricsStock || quarterStock || futureStock;
@@ -6262,6 +6333,13 @@ function PortfolioApp() {
                   ? (adv === "buy" ? `매수시점 — 주봉에서 이동평균이 일부 역배열(단기<장기)인 상태에서 주가가 5주선 위로 올라오는 반등 신호가 나왔고, 현금비중이 30% 이상일 때 켜져요. 현금을 써서 현금비중이 10%가 될 때까지 유지돼요. (지금 현금비중 ${cashPct}%) ⇄전환을 누르면 중도로 돌아가요.`
                     : adv === "sell" ? `매도시점 — 주봉 이동평균이 정배열(5>20>60>120주선)인데 주가가 5주선 아래로 내려오는 꺾임 신호가 나왔고, 현금비중이 10% 이하일 때 켜져요. 현금비중이 30%가 될 때까지 유지돼요. (지금 현금비중 ${cashPct}%) ⇄전환을 누르면 중도로 돌아가요.`
                     : `중도시점 — 지금은 매수 조건(역배열 후 5주선 회복 + 현금 30%↑)도, 매도 조건(정배열 후 5주선 이탈 + 현금 10%↓)도 아니라서 기존 비중을 유지하는 구간이에요. (지금 현금비중 ${cashPct}%)`)
+                  : openK === "fair"
+                  ? (() => {
+                      const fv = r.code ? calcFairNow(extraFundamentalsData[r.code], futureCloses[toCommonCode(r.code) || r.code], r.marketCap ? num(r.marketCap) : 0, num(r.cur)) : null;
+                      if (!fv) return `현재 적정주가 — 최근 연간 매출 × 평균 영업이익률 × 0.8(세후) × 평균 PER로 적정시총을 구해, 현시총 대비 비율을 현재가에 곱한 값이에요. ${!r.code ? "종목코드가 없어 계산할 수 없어요." : !r.marketCap ? "시가총액이 아직 없어요(시세 갱신 후 다시 확인)." : !extraFundamentalsData[r.code] ? "재무자료(DART)를 아직 받지 못했어요. 앱을 열고 잠시 뒤 다시 확인해 주세요(서버에 DART 키·배포 필요)." : "영업이익이 적자이거나 연간 자료가 2년 미만이라 계산하지 못했어요."}`;
+                      const up = fv.fair / num(r.cur) - 1;
+                      return `현재 적정주가 — ${fv.year}년 매출 ${Math.round(fv.rev).toLocaleString("ko-KR")}억 × 최근 ${fv.years}년 평균 영업이익률 ${(fv.mAvg * 100).toFixed(1)}% × 0.8(세후 순이익) × 평균 PER ${fv.perAvg.toFixed(1)}배 = 적정시총, 이를 현시총과 비교해 현재가에 곱했어요(미래가치 1안과 같은 재료, 성장 가정 없이 지금 실적 기준). 적정가 ${Math.round(fv.fair).toLocaleString("ko-KR")}원은 현재가보다 ${up >= 0 ? `${(up * 100).toFixed(0)}% 높아 저평가` : `${Math.abs(up * 100).toFixed(0)}% 낮아 고평가`} 쪽이에요. 색: 30%↑ 빨강(저평가) · 0~30% 금색 · 0~−20% 회색 · −20%↓ 파랑(고평가). PER은 과거 주가 수준을 그대로 이어받기 때문에, 시장 전체가 비쌀 때는 적정가도 함께 높게 나올 수 있어요.`;
+                    })()
                   : openK === "tech"
                   ? `기술적 분석(주봉 기준) — 이동평균(5·20주), RSI(14), MACD, 볼린저밴드 4가지를 각각 매수 +1 / 중립 0 / 매도 −1로 보고 합산해요. 합계 +2 이상 매수, −2 이하 매도, 그 사이는 관망이에요.` + (tc0 && tc0.votes ? ` 지금: ${tc0.votes.map((v) => `${v.name} ${v.v > 0 ? "+1" : v.v < 0 ? "−1" : "0"}`).join(" · ")} = 합계 ${tc0.total > 0 ? "+" : ""}${tc0.total}` : tc0 ? ` 지금 합계 ${tc0.total > 0 ? "+" : ""}${tc0.total}` : " (주봉 데이터가 35개 미만이라 아직 판정할 수 없어요.)")
                   : "";
@@ -6286,7 +6364,11 @@ function PortfolioApp() {
                       const chip = (txt, c, k) => <span onClick={() => tapSig(k)} style={{ display: "inline-flex", alignItems: "center", padding: "3px 8px", borderRadius: 6, fontSize: 11, fontWeight: 700, color: c, background: `${c}22`, border: `1px solid ${c}`, whiteSpace: "nowrap", cursor: "pointer", outline: openK === k ? "1px solid #c9974a" : "none" }}>{txt}</span>;
                       const tCol = !tc ? "#5a6274" : tc.label === "buy" ? "#e8544b" : tc.label === "sell" ? "#4c8dff" : "#8993a6";
                       const tTxt = !tc ? "기술 -" : tc.label === "buy" ? "기술 매수" : tc.label === "sell" ? "기술 매도" : "기술 관망";
-                      return <>{chip(tTxt, tCol, "tech")}</>;
+                      const fv = r.code ? calcFairNow(extraFundamentalsData[r.code], futureCloses[toCommonCode(r.code) || r.code], r.marketCap ? num(r.marketCap) : 0, num(r.cur)) : null;
+                      const fUp = fv ? fv.fair / num(r.cur) - 1 : null;
+                      const fCol = fUp === null ? "#5a6274" : fUp >= 0.3 ? "#e8544b" : fUp >= 0 ? "#e0b93c" : fUp >= -0.2 ? "#8993a6" : "#4c8dff";
+                      const fTxt = fv ? `적정 ${Math.round(fv.fair).toLocaleString("ko-KR")} ${fUp >= 0 ? "▲" : "▼"}${Math.abs(fUp * 100).toFixed(0)}%` : "적정 -";
+                      return <>{chip(tTxt, tCol, "tech")}{chip(fTxt, fCol, "fair")}</>;
                     })()}
                     </div>
                     <span className="tnum" style={{ fontWeight: 700, fontSize: 13, color: isUp ? "#e8544b" : isDown ? "#4c8dff" : "#e7eaf0" }}>
