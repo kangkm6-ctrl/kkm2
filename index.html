@@ -6308,13 +6308,13 @@ function PortfolioApp() {
                     const c = fUp === null ? "#5a6274" : fUp >= 0.3 ? "#e8544b" : fUp >= 0 ? "#e0b93c" : fUp >= -0.2 ? "#8993a6" : "#4c8dff";
                     const open = sigInfo && sigInfo.id === r.id && sigInfo.k === "fair";
                     return (
-                      <span className="tnum" onClick={() => setSigInfo(open ? null : { id: r.id, k: "fair" })} style={{ display: "inline-flex", alignItems: "center", padding: "3px 8px", borderRadius: 6, fontSize: 11, fontWeight: 700, color: c, background: `${c}22`, border: `1px solid ${c}`, whiteSpace: "nowrap", cursor: "pointer", outline: open ? "1px solid #c9974a" : "none" }}>
+                      <span className="tnum" onClick={() => setSigInfo(open ? null : { id: r.id, k: "fair" })} style={{ display: "inline-flex", alignItems: "center", padding: "3px 8px", borderRadius: 6, fontSize: 13, fontWeight: 700, color: c, background: `${c}22`, border: `1px solid ${c}`, whiteSpace: "nowrap", cursor: "pointer", outline: open ? "1px solid #c9974a" : "none" }}>
                         {fv ? `적정 ${Math.round(fv.fair).toLocaleString("ko-KR")} ${fUp >= 0 ? "▲" : "▼"}${Math.abs(fUp * 100).toFixed(0)}%` : "적정 -"}
                       </span>
                     );
                   })()}
                   {r.hasPrevClose ? (
-                    <span className="tnum" style={{ fontSize: 12, fontWeight: 700, color: r.prevChangeAmt > 0 ? "#e8544b" : r.prevChangeAmt < 0 ? "#4c8dff" : "#e7eaf0" }}>
+                    <span className="tnum" style={{ fontSize: 13, fontWeight: 700, color: r.prevChangeAmt > 0 ? "#e8544b" : r.prevChangeAmt < 0 ? "#4c8dff" : "#e7eaf0" }}>
                       전일대비 {r.prevChangeAmt > 0 ? "▲ " : r.prevChangeAmt < 0 ? "▼ " : ""}{fmt(r.prevChangeAmt)}원 ({r.prevChangeRate >= 0 ? "+" : ""}{(r.prevChangeRate * 100).toFixed(2)}%)
                     </span>
                   ) : (
