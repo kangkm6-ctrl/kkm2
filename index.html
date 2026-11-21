@@ -947,6 +947,10 @@ const MARKET_DESC = {
   pos: "지수가 받아온 전체 기간 중 어느 높이에 있는지(하위 몇 %)를 봐요. 상위권(85% 이상)일수록 역사적으로 비싼 구간, 하위(25% 이하)일수록 싼 구간이에요.",
   "kospi-gdp": "코스피 지수를 명목 GDP로 나눈 비율이에요. 나라 경제 규모에 비해 주가가 얼마나 올랐는지 보여주며, 과거 분포의 상위 20%면 고평가, 하위 20%면 저평가로 봐요.",
   "kospi-exp": "코스피 지수를 일평균 수출액(12개월 평균)으로 나눈 비율이에요. 수출 중심 경제에서 실물 실적 대비 주가 수준을 보는 지표예요.",
+  turn: "하루 거래대금이 시가총액의 몇 %인지(회전율)를 봐요. 거품 꼭대기에서는 매매가 폭발하고, 바닥에서는 거래가 말라붙어요. 과거 분포의 상위 20%면 과열, 하위 20%면 침체로 봐요. 시가총액 과거값은 지수 변화율로 추정한 값이에요.",
+  indivK: "최근 20거래일 동안 개인이 코스피에서 순매수한 금액을 시가총액으로 나눈 값이에요. 개인 매수가 한꺼번에 몰리면 고점, 투매가 나오면 저점인 경우가 많아 역발상으로 봐요(단, 2020년 3월처럼 폭락장에서 개인이 대량 매수한 예외도 있어요). 앱이 날짜별로 쌓아 가며, 40일치가 모여야 판정해요.",
+  indivQ: "최근 20거래일 동안 개인이 코스닥에서 순매수한 금액을 시가총액으로 나눈 값이에요. 코스닥은 개인 비중이 커서 쏠림이 심할 때 과열 신호가 돼요. 앱이 날짜별로 쌓아 가며, 40일치가 모여야 판정해요.",
+  rs: "코스닥 지수를 코스피 지수로 나눈 비율이 최근 5년 평균보다 얼마나 높은지 봐요. 코스닥만 과하게 오르면 투기 과열 신호예요(2000년 IT버블, 2007년, 2021년, 2023년 2차전지 때 높았어요). +15% 이상 과열, −10% 이하 저평가로 봐요.",
   mcapexp: "코스피+코스닥 전체 시가총액을 일평균 수출액(12개월 평균)으로 나눈 값이에요. 버핏지수(시총÷GDP)의 수출 버전으로, 수출 중심인 한국 경제에서 시장 전체가 실물 실적보다 얼마나 비싼지 봐요. 과거 분포의 상위 20%면 고평가, 하위 20%면 저평가로 봐요.",
   pbr: "주가÷주당순자산이에요. 1배면 장부가치와 같은 가격이에요. 코스피는 0.9배 이하면 싸고 1.3배 이상이면 비싸다고 봐요.",
   per: "주가÷주당순이익이에요. 이익 대비 주가가 몇 배인지 보여주며, 코스피는 10배 이하면 싸고 16배 이상이면 비싸다고 봐요.",
@@ -1631,6 +1635,23 @@ function PortfolioApp() {
         } else fail.push(`${names[k]}: ${String((d.errors && d.errors[k]) || "데이터 없음").replace(/\s+/g, " ").replace(/"/g, "").slice(0, 110)}`); });
         setMarketAutoMsg(`${ok.length ? "✅ 자동 수집: " + ok.join(", ") : ""}${fail.length ? (ok.length ? "\n" : "") + "⚠️ " + fail.join("\n⚠️ ") : ""}`);
       }).catch((e) => setMarketAutoMsg(`⚠️ 자동 수집 실패: ${e.message || e}`));
+      // 개인 순매수(시장별 투자자 매매동향, 백만원) — 받은 값은 날짜별로 저장해 두고 이어 붙인다
+      fetch(`${base0}/market-investor`, { headers: headers0 }).then((r) => (r.ok ? r.json() : null)).then((d) => {
+        if (!d) return;
+        setMarketSeries((prev) => {
+          const next = { ...prev };
+          ["indivK", "indivQ"].forEach((k) => {
+            if (!Array.isArray(d[k]) || !d[k].length) return;
+            const map = {};
+            (prev[k] || []).forEach((p) => { map[p.d] = p; });
+            d[k].forEach((p) => { map[p.d] = { d: p.d, v: p.v }; });
+            next[k] = Object.values(map).sort((a, b) => (a.d < b.d ? -1 : 1));
+          });
+          return next;
+        });
+        const bad = ["indivK", "indivQ"].filter((k) => !(Array.isArray(d[k]) && d[k].length));
+        if (bad.length) setMarketAutoMsg((m) => `${m}${m ? "\n" : ""}⚠️ 개인 순매수: ${bad.map((k) => `${k === "indivK" ? "코스피" : "코스닥"} ${String((d.detail && d.detail[k]) || "데이터 없음").slice(0, 90)}`).join(" / ")}`);
+      }).catch(() => {});
     })();
     if (marketIdx.kospi.length > 12 && marketIdx.kosdaq.length > 12) return;
     let cancelled = false;
@@ -1641,7 +1662,7 @@ function PortfolioApp() {
       fetch(`${base}/index-history/${c}?period=M&days=7300`, { headers }).then((r) => (r.ok ? r.json() : null)).catch(() => null)
     )).then(([k, q]) => {
       if (cancelled) return;
-      const conv = (d) => (d && Array.isArray(d.candles) ? d.candles.map((c) => ({ d: c.date, v: Number(c.close) })).filter((p) => p.v > 0) : []);
+      const conv = (d) => (d && Array.isArray(d.candles) ? d.candles.map((c) => ({ d: c.date, v: Number(c.close), a: Number(c.amt) || 0 })).filter((p) => p.v > 0).sort((x, y) => (x.d < y.d ? -1 : 1)) : []);
       const next = { kospi: conv(k), kosdaq: conv(q) };
       setMarketIdx(next);
       setMarketMsg(next.kospi.length && next.kosdaq.length ? "" : "지수를 불러오지 못했어요. 잠시 후 다시 열어 주세요.");
@@ -1664,7 +1685,7 @@ function PortfolioApp() {
         setMarketCandleMsg("지수 불러오는 중...");
         const d = await fetch(`${base}/index-history/${code}?period=${marketPer}&days=${days}`, { headers }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
         if (cancelled) return;
-        const pts = d && Array.isArray(d.candles) ? d.candles.map((c) => ({ d: c.date, v: Number(c.close) })).filter((p) => p.v > 0).sort((a, b) => (a.d < b.d ? -1 : 1)) : [];
+        const pts = d && Array.isArray(d.candles) ? d.candles.map((c) => ({ d: c.date, v: Number(c.close), a: Number(c.amt) || 0 })).filter((p) => p.v > 0).sort((a, b) => (a.d < b.d ? -1 : 1)) : [];
         if (pts.length) setMarketCandles((prev) => ({ ...prev, [key]: pts }));
         else { setMarketCandleMsg("지수를 불러오지 못했어요. 잠시 후 다시 눌러 주세요."); return; }
       }
@@ -4227,16 +4248,70 @@ function PortfolioApp() {
           { id: `${mk}-pos`, mk, name: `${nm} 장기 위치`, val: st ? `하위 ${st.pct.toFixed(0)}% 지점 (${st.years}년)` : "-", j: st ? judge(st.pct, 25, 85) : null, rule: "25%↓ 저 / 85%↑ 고", chart: { points: pts, color: col, idx: true, note: "지수 추이 · 파랑=하위 25% 선(저평가), 빨강=상위 15% 선(고평가)", lines: L2(qtl(pts, 0.25), qtl(pts, 0.85), "25%선", "85%선") } },
         ];
         const ratioRow = (id, mk, name, r, miss, rule, col, idxP, sKey, smooth) => ({ id, mk, name, val: r ? realVal(r) : miss, j: r ? judge(r.pct, 20, 80) : null, rule, chart: (() => { const pp = ratioChart(idxP, sKey, smooth); return { points: pp, idx: true, color: col, note: "비율 추이(높을수록 지수가 실물보다 비쌈) · 파랑=하위 20%, 빨강=상위 20% 선", lines: L2(qtl(pp, 0.2), qtl(pp, 0.8), "20%선", "80%선") }; })() });
+        // ── 과열·수급·투기 지표 ──
+        // 거래대금 회전율: 기간 거래대금 ÷ 그때 시가총액(지금 시총에 지수 변화율을 곱해 추정). 일봉 20일·주봉 4주 평균.
+        const turnSeries = (pts, capLast) => {
+          if (!capLast || !pts.length) return [];
+          const idxLast = pts[pts.length - 1].v;
+          const raw = pts.filter((p) => p.a > 0).map((p) => ({ d: p.d, v: (p.a / ((capLast * p.v) / idxLast * 1e6)) * 100 }));
+          const w = marketPer === "D" ? 20 : marketPer === "W" ? 4 : 1;
+          if (w === 1) return raw;
+          return raw.map((p, i) => (i + 1 < w ? null : { d: p.d, v: raw.slice(i + 1 - w, i + 1).reduce((a, b) => a + b.v, 0) / w })).filter(Boolean);
+        };
+        const pctStat = (pts) => {
+          if (!pts || pts.length < 20) return null;
+          const cur = pts[pts.length - 1].v;
+          const pct = (pts.filter((p) => p.v <= cur).length / pts.length) * 100;
+          return { cur, pct };
+        };
+        const turnRow = (mk, nm, pts, capKey, col) => {
+          const cl = lastOf(capKey);
+          const tp = turnSeries(pts, cl ? cl.v : null);
+          const st = pctStat(tp);
+          return { id: `${mk}-turn`, mk, name: `${nm} 거래대금 회전율`, val: st ? `${st.cur.toFixed(2)}% · 과거 ${st.pct.toFixed(0)}% 지점` : (pts.length && !pts.some((p) => p.a > 0) ? "서버 재배포 필요(거래대금)" : "지수·시총 수집 필요"), j: st ? judge(st.pct, 20, 80) : null, rule: "과거 20%↓ 침체 / 80%↑ 과열",
+            chart: { points: tp, idx: true, color: col, unit: "%", note: `거래대금÷시가총액(${marketPer === "D" ? "20일" : marketPer === "W" ? "4주" : "월"} 평균) · 높을수록 매매 과열 · 파랑=하위 20%, 빨강=상위 20% 선`, lines: L2(qtl(tp, 0.2), qtl(tp, 0.8), "20%선", "80%선") } };
+        };
+        // 개인 순매수 강도: 최근 20거래일 개인 순매수 합계 ÷ 시가총액(%). 개인이 몰려 살수록 과열(역발상).
+        const indivSeries = (key, capKey, idxM) => {
+          const sp = ser(key); const cl = lastOf(capKey);
+          if (sp.length < 25 || !cl || !idxM.length) return [];
+          const idxLast = idxM[idxM.length - 1].v;
+          const sum20 = sp.map((p, i) => (i + 1 < 20 ? null : { d: p.d, v: sp.slice(i - 19, i + 1).reduce((a, b) => a + b.v, 0) })).filter(Boolean);
+          return alignPrev(sum20, idxM, (p, q) => (p.v / ((cl.v * q.v) / idxLast * 1e6)) * 100);
+        };
+        const indivRow = (id, mk, nm, key, capKey, idxM, col) => {
+          const ip = indivSeries(key, capKey, idxM);
+          const st = pctStat(ip);
+          return { id, mk, name: `${nm} 개인 순매수 강도`, val: st ? `${st.cur >= 0 ? "+" : ""}${st.cur.toFixed(2)}% · 과거 ${st.pct.toFixed(0)}% 지점` : `수집 중 (${ser(key).length}/40일)`, j: st && ip.length >= 40 ? judge(st.pct, 20, 80) : null, rule: "과거 20%↓ 투매(저) / 80%↑ 개인 쏠림(고)",
+            chart: { points: ip, color: col, unit: "%", note: "최근 20거래일 개인 순매수 합계 ÷ 시가총액 · 0 위=개인 순매수, 아래=순매도 · 파랑=하위 20%, 빨강=상위 20% 선", lines: [...L2(qtl(ip, 0.2), qtl(ip, 0.8), "20%선", "80%선"), { v: 0, c: "mid", label: "0" }] } };
+        };
+        // 코스닥÷코스피 상대강도: 두 지수 비율이 최근 5년(60개월) 평균보다 얼마나 높은지. 코스닥만 과하게 오르면 투기 과열.
+        const rsRow = (() => {
+          const km = marketIdx.kospi || [], qm = marketIdx.kosdaq || [];
+          const ratioM = alignPrev(qm, km, (q, k) => (k.v ? q.v / k.v : null));
+          const maM = []; let acc = 0;
+          ratioM.forEach((p, i) => { acc += p.v; if (i >= 60) acc -= ratioM[i - 60].v; if (i >= 59) maM.push({ d: p.d, v: acc / 60 }); });
+          const gapNow = maM.length ? (ratioM[ratioM.length - 1].v / maM[maM.length - 1].v - 1) * 100 : null;
+          const ratioP = marketPer === "M" ? ratioM : alignPrev(qPts, kPts, (q, k) => (k.v ? q.v / k.v : null));
+          const gp = alignPrev(ratioP, maM, (p, b) => (p.v / b.v - 1) * 100);
+          return { id: "kosdaq-rs", mk: "kosdaq", name: "코스닥÷코스피 상대강도", val: gapNow !== null ? `5년 평균比 ${gapNow >= 0 ? "+" : ""}${gapNow.toFixed(1)}%` : "지수 5년치 필요", j: gapNow !== null ? judge(gapNow, -10, 15) : null, rule: "−10%↓ 저 / +15%↑ 투기 과열",
+            chart: { points: gp, idx: true, color: "#4c8dff", unit: "%", note: "코스닥÷코스피 비율이 5년 평균에서 몇 % 벗어났는지 · 위로 갈수록 코스닥 쏠림", lines: [{ v: -10, c: "lo", label: "−10%" }, { v: 0, c: "mid", label: "0%" }, { v: 15, c: "hi", label: "+15%" }] } };
+        })();
         const kRows = [
           ...idxRows("kospi", "코스피", ks, kPts, "#e8544b"),
           ratioRow("kospi-gdp", "kospi", "코스피÷명목GDP", kGdp, "GDP 입력 필요", "20%↓ 저 / 80%↑ 고", "#e8544b", kPts, "gdp", 0),
           ratioRow("kospi-exp", "kospi", "코스피÷일평균수출", kExp, "수출 입력 필요", "12개월평균 20%↓ 저 / 80%↑ 고", "#e8544b", kPts, "export", 12),
+          turnRow("kospi", "코스피", kPts, "mcapK", "#e8544b"),
+          indivRow("indivK", "kospi", "코스피", "indivK", "mcapK", marketIdx.kospi || [], "#e8544b"),
           { id: "pbr", go: "pbr", mk: "kospi", name: "코스피 PBR", val: pbr ? `${pbr.v.toFixed(2)}배` : "입력 필요", j: pbr ? judge(pbr.v, 0.9, 1.3) : null, rule: "0.9↓ 저 / 1.3↑ 고", chart: { points: ser("pbr"), color: "#e8544b", unit: "배", lines: L2(0.9, 1.3, "0.9", "1.3") } },
           { id: "per", go: "per", mk: "kospi", name: "코스피 PER", val: per ? `${per.v.toFixed(1)}배` : "입력 필요", j: per ? judge(per.v, 10, 16) : null, rule: "10↓ 저 / 16↑ 고", chart: { points: ser("per"), color: "#e8544b", unit: "배", lines: L2(10, 16, "10", "16") } },
         ];
         const pbrQ = lastOf("pbrQ"), perQ = lastOf("perQ");
         const qRows = [
           ...idxRows("kosdaq", "코스닥", qs, qPts, "#4c8dff"),
+          turnRow("kosdaq", "코스닥", qPts, "mcapQ", "#4c8dff"),
+          indivRow("indivQ", "kosdaq", "코스닥", "indivQ", "mcapQ", marketIdx.kosdaq || [], "#4c8dff"),
+          rsRow,
           { id: "pbrQ", go: "pbrQ", mk: "kosdaq", name: "코스닥 PBR", val: pbrQ ? `${pbrQ.v.toFixed(2)}배` : "입력 필요", j: pbrQ ? judge(pbrQ.v, 1.5, 2.5) : null, rule: "1.5↓ 저 / 2.5↑ 고", chart: { points: ser("pbrQ"), color: "#4c8dff", unit: "배", lines: L2(1.5, 2.5, "1.5", "2.5") } },
           { id: "perQ", go: "perQ", mk: "kosdaq", name: "코스닥 PER", val: perQ ? `${perQ.v.toFixed(1)}배` : "입력 필요", j: perQ ? judge(perQ.v, 15, 25) : null, rule: "15↓ 저 / 25↑ 고", chart: { points: ser("perQ"), color: "#4c8dff", unit: "배", lines: L2(15, 25, "15", "25") } },
         ];
