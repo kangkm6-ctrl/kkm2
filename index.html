@@ -1001,11 +1001,17 @@ const MarketScoreChart = ({ series, base }) => {
   const shown = series.filter((s) => s.points.length > 1 && !hid[s.key]);
   const axis = Array.from(new Set(series.flatMap((s) => s.points.map((p) => p.d)))).sort();
   if (axis.length < 2) return <div style={{ fontSize: 12, color: "#5a6274", textAlign: "center", padding: "14px 0" }}>점수 차트를 그릴 데이터가 아직 부족해요.</div>;
-  const W = 300, H = 130, padX = 6, padY = 12;
+  const W = 300, H = 150, padX = 22, padY = 10;
   const vals = shown.flatMap((s) => s.points.map((p) => p.v)).concat([base]);
   let vMin = Math.min(...vals), vMax = Math.max(...vals);
-  if (vMax === vMin) { vMax += 1; vMin -= 1; }
-  const xOf = (d) => padX + (axis.indexOf(d) / (axis.length - 1)) * (W - padX * 2);
+  // 위아래 여백을 두고 10 단위로 맞춘다
+  vMin = Math.floor((vMin - 5) / 10) * 10; vMax = Math.ceil((vMax + 5) / 10) * 10;
+  if (vMax - vMin < 40) { const m = (vMax + vMin) / 2; vMin = Math.floor((m - 20) / 10) * 10; vMax = vMin + 40; }
+  const step = vMax - vMin > 120 ? 50 : vMax - vMin > 60 ? 20 : 10;
+  const yTicks = []; for (let t = Math.ceil(vMin / step) * step; t <= vMax; t += step) yTicks.push(t);
+  const xTickIdx = axis.length > 1 ? [0, 0.25, 0.5, 0.75, 1].map((f) => Math.round(f * (axis.length - 1))) : [0];
+  const axisIdx = {}; axis.forEach((d, i) => { axisIdx[d] = i; });
+  const xOf = (d) => padX + (axisIdx[d] / (axis.length - 1)) * (W - padX * 2);
   const xi = (i) => padX + (i / (axis.length - 1)) * (W - padX * 2);
   const yOf = (v) => padY + ((vMax - v) / (vMax - vMin)) * (H - padY * 2);
   const fmtD = (d) => (d && d.length === 8 ? `${d.slice(2, 4)}.${d.slice(4, 6)}.${d.slice(6, 8)}` : d || "");
@@ -1027,12 +1033,19 @@ const MarketScoreChart = ({ series, base }) => {
         {td ? `${fmtD(td)} · ` + shown.map((s) => { const v = valAt(s, td); return `${s.name} ${v === null ? "-" : v}`; }).join(" · ") : ""}
       </div>
       <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", display: "block", touchAction: "none", WebkitUserSelect: "none", userSelect: "none" }} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onEnd} onPointerCancel={onEnd} onPointerLeave={onEnd}>
-        <text x={W - padX} y={yOf(vMax) + 9} fill="#5a6274" fontSize="10" textAnchor="end">{Math.round(vMax)}</text>
-        <text x={W - padX} y={yOf(vMin) - 3} fill="#5a6274" fontSize="10" textAnchor="end">{Math.round(vMin)}</text>
+        {/* 100 위(거품)·아래(저평가) 영역을 옅게 칠한다 */}
+        {base < vMax && <rect x={padX} y={yOf(vMax)} width={W - padX * 2} height={Math.max(0, yOf(Math.max(base, vMin)) - yOf(vMax))} fill="#e8544b" opacity="0.06" />}
+        {base > vMin && <rect x={padX} y={yOf(Math.min(base, vMax))} width={W - padX * 2} height={Math.max(0, yOf(vMin) - yOf(Math.min(base, vMax)))} fill="#4c8dff" opacity="0.06" />}
+        {yTicks.map((t) => (
+          <g key={`y${t}`}>
+            <line x1={padX} y1={yOf(t)} x2={W - padX} y2={yOf(t)} stroke="#262c37" strokeWidth="0.6" />
+            <text x={padX - 3} y={yOf(t) + 3} fill="#5a6274" fontSize="8" textAnchor="end">{t}</text>
+          </g>
+        ))}
+        {xTickIdx.map((i, k) => <line key={`x${k}`} x1={xi(i)} y1={padY} x2={xi(i)} y2={H - padY} stroke="#1f242e" strokeWidth="0.6" />)}
         {!hid.base && (
           <g>
             <line x1={padX} y1={yOf(base)} x2={W - padX} y2={yOf(base)} stroke="#8993a6" strokeWidth="1" strokeDasharray="4 3" />
-            <text x={padX + 2} y={yOf(base) - 2} fill="#8993a6" fontSize="8.5">{base} (위 거품 / 아래 저평가)</text>
           </g>
         )}
         {shown.map((s) => <polyline key={s.key} fill="none" stroke={s.color} strokeWidth={s.key === "all" ? 2 : 1.4} points={polyOf(s)} />)}
@@ -1043,11 +1056,18 @@ const MarketScoreChart = ({ series, base }) => {
           </>
         )}
       </svg>
-      <div className="tnum" style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#5a6274" }}>
-        <span>{fmtD(axis[0])}</span><span>{fmtD(axis[axis.length - 1])}</span>
+      <div className="tnum" style={{ position: "relative", height: 12, fontSize: 9, color: "#5a6274" }}>
+        {xTickIdx.map((i, k) => (
+          <span key={k} style={{ position: "absolute", left: `${(xi(i) / W) * 100}%`, transform: k === 0 ? "none" : k === xTickIdx.length - 1 ? "translateX(-100%)" : "translateX(-50%)", whiteSpace: "nowrap" }}>{fmtD(axis[i])}</span>
+        ))}
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
-        {series.map((s) => <span key={s.key} onClick={() => setHid((h) => ({ ...h, [s.key]: !h[s.key] }))} style={{ fontSize: 10, padding: "2px 7px", borderRadius: 10, border: `1px solid ${s.color}`, color: s.color, opacity: hid[s.key] ? 0.35 : 1, textDecoration: hid[s.key] ? "line-through" : "none", cursor: "pointer" }}>{s.name}</span>)}
+        {series.map((s) => {
+          const last = s.points.length ? s.points[s.points.length - 1].v : null;
+          const prev = s.points.length > 1 ? s.points[s.points.length - 2].v : null;
+          const diff = last !== null && prev !== null ? last - prev : null;
+          return <span key={s.key} onClick={() => setHid((h) => ({ ...h, [s.key]: !h[s.key] }))} className="tnum" style={{ fontSize: 10, padding: "2px 7px", borderRadius: 10, border: `1px solid ${s.color}`, color: s.color, opacity: hid[s.key] ? 0.35 : 1, textDecoration: hid[s.key] ? "line-through" : "none", cursor: "pointer" }}>{s.name}{last !== null ? ` ${last}` : ""}{diff ? ` (${diff > 0 ? "▲" : "▼"}${Math.abs(diff)})` : ""}</span>;
+        })}
         <span onClick={() => setHid((h) => ({ ...h, base: !h.base }))} style={{ fontSize: 10, padding: "2px 7px", borderRadius: 10, border: "1px solid #8993a6", color: "#8993a6", opacity: hid.base ? 0.35 : 1, textDecoration: hid.base ? "line-through" : "none", cursor: "pointer" }}>기준 {base}</span>
       </div>
     </div>
@@ -4304,22 +4324,31 @@ function PortfolioApp() {
           const vals = Object.values(g).map((a) => a.reduce((x, y) => x + y, 0) / a.length);
           return vals.length ? { avg: vals.reduce((x, y) => x + y, 0) / vals.length, groups: vals.length } : null;
         };
-        const compOf = (mk) => {
-          const base = (mk === "kospi" ? kRows : mk === "kosdaq" ? qRows : cRows).filter((r) => !r.ref);
-          const rs = base.filter((r) => r.j !== null);
-          const total = base.length;
-          const ga = groupAvg(rs.map((r) => ({ r, j: r.j })));
-          const avg = ga ? ga.avg : null;
-          return { avg, n: rs.length, total, score: avg === null ? null : Math.round(100 + avg * 100), overall: avg === null ? null : avg >= 0.4 ? 1 : avg <= -0.4 ? -1 : 0 };
-        };
-        const kComp = compOf("kospi"), qComp = compOf("kosdaq"), aComp = compOf("all");
         // 날짜별 종합점수: 각 지표 차트의 기준선(저/고)으로 그 시점의 값을 -1/0/+1 판정해 평균 → 100 + 평균×100
         const rowJudger = (r) => {
           const ls = r.chart && r.chart.lines; if (!ls) return null;
           const lo = ls.find((l) => l.c === "lo"), hi = ls.find((l) => l.c === "hi");
           if (!lo || !hi || !isFinite(lo.v) || !isFinite(hi.v)) return null;
-          return hi.v > lo.v ? (v) => (v >= hi.v ? 1 : v <= lo.v ? -1 : 0) : (v) => (v >= lo.v ? -1 : v <= hi.v ? 1 : 0);
+          // 기준선 사이를 직선으로 이어 −1(저평가선)~+1(고평가선) 사이의 연속값으로 판정한다(계단식보다 세밀하게).
+          const clamp = (x) => Math.max(-1, Math.min(1, x));
+          return hi.v > lo.v ? (v) => clamp(-1 + (2 * (v - lo.v)) / (hi.v - lo.v)) : (v) => clamp(-1 + (2 * (lo.v - v)) / (lo.v - hi.v));
         };
+        const compOf = (mk) => {
+          const base = (mk === "kospi" ? kRows : mk === "kosdaq" ? qRows : cRows).filter((r) => !r.ref);
+          const rs = base.filter((r) => r.j !== null);
+          const total = base.length;
+          // 점수는 기준선 사이 연속값으로(차트와 같은 방식). 기준선·차트가 없는 지표는 계단식 판정(−1/0/+1)을 그대로 쓴다.
+          const jcOf = (r) => {
+            const f = rowJudger(r);
+            const pts = r.chart && r.chart.points;
+            if (f && pts && pts.length) { const v = f(pts[pts.length - 1].v); if (isFinite(v)) return v; }
+            return r.j;
+          };
+          const ga = groupAvg(rs.map((r) => ({ r, j: jcOf(r) })));
+          const avg = ga ? ga.avg : null;
+          return { avg, n: rs.length, total, score: avg === null ? null : Math.round(100 + avg * 100), overall: avg === null ? null : avg >= 0.4 ? 1 : avg <= -0.4 ? -1 : 0 };
+        };
+        const kComp = compOf("kospi"), qComp = compOf("kosdaq"), aComp = compOf("all");
         const scoreAxis = (kPts.length ? kPts : qPts).map((p) => p.d);
         const scoreSeries = (rows) => {
           const rs = rows.filter((r) => !r.ref && !r.stale && r.chart && r.chart.points && r.chart.points.length > 1).map((r) => ({ r, pts: r.chart.points, f: rowJudger(r), p: -1 })).filter((x) => x.f);
@@ -4328,7 +4357,7 @@ function PortfolioApp() {
             const items = [];
             rs.forEach((x) => { while (x.p + 1 < x.pts.length && x.pts[x.p + 1].d <= d) x.p++; if (x.p >= 0) items.push({ r: x.r, j: x.f(x.pts[x.p].v) }); });
             const ga = groupAvg(items);
-            if (ga && ga.groups >= 2) out.push({ d, v: Math.round(100 + ga.avg * 100) });
+            if (ga && ga.groups >= 1) out.push({ d, v: Math.round(100 + ga.avg * 100) });
           });
           return out;
         };
