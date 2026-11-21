@@ -946,10 +946,8 @@ const MARKET_DESC = {
   gap: "지수가 최근 10년(120개월) 평균에서 몇 % 떨어져 있는지 보는 지표예요. 평균보다 많이 위(+25% 이상)면 과열·고평가, 평균 아래(−5% 이하)면 저평가로 봐요.",
   pos: "지수가 받아온 전체 기간 중 어느 높이에 있는지(하위 몇 %)를 봐요. 상위권(85% 이상)일수록 역사적으로 비싼 구간, 하위(25% 이하)일수록 싼 구간이에요.",
   "kospi-gdp": "코스피 지수를 명목 GDP로 나눈 비율이에요. 나라 경제 규모에 비해 주가가 얼마나 올랐는지 보여주며, 과거 분포의 상위 20%면 고평가, 하위 20%면 저평가로 봐요.",
-  "kosdaq-gdp": "코스닥 지수를 명목 GDP로 나눈 비율이에요. 코스닥은 중소형·내수·바이오 비중이 커서 GDP와의 연결이 약하기 때문에 점수에는 넣지 않고 참고로만 보여줘요.",
   "kospi-exp": "코스피 지수를 일평균 수출액(12개월 평균)으로 나눈 비율이에요. 수출 중심 경제에서 실물 실적 대비 주가 수준을 보는 지표예요.",
   mcapexp: "코스피+코스닥 전체 시가총액을 일평균 수출액(12개월 평균)으로 나눈 값이에요. 버핏지수(시총÷GDP)의 수출 버전으로, 수출 중심인 한국 경제에서 시장 전체가 실물 실적보다 얼마나 비싼지 봐요. 과거 분포의 상위 20%면 고평가, 하위 20%면 저평가로 봐요.",
-  "kosdaq-exp": "코스닥 지수를 일평균 수출액(12개월 평균)으로 나눈 비율이에요. 코스닥 기업은 수출 비중이 낮아 연결이 약하므로 점수에는 넣지 않고 참고로만 보여줘요.",
   pbr: "주가÷주당순자산이에요. 1배면 장부가치와 같은 가격이에요. 코스피는 0.9배 이하면 싸고 1.3배 이상이면 비싸다고 봐요.",
   per: "주가÷주당순이익이에요. 이익 대비 주가가 몇 배인지 보여주며, 코스피는 10배 이하면 싸고 16배 이상이면 비싸다고 봐요.",
   pbrQ: "주가÷주당순자산이에요. 성장주가 많은 코스닥은 코스피보다 높게 형성돼 1.5배 이하면 싸고 2.5배 이상이면 비싸다고 봐요.",
@@ -4192,7 +4190,6 @@ function PortfolioApp() {
           return alignPrev(idxPts, sp, (p, q) => (q.v ? p.v / q.v : null));
         };
         const kGdp = realRatio(marketIdx.kospi, "gdp", 0), kExp = realRatio(marketIdx.kospi, "export", 12);
-        const qGdp = realRatio(marketIdx.kosdaq, "gdp", 0), qExp = realRatio(marketIdx.kosdaq, "export", 12);
         const realVal = (r) => (r ? `과거 ${r.pct.toFixed(0)}% 지점 · 평균比 ${r.gap >= 0 ? "+" : ""}${r.gap.toFixed(0)}%` : null);
         // 기준선 도우미: lo=저평가 쪽(파랑), hi=고평가 쪽(빨강)
         const L2 = (lo, hi, loLab, hiLab) => [{ v: lo, c: "lo", label: loLab }, { v: hi, c: "hi", label: hiLab }];
@@ -4220,9 +4217,6 @@ function PortfolioApp() {
         const pbrQ = lastOf("pbrQ"), perQ = lastOf("perQ");
         const qRows = [
           ...idxRows("kosdaq", "코스닥", qs, qPts, "#4c8dff"),
-          // 코스닥은 중소형·내수·바이오 비중이 커서 GDP·수출과의 연결이 약하다 → 점수에서 빼고 참고로만 보여준다.
-          { ...ratioRow("kosdaq-gdp", "kosdaq", "코스닥÷명목GDP (참고)", qGdp, "GDP 입력 필요", "점수 제외 · 참고용", "#4c8dff", qPts, "gdp", 0), ref: true },
-          { ...ratioRow("kosdaq-exp", "kosdaq", "코스닥÷일평균수출 (참고)", qExp, "수출 입력 필요", "점수 제외 · 참고용", "#4c8dff", qPts, "export", 12), ref: true },
           { id: "pbrQ", go: "pbrQ", mk: "kosdaq", name: "코스닥 PBR", val: pbrQ ? `${pbrQ.v.toFixed(2)}배` : "입력 필요", j: pbrQ ? judge(pbrQ.v, 1.5, 2.5) : null, rule: "1.5↓ 저 / 2.5↑ 고", chart: { points: ser("pbrQ"), color: "#4c8dff", unit: "배", lines: L2(1.5, 2.5, "1.5", "2.5") } },
           { id: "perQ", go: "perQ", mk: "kosdaq", name: "코스닥 PER", val: perQ ? `${perQ.v.toFixed(1)}배` : "입력 필요", j: perQ ? judge(perQ.v, 15, 25) : null, rule: "15↓ 저 / 25↑ 고", chart: { points: ser("perQ"), color: "#4c8dff", unit: "배", lines: L2(15, 25, "15", "25") } },
         ];
