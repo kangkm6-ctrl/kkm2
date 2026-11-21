@@ -6711,12 +6711,12 @@ function PortfolioApp() {
 
                 const rows = [
                   ["매출액(억원)", revenueAnnual, (v) => fmt(v), null, null],
-                  ["영업이익(억원)", opProfitAnnual, (v) => `${v >= 0 ? "+" : ""}${fmt(v)}`, null, null],
-                  ["순이익(억원)", netIncomeAnnual, (v) => `${v >= 0 ? "+" : ""}${fmt(v)}`, null, null],
-                  ["EVA(억원)", evaAnnual, (v) => `${v >= 0 ? "+" : ""}${fmt(v)}`, null, null],
                   ["매출액성장률", revenueGrowthAnnual, (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`, tier4(0, 5, 15), "15%↑"],
+                  ["영업이익(억원)", opProfitAnnual, (v) => `${v >= 0 ? "+" : ""}${fmt(v)}`, null, null],
                   ["영업이익률", opMarginAnnual, (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`, opMarginTier, opMarginRange],
+                  ["순이익(억원)", netIncomeAnnual, (v) => `${v >= 0 ? "+" : ""}${fmt(v)}`, null, null],
                   ["순이익률", netMarginAnnual, (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`, tier4(2, 5, 10), "10%↑"],
+                  ["EVA(억원)", evaAnnual, (v) => `${v >= 0 ? "+" : ""}${fmt(v)}`, null, null],
                   ["EPS", epsAnnual, (v) => fmt(v), null, null],
                   ["EPS성장률", epsGrowthAnnual, (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`, tier4(0, 5, 15), "15%↑"],
                   ["BPS", bpsAnnual, (v) => fmt(v), null, null],
