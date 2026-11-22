@@ -1314,6 +1314,148 @@ const FutureValuePanel = ({ name, ef, closes, curCap, curPrice, saved, onSave, l
   );
 };
 
+// ───────── 단기가치(1년 후) — 최근 4분기(TTM) 실적 기준 ─────────
+// 1년 후 매출 = 최근 4분기 매출 × (1+성장률), 순이익 = 매출 × 영업이익률 × 0.8, 주가 = 순이익×PER ÷ 현시총 × 현주가
+const SHORT_INPUTS_KEY = "short_inputs_v1";
+const singleQuarters = (ef) => {
+  if (!ef || !Array.isArray(ef.periods)) return [];
+  const byP = {}; ef.periods.forEach((p) => { if (Number(p.revenue) > 0) byP[String(p.period)] = p; });
+  const n = (v) => (v === null || v === undefined || v === "" ? null : Number(v));
+  return Object.keys(byP).sort().map((k) => {
+    const y = k.slice(0, 4), m = Number(k.slice(4, 6));
+    const cur = byP[k];
+    if (m === 3) return { p: k, rev: Number(cur.revenue), op: n(cur.opProfit) };
+    const prevK = `${y}${String(m - 3).padStart(2, "0")}`;
+    const prev = byP[prevK];
+    if (!prev) return null;
+    const op = n(cur.opProfit) !== null && n(prev.opProfit) !== null ? n(cur.opProfit) - n(prev.opProfit) : null;
+    return { p: k, rev: Number(cur.revenue) - Number(prev.revenue), op };
+  }).filter(Boolean);
+};
+const ShortValuePanel = ({ name, ef, closes, curCap, curPrice, saved, onSave }) => {
+  const qs = useMemo(() => singleQuarters(ef), [ef]);
+  const base = useMemo(() => {
+    if (qs.length < 4 || !curCap || !curPrice) return null;
+    const last4 = qs.slice(-4);
+    // 4개 분기가 연속인지 확인(누락 분기가 있으면 합계가 틀어짐)
+    const idx = (p) => Number(p.slice(0, 4)) * 4 + Math.round(Number(p.slice(4, 6)) / 3);
+    if (idx(last4[3].p) - idx(last4[0].p) !== 3) return null;
+    const rev = last4.reduce((a, q) => a + q.rev, 0);
+    const opOk = last4.every((q) => q.op !== null);
+    const op = opOk ? last4.reduce((a, q) => a + q.op, 0) : null;
+    const lq = last4[3];
+    const yoyQ = qs.find((q) => idx(q.p) === idx(lq.p) - 4);
+    const yoy = yoyQ && yoyQ.rev > 0 ? lq.rev / yoyQ.rev - 1 : null;
+    const lqMargin = lq.op !== null && lq.rev > 0 ? lq.op / lq.rev : null;
+    const lr = longRunNorm(ef, closes, curCap);
+    const perCur = op && op > 0 ? curCap / (op * 0.8) : null;
+    const per = lr && lr.perMed ? lr.perMed : perCur;
+    const label = (p) => `${p.slice(2, 4)}.${Math.round(Number(p.slice(4, 6)) / 3)}Q`;
+    return { rev, op, margin: op !== null ? op / rev : null, yoy, lqMargin, lr, per, perCur, from: label(last4[0].p), to: label(lq.p), lqLabel: label(lq.p) };
+  }, [qs, closes, curCap, curPrice]);
+  const def = base ? {
+    g2: base.yoy !== null ? +(Math.max(-50, Math.min(100, base.yoy * 100))).toFixed(1) : 0,
+    m2: base.lqMargin !== null ? +(base.lqMargin * 100).toFixed(1) : base.margin !== null ? +(base.margin * 100).toFixed(1) : 5,
+    g3: base.yoy !== null ? +(Math.max(-50, Math.min(100, base.yoy * 100)) + 10).toFixed(1) : 10,
+    m3: +(Math.max(base.margin || 0, (base.lr && base.lr.mMed) || 0) * 100).toFixed(1),
+    p2: base.per ? +base.per.toFixed(1) : 15,
+    p3: base.per ? +(base.per * 1.2).toFixed(1) : 18,
+  } : null;
+  const inp = def ? { ...def, ...(saved || {}) } : null;
+  const [draft, setDraft] = useState({});
+  useEffect(() => { setDraft({}); }, [name]);
+  const val = (k) => (draft[k] !== undefined ? draft[k] : inp ? String(inp[k]) : "");
+  const commit = (k) => {
+    if (draft[k] === undefined) return;
+    const n = parseFloat(String(draft[k]).replace(/,/g, ""));
+    const next = { ...(saved || {}) };
+    if (isNaN(n)) delete next[k]; else next[k] = n;
+    onSave(next);
+    setDraft((d) => { const x = { ...d }; delete x[k]; return x; });
+  };
+  if (!base) return <div style={{ marginTop: 6, fontSize: 11, color: "#5a6274" }}>{!curCap ? "시가총액이 아직 없어요." : "최근 4개 분기 실적이 모두 있어야 단기가치를 계산할 수 있어요."}</div>;
+  if (base.margin === null || !base.per) return <div style={{ marginTop: 6, fontSize: 11, color: "#5a6274" }}>최근 4분기 영업이익 자료가 없거나 PER을 구할 수 없어 계산하지 못했어요.</div>;
+  const fmtW = (v) => Math.round(v).toLocaleString("ko-KR");
+  const fmtE = (v) => (Math.abs(v) >= 10000 ? (v / 10000).toFixed(1) + "조" : Math.round(v).toLocaleString("ko-KR") + "억");
+  const pct = (u) => `${u >= 0 ? "+" : ""}${(u * 100).toFixed(0)}%`;
+  const cell = { whiteSpace: "nowrap" };
+  const inBox = (k, suffix) => (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 1 }}>
+      <input value={val(k)} inputMode="decimal" onChange={(e) => setDraft((d) => ({ ...d, [k]: e.target.value }))} onBlur={() => commit(k)}
+        style={{ width: 38, padding: "1px 3px", fontSize: 11, textAlign: "right", background: "#0f1218", color: "#c9974a", border: "1px solid #3a4150", borderRadius: 4 }} />
+      <span style={{ fontSize: 9, color: "#5a6274" }}>{suffix}</span>
+    </span>
+  );
+  const sc = [
+    { k: "1안", sub: "현상유지", g: 0, m: base.margin, p: base.per },
+    { k: "2안", sub: "최근추세", g: inp.g2 / 100, m: inp.m2 / 100, p: inp.p2 },
+    { k: "3안", sub: "개선", g: inp.g3 / 100, m: inp.m3 / 100, p: inp.p3 },
+  ].map((x) => { const rev = base.rev * (1 + x.g); return { ...x, rev, ni: rev * x.m * 0.8 }; });
+  const pers = sc.map((x) => x.p);
+  const grid = sc.map((x) => pers.map((p) => { const ratio = Math.max(0, (p * x.ni) / curCap); return { price: ratio * curPrice, up: ratio - 1 }; }));
+  const flat = grid.flat();
+  const prices = flat.map((c) => c.price), ups = flat.map((c) => c.up);
+  const minP = Math.min(...prices), maxP = Math.max(...prices), avgP = prices.reduce((a, b) => a + b, 0) / prices.length;
+  const upColor = (u) => (u >= 0.3 ? "#e8544b" : u >= 0.1 ? "#e0b93c" : u >= -0.1 ? "#8993a6" : "#4c8dff");
+  const okRate = ups.filter((u) => u >= 0.3).length / ups.length;
+  const avgUp = avgP / curPrice - 1;
+  const verdict = avgUp >= 0.3 ? ["단기 매력 구간", "#e8544b"] : avgUp >= 0.1 ? ["단기 다소 저평가", "#e0b93c"] : avgUp >= -0.1 ? ["단기 적정 수준", "#8993a6"] : ["단기 고평가", "#4c8dff"];
+  return (
+    <div style={{ marginTop: 6, fontSize: 11, color: "#aab2c3" }}>
+      <div style={{ color: "#c9974a", fontWeight: 700, marginBottom: 3 }}>1년 후 단기가치 추정 <span style={{ color: "#5a6274", fontWeight: 400 }}>· 최근 4분기({base.from}~{base.to}) 실적 기준</span></div>
+      <div style={{ fontSize: 10, color: "#8993a6", marginBottom: 5 }}>
+        최근 4분기 매출 {fmtE(base.rev)} · 영업이익 {fmtE(base.op)} (이익률 {(base.margin * 100).toFixed(1)}%) · {base.lqLabel} 매출 전년 같은 분기 대비 {base.yoy !== null ? pct(base.yoy) : "-"} · PER {base.per.toFixed(1)}배{base.lr && base.lr.perMed ? "(장기 중간값)" : "(현재)"}
+      </div>
+      {base.margin < 0.02 && (
+        <div style={{ marginBottom: 6, padding: "5px 8px", borderRadius: 6, border: "1px solid #e0b93c", background: "#e0b93c14", color: "#e0b93c", fontSize: 10, lineHeight: 1.45 }}>
+          ⚠️ 최근 4분기 영업이익률이 {(base.margin * 100).toFixed(1)}%라 1안(현상유지)은 주가가 매우 낮게 나와요. 실적이 바닥인 구간이라 단기가치는 크게 흔들리니, 미래가치 탭의 4안(장기정상)과 함께 보세요.
+        </div>
+      )}
+      <div className="gtbl" style={{ gridTemplateColumns: "auto repeat(3, 1fr)", fontSize: 11 }}>
+        <div className="gth gl" style={{ fontSize: 10 }}>항목</div>
+        {sc.map((x) => <div key={x.k} className="gth gr" style={{ color: "#e7eaf0", flexDirection: "column", alignItems: "flex-end" }}>{x.k}<span style={{ fontSize: 9, color: "#5a6274", fontWeight: 400 }}>{x.sub}</span></div>)}
+        <div className="gl" style={{ color: "#8993a6" }}>매출성장률</div>
+        <div className="gr" style={cell}>0%</div><div className="gr" style={cell}>{inBox("g2", "%")}</div><div className="gr" style={cell}>{inBox("g3", "%")}</div>
+        <div className="gl" style={{ color: "#8993a6" }}>영업이익률</div>
+        <div className="gr" style={cell}>{(base.margin * 100).toFixed(1)}%</div><div className="gr" style={cell}>{inBox("m2", "%")}</div><div className="gr" style={cell}>{inBox("m3", "%")}</div>
+        <div className="gl" style={{ color: "#8993a6" }}>PER</div>
+        <div className="gr" style={cell}>{base.per.toFixed(1)}배</div><div className="gr" style={cell}>{inBox("p2", "배")}</div><div className="gr" style={cell}>{inBox("p3", "배")}</div>
+        <div className="gl" style={{ color: "#8993a6" }}>1년후 매출</div>
+        {sc.map((x) => <div key={x.k} className="tnum gr" style={cell}>{fmtE(x.rev)}</div>)}
+        <div className="gl" style={{ color: "#8993a6" }}>추정순이익</div>
+        {sc.map((x) => <div key={x.k} className="tnum gr" style={cell}>{fmtE(x.ni)}</div>)}
+      </div>
+      <div style={{ marginTop: 6, fontSize: 10, color: "#8993a6" }}>1년 후 상승여력 (행: 순이익 시나리오 × 열: PER)</div>
+      <div className="gtbl" style={{ gridTemplateColumns: "auto repeat(3, 1fr)", fontSize: 11 }}>
+        <div className="gth gl" style={{ fontSize: 10 }}>순이익＼PER</div>
+        {pers.map((p, j) => <div key={j} className="gth gr" style={{ ...cell, fontSize: 10 }}>PER {p.toFixed(1)}</div>)}
+        {grid.map((row, i) => (
+          <React.Fragment key={i}>
+            <div className="gl" style={{ color: "#8993a6" }}>{sc[i].k}</div>
+            {row.map((c, j) => <div key={j} className="tnum gr" style={{ ...cell, fontWeight: 700, color: upColor(c.up) }}>{pct(c.up)}</div>)}
+          </React.Fragment>
+        ))}
+      </div>
+      <div style={{ marginTop: 6 }}>
+        <div className="gtbl" style={{ gridTemplateColumns: "auto 1fr 1fr 1fr", fontSize: 11 }}>
+          <div className="gth gl" style={{ fontSize: 10 }}>요약</div><div className="gth gr" style={cell}>최저</div><div className="gth gr" style={cell}>평균</div><div className="gth gr" style={cell}>최고</div>
+          <div className="gl" style={{ color: "#8993a6" }}>1년후 주가</div>
+          {[minP, avgP, maxP].map((v, i) => <div key={i} className="tnum gr" style={{ ...cell, fontWeight: 700, color: "#e7eaf0" }}>{fmtW(v)}</div>)}
+          <div className="gl" style={{ color: "#8993a6" }}>상승여력</div>
+          {[minP, avgP, maxP].map((v, i) => { const u = v / curPrice - 1; return <div key={i} className="tnum gr" style={{ ...cell, fontWeight: 700, color: upColor(u) }}>{pct(u)}</div>; })}
+        </div>
+        <div style={{ marginTop: 5, padding: "5px 8px", border: "1px solid #2a303c", borderRadius: 6, background: "#151920", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span>9개 중 30%↑ <b className="tnum" style={{ color: upColor(okRate >= 0.5 ? 0.3 : okRate > 0 ? 0.1 : 0) }}>{Math.round(okRate * 100)}%</b></span>
+          <span style={{ fontWeight: 700, color: verdict[1] }}>{verdict[0]}</span>
+        </div>
+      </div>
+      <div style={{ marginTop: 4, fontSize: 9, color: "#5a6274", lineHeight: 1.45 }}>
+        1년후 매출 = 최근 4분기 매출×(1+성장률), 순이익 = 매출×영업이익률×0.8, 1년후 주가 = 순이익×PER÷현시총×현주가. 1안은 지금 실적이 그대로 이어진다는 가정, 2안 기본값은 최근 분기의 전년 같은 분기 대비 매출 증가율과 최근 분기 이익률, 3안은 성장 +10%p에 4분기·장기 이익률 중 높은 값이에요. PER은 10년 장기 중간값(없으면 현재 PER). 금색 칸은 직접 고칠 수 있고 종목별로 저장돼요(지우면 기본값). <span style={{ color: "#e8544b" }}>●30%↑</span> <span style={{ color: "#e0b93c" }}>●10%↑</span> <span style={{ color: "#8993a6" }}>●±10%</span> <span style={{ color: "#4c8dff" }}>●−10%↓</span>
+      </div>
+    </div>
+  );
+};
+
 function PortfolioApp() {
   const [stocks, setStocks] = useState(seedStocks);
   const [cashAccounts, setCashAccounts] = useState(seedCash);
@@ -1372,6 +1514,8 @@ function PortfolioApp() {
   const [metricsStock, setMetricsStock] = useState(null); // "종목지표" 펼친 종목 id
   const [quarterStock, setQuarterStock] = useState(null); // "최근4분기" 펼친 종목 id
   const [futureStock, setFutureStock] = useState(null); // "미래가치" 펼친 종목 id
+  const [shortStock, setShortStock] = useState(null); // 최근4분기 안 "단기가치" 탭을 켠 종목 id
+  const [shortInputs, setShortInputs] = useState(() => { try { return JSON.parse(localStorage.getItem(SHORT_INPUTS_KEY) || "{}") || {}; } catch (e) { return {}; } });
   const [futureCloses, setFutureCloses] = useState({}); // { [본주코드]: { years: {YYYY: 연말종가}, last: 최근종가 } }
   const [futureInputs, setFutureInputs] = useState(() => { try { return JSON.parse(localStorage.getItem(FUTURE_INPUTS_KEY) || "{}") || {}; } catch (e) { return {}; } });
   const [candleStock, setCandleStock] = useState(null); // "강약챠트" 펼친 종목 id (보유종목 화면)
@@ -2443,7 +2587,11 @@ function PortfolioApp() {
     const priceAboveMa5 = lastCandle.high > ma5 || lastCandle.low > ma5;   // 주봉 고점이나 저점이 5선 위
     const priceBelowMa5 = lastCandle.high < ma5 || lastCandle.low < ma5;   // 주봉 고점이나 저점이 5선 아래
 
-    return { ma5, ma20, ma60, ma120, alignedDown, alignedUp, anyReversedPair, anyNormalPair, priceAboveMa5, priceBelowMa5, lastWeekDate: lastCandle.date };
+    // 와인스타인식 30주선 단계: 주가가 30주선 위 + 30주선이 4주 전보다 올라감 = 상승(2단계), 반대면 하락(4단계), 그 외는 바닥·천장 다지기(1·3단계)
+    const ma30 = maAtEnd(30, n - 1), ma30Prev = maAtEnd(30, n - 5);
+    const lastClose = lastCandle.close;
+    const stage = lastClose > ma30 && ma30 > ma30Prev ? "up" : lastClose < ma30 && ma30 < ma30Prev ? "down" : "base";
+    return { ma5, ma20, ma60, ma120, alignedDown, alignedUp, anyReversedPair, anyNormalPair, priceAboveMa5, priceBelowMa5, lastWeekDate: lastCandle.date, ma30, ma30Prev, lastClose, stage };
   };
 
 
@@ -2515,25 +2663,15 @@ function PortfolioApp() {
           if (triggered !== "neutral") { nextMarket[key] = triggered; changed = true; }
         }
       }
-      const nextStocks = {};
+      // 개별 종목 시점은 이제 매번 추세·가치·시장 세 조건으로 바로 판정한다(stockTimingOf). 여기선 ⇄전환 억제 해제만 처리.
+      const nextStocks = prev.stocks;
       stockCodes.forEach((code) => {
-        const mode = prev.stocks[code] || "neutral";
         const state = stockWeeklySignal[code];
         if (nextSuppress.stocks[code] && state && state.lastWeekDate !== nextSuppress.stocks[code]) {
           delete nextSuppress.stocks[code];
           suppressChanged = true;
         }
-        if (mode === "buy" && cashRatio <= 0.1) { nextStocks[code] = "neutral"; changed = true; }
-        else if (mode === "sell" && cashRatio >= 0.3) { nextStocks[code] = "neutral"; changed = true; }
-        else if (mode === "neutral" && !nextSuppress.stocks[code]) {
-          const triggered = deriveAdviceLabel(state);
-          nextStocks[code] = triggered;
-          if (triggered !== "neutral") changed = true;
-        } else {
-          nextStocks[code] = mode;
-        }
       });
-      if (Object.keys(prev.stocks).length !== Object.keys(nextStocks).length) changed = true;
       return changed ? { market: nextMarket, stocks: nextStocks } : prev;
     });
     if (suppressChanged) setAdviceSuppressWeek(nextSuppress);
@@ -2551,6 +2689,37 @@ function PortfolioApp() {
         stocks: scope === "stocks" ? { ...prev.stocks, [key]: state.lastWeekDate } : prev.stocks,
       }));
     }
+  };
+
+  // ── 개별 종목 시점 판정: 추세(30주선 단계) · 가치(적정가) · 시장(시장평가 점수) ──
+  // 매수: 상승 단계 + 적정가가 현재가보다 20%↑ + 시장 점수 100 미만(거품 아님)
+  // 매도: 하락 단계(단, 적정가보다 30%↑ 싸면 보유) 또는 적정가보다 20%↑ 비싸면서 시장 점수 100 이상
+  // 그 외 중도. 현금비중은 판정에서 빼고 "매수 여력"으로 따로 보여준다.
+  const marketScoreLast = useMemo(() => {
+    try {
+      const m = JSON.parse(localStorage.getItem("market_score_last") || "null");
+      if (!m || Date.now() - m.at > 14 * 86400000) return null;
+      const xs = [m.a, m.k, m.q].filter((v) => typeof v === "number");
+      return xs.length ? { avg: Math.round(xs.reduce((a, b) => a + b, 0) / xs.length), at: m.at, ...m } : null;
+    } catch (e) { return null; }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mainView]);
+  const stockTimingOf = (r) => {
+    const st = r.code ? stockWeeklySignal[r.code] : null;
+    const fv = r.code ? calcFairNow(extraFundamentalsData[r.code], futureCloses[toCommonCode(r.code) || r.code], r.marketCap ? num(r.marketCap) : 0, num(r.cur)) : null;
+    const fUp = fv && fv.fair ? fv.fair / num(r.cur) - 1 : null;
+    const ms = marketScoreLast ? marketScoreLast.avg : null;
+    const trend = st && st.stage ? st.stage : null; // up | base | down
+    const checks = {
+      trend: trend === "up" ? true : trend === "down" ? false : null,
+      value: fUp === null ? null : fUp >= 0.2 ? true : fUp <= -0.2 ? false : null,
+      market: ms === null ? null : ms < 100 ? true : false,
+    };
+    let label = "neutral";
+    if (trend === "up" && fUp !== null && fUp >= 0.2 && !(ms !== null && ms >= 100)) label = "buy";
+    else if ((trend === "down" && !(fUp !== null && fUp >= 0.3)) || (fUp !== null && fUp <= -0.2 && ms !== null && ms >= 100)) label = "sell";
+    const suppressed = st && adviceSuppressWeek.stocks && adviceSuppressWeek.stocks[r.code] === st.lastWeekDate;
+    return { label: suppressed ? "neutral" : label, raw: label, suppressed, st, trend, fUp, ms, checks };
   };
 
   // 코스피/코스닥 주봉 데이터 조회 — 하루 1회 계산 후 localStorage에 고정 저장 (앱을 몇 번을 다시 열어도 그날 안엔 절대 안 바뀜)
@@ -2599,7 +2768,7 @@ function PortfolioApp() {
     try { stored = JSON.parse(localStorage.getItem(STOCK_WEEKLY_SIGNAL_STORE_KEY) || "null"); } catch (e) {}
     if (stored && stored.date === todayStr) {
       // 오늘 이미 계산해둔 값이 있고, 지금 보유한 종목코드가 전부 "성공적으로(null 아님)" 들어있으면 재조회 안 함
-      const hasAll = codes.every((c) => Object.prototype.hasOwnProperty.call(stored.data || {}, c) && stored.data[c] && stored.tech && Object.prototype.hasOwnProperty.call(stored.tech, c) && (stored.tech[c] === null || stored.tech[c].votes));
+      const hasAll = codes.every((c) => Object.prototype.hasOwnProperty.call(stored.data || {}, c) && stored.data[c] && stored.tech && Object.prototype.hasOwnProperty.call(stored.tech, c) && (stored.tech[c] === null || stored.tech[c].votes) && stored.data[c].stage);
       if (hasAll) { setStockWeeklySignal(stored.data); setStockTech(stored.tech); return; }
     }
     if (!proxyUrl) return;
@@ -4575,6 +4744,8 @@ function PortfolioApp() {
           return { avg, n: rs.length, total, score: avg === null ? null : Math.round(100 + avg * 100), overall: avg === null ? null : avg >= 0.4 ? 1 : avg <= -0.4 ? -1 : 0 };
         };
         const kComp = compOf("kospi"), qComp = compOf("kosdaq"), aComp = compOf("all");
+        // 보유종목 시점 판정에 쓰도록 최근 시장평가 점수를 기억해 둔다
+        try { localStorage.setItem("market_score_last", JSON.stringify({ k: kComp.score, q: qComp.score, a: aComp.score, at: Date.now() })); } catch (e) {}
         const scoreAxis = (kPts.length ? kPts : qPts).map((p) => p.d);
         const scoreSeries = (rows) => {
           const rs = rows.filter((r) => !r.ref && !r.stale && r.chart && r.chart.points && r.chart.points.length > 1).map((r) => ({ r, pts: r.chart.points, f: rowJudger(r), p: -1 })).filter((x) => x.f);
@@ -6412,7 +6583,8 @@ function PortfolioApp() {
                 </div>
               </div>
               {(() => {
-                const adv = (r.code && adviceMode.stocks[r.code]) || "neutral";
+                const tm = stockTimingOf(r);
+                const adv = r.code ? tm.label : "neutral";
                 const color = adv === "buy" ? "#e8544b" : adv === "sell" ? "#4c8dff" : "#8993a6";
                 const badgeText = adv === "buy" ? "매수시점" : adv === "sell" ? "매도시점" : "중도시점";
                 const tc0 = r.code ? stockTech[r.code] : null;
@@ -6422,9 +6594,14 @@ function PortfolioApp() {
                 };
                 const cashPct = (cashRatio * 100).toFixed(0);
                 const infoText = openK === "adv"
-                  ? (adv === "buy" ? `매수시점 — 주봉에서 이동평균이 일부 역배열(단기<장기)인 상태에서 주가가 5주선 위로 올라오는 반등 신호가 나왔고, 현금비중이 30% 이상일 때 켜져요. 현금을 써서 현금비중이 10%가 될 때까지 유지돼요. (지금 현금비중 ${cashPct}%) ⇄전환을 누르면 중도로 돌아가요.`
-                    : adv === "sell" ? `매도시점 — 주봉 이동평균이 정배열(5>20>60>120주선)인데 주가가 5주선 아래로 내려오는 꺾임 신호가 나왔고, 현금비중이 10% 이하일 때 켜져요. 현금비중이 30%가 될 때까지 유지돼요. (지금 현금비중 ${cashPct}%) ⇄전환을 누르면 중도로 돌아가요.`
-                    : `중도시점 — 지금은 매수 조건(역배열 후 5주선 회복 + 현금 30%↑)도, 매도 조건(정배열 후 5주선 이탈 + 현금 10%↓)도 아니라서 기존 비중을 유지하는 구간이에요. (지금 현금비중 ${cashPct}%)`)
+                  ? (() => {
+                      const mk = (c) => (c === true ? "✔" : c === false ? "✘" : "–");
+                      const stg = tm.trend === "up" ? "상승 단계(주가가 30주선 위, 30주선 상승)" : tm.trend === "down" ? "하락 단계(주가가 30주선 아래, 30주선 하락)" : tm.trend === "base" ? "다지기 단계(방향 전환 중)" : "주봉 자료 부족";
+                      const val = tm.fUp === null ? "적정가 계산 불가" : `적정가 대비 ${tm.fUp >= 0 ? "+" : ""}${(tm.fUp * 100).toFixed(0)}%`;
+                      const mkt = tm.ms === null ? "시장평가 점수 없음(시장평가 화면을 한 번 열어주세요)" : `시장평가 평균 ${tm.ms}점`;
+                      const head = adv === "buy" ? "매수시점 — 추세·가치·시장이 모두 매수 쪽이에요." : adv === "sell" ? "매도시점 — 추세가 꺾였거나(하락 단계), 비싼데 시장도 거품이에요." : tm.suppressed ? "중도시점 — ⇄전환으로 이번 주 신호를 끈 상태예요(다음 주봉에 다시 판정)." : "중도시점 — 매수·매도 조건이 다 갖춰지지 않아 기존 비중을 유지하는 구간이에요.";
+                      return `${head} ${mk(tm.checks.trend)} 추세: ${stg} · ${mk(tm.checks.value)} 가치: ${val} (20%↑ 싸면 ✔, 20%↑ 비싸면 ✘) · ${mk(tm.checks.market)} 시장: ${mkt} (100 미만 ✔). 매수 = 상승 단계 + 적정가보다 20%↑ 쌈 + 시장 100 미만. 매도 = 하락 단계(단, 적정가보다 30%↑ 싸면 보유) 또는 20%↑ 비싸면서 시장 100 이상. 매수 여력: 현금 ${cashPct}%${cashRatio >= 0.3 ? " (넉넉)" : cashRatio <= 0.1 ? " (부족)" : ""}.`;
+                    })()
                   : openK === "fair"
                   ? (() => {
                       const fv = r.code ? calcFairNow(extraFundamentalsData[r.code], futureCloses[toCommonCode(r.code) || r.code], r.marketCap ? num(r.marketCap) : 0, num(r.cur)) : null;
@@ -6528,30 +6705,7 @@ function PortfolioApp() {
                 >
                   최근4분기 {quarterStock === r.id ? "▴" : "▾"}
                 </button>
-                <button
-                  className="iconbtn"
-                  onClick={() => {
-                    const opening = futureStock !== r.id;
-                    setFutureStock(opening ? r.id : null);
-                    if (opening) { setManualCodeFor(null); setExpandedStock(null); setCandleStock(null); setMetricsStock(null); setQuarterStock(null); }
-                  }}
-                  style={{ fontSize: 11, padding: "4px 4px", whiteSpace: "nowrap", letterSpacing: "-0.5px", borderRadius: 8, border: futureStock === r.id ? "1px solid #c9974a" : "1px solid transparent", background: futureStock === r.id ? "rgba(201,151,74,0.15)" : "none", color: futureStock === r.id ? "#c9974a" : "#8993a6", fontWeight: futureStock === r.id ? 700 : 400 }}
-                >
-                  미래가치 {futureStock === r.id ? "▴" : "▾"}
-                </button>
               </div>
-              {futureStock === r.id && (
-                <FutureValuePanel
-                  name={r.code}
-                  ef={r.code ? extraFundamentalsData[r.code] : null}
-                  loading={!!(r.code && extraFundamentalsLoading[r.code])}
-                  closes={r.code ? futureCloses[toCommonCode(r.code) || r.code] : null}
-                  curCap={r.marketCap ? num(r.marketCap) : 0}
-                  curPrice={num(r.cur)}
-                  saved={r.code ? futureInputs[r.code] : null}
-                  onSave={(v) => setFutureInputs((p) => { const n = { ...p, [r.code]: v }; try { localStorage.setItem(FUTURE_INPUTS_KEY, JSON.stringify(n)); } catch (e) {} return n; })}
-                />
-              )}
               {manualCodeFor === r.id && (
                 <div style={{ marginTop: 8 }}>
                   <div className="lbl">종목명이 사전에 없어서 자동완성이 안 뜰 때, 종목코드를 직접 입력하세요 (예: 코스모신소재 005070)</div>
@@ -6816,8 +6970,43 @@ function PortfolioApp() {
 
                 return (
                   <div style={{ marginTop: 4, fontSize: 11, color: "#5a6274" }}>
-                    <div style={{ marginBottom: 2, color: "#c9974a", fontWeight: 700 }}>{quarterMode ? "최근 4분기 · " : ""}기준선: {profileLabel}</div>
-                    {allYears.length === 0 ? (
+                    <div style={{ marginBottom: 2, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
+                      <span style={{ color: "#c9974a", fontWeight: 700 }}>{quarterMode ? (shortStock === r.id ? "최근 4분기 · 단기가치" : "최근 4분기 · ") : futureStock === r.id ? "재무데이터 · 미래가치" : ""}{(quarterMode && shortStock === r.id) || (!quarterMode && futureStock === r.id) ? "" : `기준선: ${profileLabel}`}</span>
+                      {!quarterMode && (
+                        <button className="iconbtn" onClick={() => setFutureStock(futureStock === r.id ? null : r.id)}
+                          style={{ fontSize: 11, padding: "3px 8px", borderRadius: 8, whiteSpace: "nowrap", border: futureStock === r.id ? "1px solid #c9974a" : "1px solid #3a4150", background: futureStock === r.id ? "rgba(201,151,74,0.15)" : "none", color: futureStock === r.id ? "#c9974a" : "#8993a6", fontWeight: futureStock === r.id ? 700 : 400 }}>
+                          {futureStock === r.id ? "◀ 재무표" : "미래가치 ▸"}
+                        </button>
+                      )}
+                      {quarterMode && (
+                        <button className="iconbtn" onClick={() => setShortStock(shortStock === r.id ? null : r.id)}
+                          style={{ fontSize: 11, padding: "3px 8px", borderRadius: 8, whiteSpace: "nowrap", border: shortStock === r.id ? "1px solid #c9974a" : "1px solid #3a4150", background: shortStock === r.id ? "rgba(201,151,74,0.15)" : "none", color: shortStock === r.id ? "#c9974a" : "#8993a6", fontWeight: shortStock === r.id ? 700 : 400 }}>
+                          {shortStock === r.id ? "◀ 분기표" : "단기가치 ▸"}
+                        </button>
+                      )}
+                    </div>
+                    {quarterMode && shortStock === r.id ? (
+                      <ShortValuePanel
+                        name={r.code}
+                        ef={ef0}
+                        closes={futureCloses[toCommonCode(r.code) || r.code]}
+                        curCap={r.marketCap ? num(r.marketCap) : 0}
+                        curPrice={num(r.cur)}
+                        saved={shortInputs[r.code]}
+                        onSave={(v) => setShortInputs((p) => { const n = { ...p, [r.code]: v }; try { localStorage.setItem(SHORT_INPUTS_KEY, JSON.stringify(n)); } catch (e) {} return n; })}
+                      />
+                    ) : !quarterMode && futureStock === r.id ? (
+                      <FutureValuePanel
+                        name={r.code}
+                        ef={ef0}
+                        loading={!!(r.code && extraFundamentalsLoading[r.code])}
+                        closes={futureCloses[toCommonCode(r.code) || r.code]}
+                        curCap={r.marketCap ? num(r.marketCap) : 0}
+                        curPrice={num(r.cur)}
+                        saved={futureInputs[r.code]}
+                        onSave={(v) => setFutureInputs((p) => { const n = { ...p, [r.code]: v }; try { localStorage.setItem(FUTURE_INPUTS_KEY, JSON.stringify(n)); } catch (e) {} return n; })}
+                      />
+                    ) : allYears.length === 0 ? (
                       <div>표시할 데이터가 없어요.</div>
                     ) : (
                       <>
