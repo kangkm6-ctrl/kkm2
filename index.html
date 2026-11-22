@@ -1103,12 +1103,15 @@ const buildAnnualForValue = (ef, maxYears = 4) => {
   }
   return cur ? [...full.slice(-(maxYears - 1)), cur] : full.slice(-maxYears);
 };
-// 장기 정상치: 받을 수 있는 모든 연간 실적(최대 6개년)+올해 연환산의 "중앙값" 영업이익률·PER.
+// 장기 정상치: 최근 10개 결산 + 올해 연환산의 "중앙값" 영업이익률·PER, 10년 연평균 매출성장률(CAGR).
 // 평균은 적자 한두 해에 크게 끌려가므로(예: 2차전지 적자 구간), 적정가에는 중앙값을 쓴다.
 const longRunNorm = (ef, closes, curCap) => {
   if (!ef || !Array.isArray(ef.periods)) return null;
-  const all = buildAnnualForValue({ periods: ef.periods }, 99);
+  const all = buildAnnualForValue({ periods: ef.periods }, 11); // 최근 10개 결산 + 올해 연환산
   if (all.length < 2) return null;
+  const first = all[0], last = all[all.length - 1];
+  const span = Number(last.year) - Number(first.year);
+  const cagr = span > 0 && first.rev > 0 && last.rev > 0 ? Math.pow(last.rev / first.rev, 1 / span) - 1 : null;
   const med = (a) => { const x = a.filter((v) => v !== null && isFinite(v)).sort((p, q) => p - q); if (!x.length) return null; const k = Math.floor(x.length / 2); return x.length % 2 ? x[k] : (x[k - 1] + x[k]) / 2; };
   const margins = all.map((a) => (a.op === null ? null : a.op / a.rev));
   const pers = all.map((a) => {
@@ -1117,7 +1120,9 @@ const longRunNorm = (ef, closes, curCap) => {
     const c = closes && closes.years ? closes.years[a.year] : null;
     return c && closes.last && curCap ? (curCap * (c / closes.last)) / (a.op * 0.8) : null;
   }).filter((v) => v !== null && v > 0 && v < 200);
-  return { mMed: med(margins), perMed: med(pers), years: all.length, from: all[0].year, to: all[all.length - 1].year };
+  const posM = margins.filter((v) => v !== null && isFinite(v)).sort((p, q) => p - q);
+  const mHi = posM.length ? posM[Math.min(posM.length - 1, Math.floor(posM.length * 0.75))] : null; // 상위 25% 지점(호황 수준)
+  return { mMed: med(margins), mHi, perMed: med(pers), cagr, years: all.length, from: all[0].year, to: all[all.length - 1].year };
 };
 const FUTURE_INPUTS_KEY = "future_inputs_v1";
 // 현재 적정주가(기준): 최근 연간 매출 × 4개년 평균 영업이익률 × 0.8 × 평균 PER(계산치) = 적정시총 → ÷현시총 × 현주가
@@ -1222,13 +1227,16 @@ const FutureValuePanel = ({ name, ef, closes, curCap, curPrice, saved, onSave, l
   if (base.mAvg === null || base.perAvg === null) return <div style={{ marginTop: 6, fontSize: 11, color: "#5a6274" }}>영업이익이 적자이거나 자료가 부족해 PER을 계산할 수 없어 추정하지 못했어요.</div>;
 
   const g1 = base.gAvg !== null ? base.gAvg : 0;
+  const lr4 = base.lr && base.lr.mMed !== null && base.lr.perMed && base.lr.cagr !== null && base.lr.years >= 4 ? base.lr : null;
   const sc = [
     { k: "1안", sub: "평균", g: g1, m: base.mAvg, p: base.perAvg, rev: base.revAvg * Math.pow(1 + g1, 3) },
     { k: "2안", sub: "평균+α", g: inp.g2 / 100, m: inp.m2 / 100, p: inp.p2, rev: base.revAvg * Math.pow(1 + inp.g2 / 100, 3) },
     { k: "3안", sub: "M/S증가지속", g: inp.g3 / 100, m: inp.m3 / 100, p: inp.p3, rev: base.revLatest * Math.pow(1 + inp.g3 / 100, 3) },
+    // 4안 장기정상: 10년 CAGR 성장 · 10년 중간값 이익률·PER · 최근(연환산) 매출 기준 — 업황이 평소 수준으로 돌아온다는 가정
+    ...(lr4 ? [{ k: "4안", sub: "장기정상", g: lr4.cagr, m: lr4.mMed, p: lr4.perMed, rev: base.revLatest * Math.pow(1 + lr4.cagr, 3), long: true }] : []),
   ].map((x) => ({ ...x, ni: x.rev * x.m * 0.8 }));
   const pers = sc.map((x) => x.p);
-  const grid = sc.map((x) => pers.map((p) => { const ratio = (p * x.ni) / curCap; return { price: ratio * curPrice, up: ratio - 1 }; }));
+  const grid = sc.map((x) => pers.map((p) => { const ratio = Math.max(0, (p * x.ni) / curCap); return { price: ratio * curPrice, up: ratio - 1 }; })); // 적자면 0원(−100%)으로 본다
   const flat = grid.flat();
   const prices = flat.map((c) => c.price), ups = flat.map((c) => c.up);
   const minP = Math.min(...prices), maxP = Math.max(...prices), avgP = prices.reduce((a, b) => a + b, 0) / prices.length;
@@ -1250,6 +1258,7 @@ const FutureValuePanel = ({ name, ef, closes, curCap, curPrice, saved, onSave, l
     <div style={{ marginTop: 6, fontSize: 11, color: "#aab2c3" }}>
       <div style={{ color: "#c9974a", fontWeight: 700, marginBottom: 3 }}>3년 후 미래가치 추정 <span style={{ color: "#5a6274", fontWeight: 400 }}>· {annual.length}개년({annual[0].year}~{annual[annual.length - 1].year}{annual[annual.length - 1].est ? `, ${annual[annual.length - 1].year}년은 ${annual[annual.length - 1].month}월까지 누적 연환산` : ""}) 실적 기준</span></div>
       <div style={{ fontSize: 10, color: "#8993a6", marginBottom: 5 }}>
+        {lr4 && <div style={{ color: "#c9974a" }}>4안(장기정상) = {lr4.from}~{lr4.to}({lr4.years - (annual[annual.length - 1].est ? 1 : 0)}개 결산{annual[annual.length - 1].est ? "+올해 연환산" : ""}) 기준 · 매출 연평균성장(CAGR) {pct(lr4.cagr)} · 이익률 중간값 {(lr4.mMed * 100).toFixed(1)}% · PER 중간값 {lr4.perMed.toFixed(1)}배</div>}
         평균매출 {fmtE(base.revAvg)} · 매출성장률 {base.gAvg !== null ? pct(base.gAvg) : "-"} · 영업이익률 {(base.mAvg * 100).toFixed(1)}% · PER(계산치·중간값) {base.perAvg.toFixed(1)}배
       </div>
       {base.mAvg < 0.02 && (
@@ -1258,22 +1267,22 @@ const FutureValuePanel = ({ name, ef, closes, curCap, curPrice, saved, onSave, l
           {base.lr && base.lr.mMed !== null ? ` 장기(${base.lr.from}~${base.lr.to}) 중간값 이익률은 ${(base.lr.mMed * 100).toFixed(1)}%라 2·3안 기본값에 그 값을 넣었어요.` : ""} 업황 회복을 가정한 2·3안 위주로 판단하세요.
         </div>
       )}
-      <div className="gtbl" style={{ gridTemplateColumns: "auto 1fr 1fr 1fr", fontSize: 11 }}>
+      <div className="gtbl" style={{ gridTemplateColumns: `auto repeat(${sc.length}, 1fr)`, fontSize: 11 }}>
         <div className="gth gl" style={{ fontSize: 10 }}>항목</div>
         {sc.map((x) => <div key={x.k} className="gth gr" style={{ color: "#e7eaf0", flexDirection: "column", alignItems: "flex-end" }}>{x.k}<span style={{ fontSize: 9, color: "#5a6274", fontWeight: 400 }}>{x.sub}</span></div>)}
         <div className="gl" style={{ color: "#8993a6" }}>매출성장률</div>
-        <div className="gr" style={cell}>{pct(g1)}</div><div className="gr" style={cell}>{inBox("g2", "%")}</div><div className="gr" style={cell}>{inBox("g3", "%")}</div>
+        <div className="gr" style={cell}>{pct(g1)}</div><div className="gr" style={cell}>{inBox("g2", "%")}</div><div className="gr" style={cell}>{inBox("g3", "%")}</div>{lr4 && <div className="gr" style={{ ...cell, color: "#c9974a" }}>{pct(lr4.cagr)}</div>}
         <div className="gl" style={{ color: "#8993a6" }}>영업이익률</div>
-        <div className="gr" style={cell}>{(base.mAvg * 100).toFixed(1)}%</div><div className="gr" style={cell}>{inBox("m2", "%")}</div><div className="gr" style={cell}>{inBox("m3", "%")}</div>
+        <div className="gr" style={cell}>{(base.mAvg * 100).toFixed(1)}%</div><div className="gr" style={cell}>{inBox("m2", "%")}</div><div className="gr" style={cell}>{inBox("m3", "%")}</div>{lr4 && <div className="gr" style={{ ...cell, color: "#c9974a" }}>{(lr4.mMed * 100).toFixed(1)}%</div>}
         <div className="gl" style={{ color: "#8993a6" }}>PER</div>
-        <div className="gr" style={cell}>{base.perAvg.toFixed(1)}배</div><div className="gr" style={cell}>{inBox("p2", "배")}</div><div className="gr" style={cell}>{inBox("p3", "배")}</div>
+        <div className="gr" style={cell}>{base.perAvg.toFixed(1)}배</div><div className="gr" style={cell}>{inBox("p2", "배")}</div><div className="gr" style={cell}>{inBox("p3", "배")}</div>{lr4 && <div className="gr" style={{ ...cell, color: "#c9974a" }}>{lr4.perMed.toFixed(1)}배</div>}
         <div className="gl" style={{ color: "#8993a6" }}>3년후 매출</div>
         {sc.map((x) => <div key={x.k} className="tnum gr" style={cell}>{fmtE(x.rev)}</div>)}
         <div className="gl" style={{ color: "#8993a6" }}>추정순이익</div>
         {sc.map((x) => <div key={x.k} className="tnum gr" style={cell}>{fmtE(x.ni)}</div>)}
       </div>
       <div style={{ marginTop: 6, fontSize: 10, color: "#8993a6" }}>상승여력 (행: 순이익 시나리오 × 열: PER)</div>
-      <div className="gtbl" style={{ gridTemplateColumns: "auto 1fr 1fr 1fr", fontSize: 11 }}>
+      <div className="gtbl" style={{ gridTemplateColumns: `auto repeat(${sc.length}, 1fr)`, fontSize: 11 }}>
         <div className="gth gl" style={{ fontSize: 10 }}>순이익＼PER</div>
         {pers.map((p, j) => <div key={j} className="gth gr" style={{ ...cell, fontSize: 10 }}>PER {p.toFixed(1)}</div>)}
         {grid.map((row, i) => (
@@ -1294,7 +1303,7 @@ const FutureValuePanel = ({ name, ef, closes, curCap, curPrice, saved, onSave, l
           {[minP, avgP, maxP].map((v, i) => <div key={i} className="tnum gr" style={{ ...cell, color: curPrice <= v / 3 ? "#e8544b" : "#8993a6" }}>{fmtW(v / 3)}</div>)}
         </div>
         <div style={{ marginTop: 5, padding: "5px 8px", border: "1px solid #2a303c", borderRadius: 6, background: "#151920", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span>투자가능률(9개 중 200%↑) <b className="tnum" style={{ color: upColor(okRate >= 0.5 ? 2 : okRate > 0 ? 1 : 0) }}>{Math.round(okRate * 100)}%</b></span>
+          <span>투자가능률({ups.length}개 중 200%↑) <b className="tnum" style={{ color: upColor(okRate >= 0.5 ? 2 : okRate > 0 ? 1 : 0) }}>{Math.round(okRate * 100)}%</b></span>
           <span style={{ fontWeight: 700, color: verdict[1] }}>{verdict[0]}</span>
         </div>
       </div>
@@ -2728,7 +2737,7 @@ function PortfolioApp() {
   useEffect(() => {
     if (!loaded || !proxyUrl) return;
     let cancelled = false;
-    const CK = "fair_raw_cache_v1";
+    const CK = "fair_raw_cache_v2"; // v2: 재무 10개년·월봉 10년치
     let cache = {};
     try { cache = JSON.parse(localStorage.getItem(CK) || "{}") || {}; } catch (e) {}
     const fresh = (c) => c && Date.now() - c.t < 24 * 3600 * 1000;
@@ -2749,7 +2758,7 @@ function PortfolioApp() {
         if (fresh(cache[cc]) && cache[cc].ef && cache[cc].cl) continue;
         const ef = await fetch(`${base}/stock-extra-fundamentals/${cc}`, { headers, signal: AbortSignal.timeout(30000) }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
         await sleep(300);
-        const h = await fetch(`${base}/stock-history/${cc}?period=M&days=2400`, { headers, signal: AbortSignal.timeout(30000) }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+        const h = await fetch(`${base}/stock-history/${cc}?period=M&days=3900`, { headers, signal: AbortSignal.timeout(30000) }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
         if (cancelled) return;
         const efv = ef && Array.isArray(ef.periods) && ef.periods.length ? { periods: ef.periods, divUsed: ef.divUsed } : null;
         let clv = null;
@@ -2783,7 +2792,7 @@ function PortfolioApp() {
       if (!futureCloses[cc]) {
         const base = proxyUrl.replace(/\/$/, "");
         const headers = appSecret ? { "x-app-secret": appSecret } : {};
-        fetch(`${base}/stock-history/${cc}?period=M&days=2400`, { headers, signal: AbortSignal.timeout(30000) })
+        fetch(`${base}/stock-history/${cc}?period=M&days=3900`, { headers, signal: AbortSignal.timeout(30000) })
           .then((r) => (r.ok ? r.json() : null))
           .then((d) => {
             if (!d || !Array.isArray(d.candles) || d.candles.length === 0) return;
