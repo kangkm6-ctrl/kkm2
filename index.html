@@ -1086,7 +1086,7 @@ const MarketScoreChart = ({ series, base }) => {
 // 시나리오 3개(1안 평균 / 2안 평균+α / 3안 M/S증가지속) × PER 3개 = 9가지 추정치의 최저·평균·최고를 보여준다.
 // 200%(3배) 이상 오를 여지가 있어야 투자 가능, 매수가능가 = 추정주가 ÷ 3 (안전마진).
 // 1안 평균 재료: 직전 완결 3개년(12월 결산) + 올해 최근 분기 누적치를 연환산(×12/결산월)한 값 = 4개 연도
-const buildAnnualForValue = (ef) => {
+const buildAnnualForValue = (ef, maxYears = 4) => {
   if (!ef || !Array.isArray(ef.periods)) return [];
   const rows = ef.periods.filter((p) => Number(p.revenue) > 0).slice().sort((a, b) => (String(a.period) < String(b.period) ? -1 : 1));
   const toNum = (v) => (v === null || v === undefined || v === "" ? null : Number(v));
@@ -1101,7 +1101,23 @@ const buildAnnualForValue = (ef) => {
       cur = { year: y, rev: Number(latest.revenue) * k, op: op === null ? null : op * k, est: true, month: m };
     }
   }
-  return cur ? [...full.slice(-3), cur] : full.slice(-4);
+  return cur ? [...full.slice(-(maxYears - 1)), cur] : full.slice(-maxYears);
+};
+// 장기 정상치: 받을 수 있는 모든 연간 실적(최대 6개년)+올해 연환산의 "중앙값" 영업이익률·PER.
+// 평균은 적자 한두 해에 크게 끌려가므로(예: 2차전지 적자 구간), 적정가에는 중앙값을 쓴다.
+const longRunNorm = (ef, closes, curCap) => {
+  if (!ef || !Array.isArray(ef.periods)) return null;
+  const all = buildAnnualForValue({ periods: ef.periods }, 99);
+  if (all.length < 2) return null;
+  const med = (a) => { const x = a.filter((v) => v !== null && isFinite(v)).sort((p, q) => p - q); if (!x.length) return null; const k = Math.floor(x.length / 2); return x.length % 2 ? x[k] : (x[k - 1] + x[k]) / 2; };
+  const margins = all.map((a) => (a.op === null ? null : a.op / a.rev));
+  const pers = all.map((a) => {
+    if (a.op === null || a.op <= 0) return null;
+    if (a.est) return curCap ? curCap / (a.op * 0.8) : null;
+    const c = closes && closes.years ? closes.years[a.year] : null;
+    return c && closes.last && curCap ? (curCap * (c / closes.last)) / (a.op * 0.8) : null;
+  }).filter((v) => v !== null && v > 0 && v < 200);
+  return { mMed: med(margins), perMed: med(pers), years: all.length, from: all[0].year, to: all[all.length - 1].year };
 };
 const FUTURE_INPUTS_KEY = "future_inputs_v1";
 // 현재 적정주가(기준): 최근 연간 매출 × 4개년 평균 영업이익률 × 0.8 × 평균 PER(계산치) = 적정시총 → ÷현시총 × 현주가
@@ -1141,13 +1157,18 @@ const calcFairNow = (ef, closes, curCap, curPrice) => {
   }).filter((v) => v !== null && v > 0 && v < 200);
   let perAvg = avg(pers);
   if (perAvg === null && latest.op > 0) perAvg = curCap / (latest.op * 0.8);
-  if (mAvg === null || mAvg <= 0 || !perAvg) return null;
-  // 기준: 정상 이익(4개년 평균 영업이익률 × 최근 연간·연환산 매출) — 사이클 업종에서 바닥·꼭대기 왜곡을 줄인다
-  const fairCap = latest.rev * mAvg * 0.8 * perAvg;
+  // 기준: 장기 정상 이익 = 최근 연간(연환산) 매출 × 장기 중앙값 영업이익률, PER도 장기 중앙값.
+  // 적자 구간이 섞여 평균 이익률이 0 근처로 떨어지면 적정가가 터무니없이 낮아지므로 중앙값을 쓴다.
+  const lr = longRunNorm(ef, closes, curCap);
+  const mUse = lr && lr.mMed !== null ? lr.mMed : mAvg;
+  const pUse = lr && lr.perMed ? lr.perMed : perAvg;
+  if (mUse === null || mUse < 0.01 || !pUse) return lr && lr.mMed !== null && lr.mMed < 0.01 ? { lossy: true, mMed: lr.mMed, years: lr.years } : null;
+  const fairCap = latest.rev * mUse * 0.8 * pUse;
   // 비교용: 최근 4분기 실적 기준 적정가
   const t = ttmOf(ef);
   const ttm = t && t.op !== null ? { fair: t.op > 0 ? ((t.op * 0.8 * perAvg) / curCap) * curPrice : null, rev: t.rev, op: t.op, margin: t.op / t.rev, label: t.label } : null;
-  return { fair: (fairCap / curCap) * curPrice, perAvg, mAvg, rev: latest.rev, year: latest.est ? `${latest.year}(연환산)` : latest.year, years: annual.length, ttm };
+  const ttmFix = ttm && ttm.fair !== undefined && t.op > 0 ? { ...ttm, fair: ((t.op * 0.8 * pUse) / curCap) * curPrice } : ttm;
+  return { fair: (fairCap / curCap) * curPrice, perAvg: pUse, mAvg: mUse, rev: latest.rev, year: latest.est ? `${latest.year}(연환산)` : latest.year, years: lr ? lr.years : annual.length, span: lr ? `${lr.from}~${lr.to}` : "", ttm: ttmFix };
 };
 const FutureValuePanel = ({ name, ef, closes, curCap, curPrice, saved, onSave, loading }) => {
   const annual = useMemo(() => buildAnnualForValue(ef), [ef]);
@@ -1166,16 +1187,20 @@ const FutureValuePanel = ({ name, ef, closes, curCap, curPrice, saved, onSave, l
       return cap ? cap / (a.op * 0.8) : null;
     });
     const latest = annual[annual.length - 1];
-    let perAvg = avg(pers.filter((v) => v !== null && v > 0 && v < 200));
+    // PER은 이익이 쪼그라든 해에 수십~수백 배로 튀므로 평균 대신 중간값을 쓴다
+    const pv = pers.filter((v) => v !== null && v > 0 && v < 200).sort((a, b) => a - b);
+    let perAvg = pv.length ? (pv.length % 2 ? pv[(pv.length - 1) / 2] : (pv[pv.length / 2 - 1] + pv[pv.length / 2]) / 2) : null;
     if (perAvg === null && latest.op > 0) perAvg = curCap / (latest.op * 0.8); // 연말 주가가 없으면 지금 시총 기준
-    return { revAvg, revLatest: latest.rev, gAvg: avg(growths), mAvg: avg(margins), mLatest: margins[margins.length - 1], perAvg, growths, margins, pers };
+    const lr = longRunNorm(ef, closes, curCap);
+    return { revAvg, revLatest: latest.rev, gAvg: avg(growths), mAvg: avg(margins), mLatest: margins[margins.length - 1], perAvg, growths, margins, pers, lr };
   }, [annual, closes, curCap, curPrice]);
 
   const def = base ? {
     g2: base.gAvg !== null ? +(base.gAvg * 100 + 5).toFixed(1) : 10,
     g3: base.gAvg !== null ? +(base.gAvg * 100 + 10).toFixed(1) : 15,
-    m2: base.mAvg !== null ? +(base.mAvg * 100).toFixed(1) : 10,
-    m3: base.mLatest !== null ? +(Math.max(base.mLatest, base.mAvg || 0) * 100).toFixed(1) : 10,
+    // 2·3안 이익률 기본값: 최근 4년 평균이 적자 구간에 끌려 낮으면 장기 중간값(회복 가정)을 쓴다
+    m2: +(Math.max(base.mAvg || 0, (base.lr && base.lr.mMed) || 0) * 100).toFixed(1),
+    m3: +(Math.max(base.mLatest || 0, base.mAvg || 0, (base.lr && base.lr.mMed) || 0) * 100).toFixed(1),
     p2: base.perAvg ? +base.perAvg.toFixed(1) : 15,
     p3: base.perAvg ? +(base.perAvg * 1.3).toFixed(1) : 20,
   } : null;
@@ -1225,8 +1250,14 @@ const FutureValuePanel = ({ name, ef, closes, curCap, curPrice, saved, onSave, l
     <div style={{ marginTop: 6, fontSize: 11, color: "#aab2c3" }}>
       <div style={{ color: "#c9974a", fontWeight: 700, marginBottom: 3 }}>3년 후 미래가치 추정 <span style={{ color: "#5a6274", fontWeight: 400 }}>· {annual.length}개년({annual[0].year}~{annual[annual.length - 1].year}{annual[annual.length - 1].est ? `, ${annual[annual.length - 1].year}년은 ${annual[annual.length - 1].month}월까지 누적 연환산` : ""}) 실적 기준</span></div>
       <div style={{ fontSize: 10, color: "#8993a6", marginBottom: 5 }}>
-        평균매출 {fmtE(base.revAvg)} · 매출성장률 {base.gAvg !== null ? pct(base.gAvg) : "-"} · 영업이익률 {(base.mAvg * 100).toFixed(1)}% · PER(계산치) {base.perAvg.toFixed(1)}배
+        평균매출 {fmtE(base.revAvg)} · 매출성장률 {base.gAvg !== null ? pct(base.gAvg) : "-"} · 영업이익률 {(base.mAvg * 100).toFixed(1)}% · PER(계산치·중간값) {base.perAvg.toFixed(1)}배
       </div>
+      {base.mAvg < 0.02 && (
+        <div style={{ marginBottom: 6, padding: "5px 8px", borderRadius: 6, border: "1px solid #e0b93c", background: "#e0b93c14", color: "#e0b93c", fontSize: 10, lineHeight: 1.45 }}>
+          ⚠️ 최근 4개년 평균 영업이익률이 {(base.mAvg * 100).toFixed(1)}%로 적자·저이익 구간이 섞여 있어요. 이 상태로는 1안(평균)이 0에 가까운 이익을 가정해 주가가 비현실적으로 낮게 나와요.
+          {base.lr && base.lr.mMed !== null ? ` 장기(${base.lr.from}~${base.lr.to}) 중간값 이익률은 ${(base.lr.mMed * 100).toFixed(1)}%라 2·3안 기본값에 그 값을 넣었어요.` : ""} 업황 회복을 가정한 2·3안 위주로 판단하세요.
+        </div>
+      )}
       <div className="gtbl" style={{ gridTemplateColumns: "auto 1fr 1fr 1fr", fontSize: 11 }}>
         <div className="gth gl" style={{ fontSize: 10 }}>항목</div>
         {sc.map((x) => <div key={x.k} className="gth gr" style={{ color: "#e7eaf0", flexDirection: "column", alignItems: "flex-end" }}>{x.k}<span style={{ fontSize: 9, color: "#5a6274", fontWeight: 400 }}>{x.sub}</span></div>)}
@@ -1268,7 +1299,7 @@ const FutureValuePanel = ({ name, ef, closes, curCap, curPrice, saved, onSave, l
         </div>
       </div>
       <div style={{ marginTop: 4, fontSize: 9, color: "#5a6274", lineHeight: 1.45 }}>
-        엑셀 "기업가치평가"와 같은 방식이에요. 3년후 매출 = 기준매출×(1+성장률)³(1·2안은 평균매출, 3안은 최근매출 기준), 순이익 = 영업이익×0.8, 적정시총 = 순이익×PER, 적정주가 = 적정시총÷현시총×현주가. PER(계산치)은 각 연말 시총÷(영업이익×0.8)의 평균이에요. 금색 칸(2안·3안)은 직접 고칠 수 있고 종목별로 저장돼요(지우면 기본값). <span style={{ color: "#e8544b" }}>●200%↑(3배) 투자 가능</span> <span style={{ color: "#e0b93c" }}>●100%↑</span> <span style={{ color: "#8993a6" }}>●0%↑</span> <span style={{ color: "#4c8dff" }}>●하락</span> · 매수가능가 = 추정주가÷3(안전마진), 현재가가 그 아래면 붉은색.
+        엑셀 "기업가치평가"와 같은 방식이에요. 3년후 매출 = 기준매출×(1+성장률)³(1·2안은 평균매출, 3안은 최근매출 기준), 순이익 = 영업이익×0.8, 적정시총 = 순이익×PER, 적정주가 = 적정시총÷현시총×현주가. PER(계산치)은 각 연말 시총÷(영업이익×0.8)의 중간값이에요(이익이 쪼그라든 해에 튀는 값을 피하려고 평균 대신 중간값). 금색 칸(2안·3안)은 직접 고칠 수 있고 종목별로 저장돼요(지우면 기본값). <span style={{ color: "#e8544b" }}>●200%↑(3배) 투자 가능</span> <span style={{ color: "#e0b93c" }}>●100%↑</span> <span style={{ color: "#8993a6" }}>●0%↑</span> <span style={{ color: "#4c8dff" }}>●하락</span> · 매수가능가 = 추정주가÷3(안전마진), 현재가가 그 아래면 붉은색.
       </div>
     </div>
   );
@@ -6343,12 +6374,12 @@ function PortfolioApp() {
                   {(() => {
                     // 현재 적정주가 칩 — 매입가 칸 바로 아래. 탭하면 아래쪽 신호 설명 칸에 계산 근거가 나온다.
                     const fv = calcFairNow(extraFundamentalsData[r.code], futureCloses[toCommonCode(r.code) || r.code], r.marketCap ? num(r.marketCap) : 0, num(r.cur));
-                    const fUp = fv ? fv.fair / num(r.cur) - 1 : null;
+                    const fUp = fv && fv.fair ? fv.fair / num(r.cur) - 1 : null;
                     const c = fUp === null ? "#5a6274" : fUp >= 0.3 ? "#e8544b" : fUp >= 0 ? "#e0b93c" : fUp >= -0.2 ? "#8993a6" : "#4c8dff";
                     const open = sigInfo && sigInfo.id === r.id && sigInfo.k === "fair";
                     return (
                       <span className="tnum" onClick={() => setSigInfo(open ? null : { id: r.id, k: "fair" })} style={{ display: "inline-flex", alignItems: "center", padding: "3px 8px", borderRadius: 6, fontSize: 13, fontWeight: 700, color: c, background: `${c}22`, border: `1px solid ${c}`, whiteSpace: "nowrap", cursor: "pointer", outline: open ? "1px solid #c9974a" : "none" }}>
-                        {fv ? `적정 ${Math.round(fv.fair).toLocaleString("ko-KR")} ${fUp >= 0 ? "▲" : "▼"}${Math.abs(fUp * 100).toFixed(0)}%` : "적정 -"}
+                        {fv && fv.fair ? `적정 ${Math.round(fv.fair).toLocaleString("ko-KR")} ${fUp >= 0 ? "▲" : "▼"}${Math.abs(fUp * 100).toFixed(0)}%` : fv && fv.lossy ? "적정 - (적자구간)" : "적정 -"}
                       </span>
                     );
                   })()}
@@ -6388,13 +6419,14 @@ function PortfolioApp() {
                   : openK === "fair"
                   ? (() => {
                       const fv = r.code ? calcFairNow(extraFundamentalsData[r.code], futureCloses[toCommonCode(r.code) || r.code], r.marketCap ? num(r.marketCap) : 0, num(r.cur)) : null;
-                      if (!fv) return `현재 적정주가 — 최근 연간 매출 × 4개년 평균 영업이익률 × 0.8(세후) × 평균 PER로 적정시총을 구해, 현시총 대비 비율을 현재가에 곱한 값이에요. ${!r.code ? "종목코드가 없어 계산할 수 없어요." : !r.marketCap ? "시가총액이 아직 없어요(시세 갱신 후 다시 확인)." : !extraFundamentalsData[r.code] ? "재무자료(DART)를 아직 받지 못했어요. 앱을 열고 잠시 뒤 다시 확인해 주세요(서버에 DART 키·배포 필요)." : "4개년 평균 영업이익이 적자이거나 연간 자료가 2년 미만이라 계산하지 못했어요."}`;
+                      if (fv && fv.lossy) return `현재 적정주가 — 받은 ${fv.years}개년 실적의 중간값 영업이익률이 ${(fv.mMed * 100).toFixed(1)}%로, 적자·저이익 해가 절반 이상이라 "정상 이익"을 정할 수 없어 적정가를 계산하지 않았어요. 이런 구간(업황 바닥·구조조정)에서는 이익 기반 적정가가 의미가 없으니, 미래가치 탭의 2·3안에 회복 후 이익률을 직접 넣어 판단해 보세요.`;
+                      if (!fv) return `현재 적정주가 — 최근 연간 매출 × 장기 중간값 영업이익률 × 0.8(세후) × 장기 중간값 PER로 적정시총을 구해, 현시총 대비 비율을 현재가에 곱한 값이에요. ${!r.code ? "종목코드가 없어 계산할 수 없어요." : !r.marketCap ? "시가총액이 아직 없어요(시세 갱신 후 다시 확인)." : !extraFundamentalsData[r.code] ? "재무자료(DART)를 아직 받지 못했어요. 앱을 열고 잠시 뒤 다시 확인해 주세요(서버에 DART 키·배포 필요)." : "4개년 평균 영업이익이 적자이거나 연간 자료가 2년 미만이라 계산하지 못했어요."}`;
                       const up = fv.fair / num(r.cur) - 1;
                       const fw = (v) => Math.round(v).toLocaleString("ko-KR");
                       const ttmTxt = !fv.ttm ? "최근 4분기 자료가 없어 비교값은 계산하지 못했어요."
                         : fv.ttm.fair === null ? `최근 4분기(${fv.ttm.label}) 영업이익이 적자(${fw(fv.ttm.op)}억)라 최근 실적 기준으로는 계산할 수 없어요 — 업황 바닥 신호일 수 있어요.`
                         : `최근 실적 기준(${fv.ttm.label} 영업이익 ${fw(fv.ttm.op)}억, 이익률 ${(fv.ttm.margin * 100).toFixed(1)}%) 적정가는 ${fw(fv.ttm.fair)}원이에요${fv.ttm.fair < fv.fair * 0.8 ? " — 정상 이익 기준보다 많이 낮아 지금 업황이 평소보다 나쁜(바닥 쪽) 구간일 수 있어요." : fv.ttm.fair > fv.fair * 1.25 ? " — 정상 이익 기준보다 많이 높아 지금 업황이 평소보다 좋은(꼭대기 쪽) 구간일 수 있어요." : " — 정상 이익 기준과 비슷해요."}`;
-                      return `현재 적정주가(정상 이익 기준) — ${fv.year}년 매출 ${fw(fv.rev)}억 × ${fv.years}개년(올해는 최근 분기 연환산 포함) 평균 영업이익률 ${(fv.mAvg * 100).toFixed(1)}% × 0.8(세후 순이익) × 평균 PER ${fv.perAvg.toFixed(1)}배 = 적정시총, 이를 현시총과 비교해 현재가에 곱했어요. 적정가 ${fw(fv.fair)}원은 현재가보다 ${up >= 0 ? `${(up * 100).toFixed(0)}% 높아 저평가` : `${Math.abs(up * 100).toFixed(0)}% 낮아 고평가`} 쪽이에요. 비교: ${ttmTxt} 색: 30%↑ 빨강(저평가) · 0~30% 금색 · 0~−20% 회색 · −20%↓ 파랑(고평가).`;
+                      return `현재 적정주가(정상 이익 기준) — ${fv.year}년 매출 ${fw(fv.rev)}억 × 장기 정상 영업이익률 ${(fv.mAvg * 100).toFixed(1)}% × 0.8(세후 순이익) × 장기 정상 PER ${fv.perAvg.toFixed(1)}배 = 적정시총(정상치는 ${fv.span} ${fv.years}개년의 중간값 — 적자 한두 해에 끌려가지 않도록 평균 대신 중간값을 써요), 이를 현시총과 비교해 현재가에 곱했어요. 적정가 ${fw(fv.fair)}원은 현재가보다 ${up >= 0 ? `${(up * 100).toFixed(0)}% 높아 저평가` : `${Math.abs(up * 100).toFixed(0)}% 낮아 고평가`} 쪽이에요. 비교: ${ttmTxt} 색: 30%↑ 빨강(저평가) · 0~30% 금색 · 0~−20% 회색 · −20%↓ 파랑(고평가).`;
                     })()
                   : openK === "tech"
                   ? `기술적 분석(주봉 기준) — 이동평균(5·20주), RSI(14), MACD, 볼린저밴드 4가지를 각각 매수 +1 / 중립 0 / 매도 −1로 보고 합산해요. 합계 +2 이상 매수, −2 이하 매도, 그 사이는 관망이에요.` + (tc0 && tc0.votes ? ` 지금: ${tc0.votes.map((v) => `${v.name} ${v.v > 0 ? "+1" : v.v < 0 ? "−1" : "0"}`).join(" · ")} = 합계 ${tc0.total > 0 ? "+" : ""}${tc0.total}` : tc0 ? ` 지금 합계 ${tc0.total > 0 ? "+" : ""}${tc0.total}` : " (주봉 데이터가 35개 미만이라 아직 판정할 수 없어요.)")
