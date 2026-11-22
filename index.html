@@ -1175,10 +1175,11 @@ const calcFairNow = (ef, closes, curCap, curPrice) => {
   const ttmFix = ttm && ttm.fair !== undefined && t.op > 0 ? { ...ttm, fair: ((t.op * 0.8 * pUse) / curCap) * curPrice } : ttm;
   return { fair: (fairCap / curCap) * curPrice, perAvg: pUse, mAvg: mUse, rev: latest.rev, year: latest.est ? `${latest.year}(연환산)` : latest.year, years: lr ? lr.years : annual.length, span: lr ? `${lr.from}~${lr.to}` : "", ttm: ttmFix };
 };
-const FutureValuePanel = ({ name, ef, closes, curCap, curPrice, saved, onSave, loading }) => {
-  const annual = useMemo(() => buildAnnualForValue(ef), [ef]);
+// 미래가치(3년 후) 계산 — 패널과 보유종목 카드의 "3년후 장기추정가"가 같이 쓴다
+const computeFuture = (ef, closes, curCap, curPrice, saved) => {
+  const annual = buildAnnualForValue(ef);
   const avg = (arr) => { const a = arr.filter((v) => v !== null && isFinite(v)); return a.length ? a.reduce((x, y) => x + y, 0) / a.length : null; };
-  const base = useMemo(() => {
+  const base = (() => {
     if (annual.length < 2 || !curCap || !curPrice) return null;
     const revAvg = avg(annual.map((a) => a.rev));
     const growths = annual.slice(1).map((a, i) => (a.rev - annual[i].rev) / annual[i].rev);
@@ -1198,7 +1199,7 @@ const FutureValuePanel = ({ name, ef, closes, curCap, curPrice, saved, onSave, l
     if (perAvg === null && latest.op > 0) perAvg = curCap / (latest.op * 0.8); // 연말 주가가 없으면 지금 시총 기준
     const lr = longRunNorm(ef, closes, curCap);
     return { revAvg, revLatest: latest.rev, gAvg: avg(growths), mAvg: avg(margins), mLatest: margins[margins.length - 1], perAvg, growths, margins, pers, lr };
-  }, [annual, closes, curCap, curPrice]);
+  })();
 
   const def = base ? {
     g2: base.gAvg !== null ? +(base.gAvg * 100 + 5).toFixed(1) : 10,
@@ -1210,6 +1211,26 @@ const FutureValuePanel = ({ name, ef, closes, curCap, curPrice, saved, onSave, l
     p3: base.perAvg ? +(base.perAvg * 1.3).toFixed(1) : 20,
   } : null;
   const inp = def ? { ...def, ...(saved || {}) } : null;
+  if (!base || base.mAvg === null || base.perAvg === null) return { annual, base, def, inp };
+  const g1 = base.gAvg !== null ? base.gAvg : 0;
+  const lr4 = base.lr && base.lr.mMed !== null && base.lr.perMed && base.lr.cagr !== null && base.lr.years >= 4 ? base.lr : null;
+  const sc = [
+    { k: "1안", sub: "평균", g: g1, m: base.mAvg, p: base.perAvg, rev: base.revAvg * Math.pow(1 + g1, 3) },
+    { k: "2안", sub: "평균+α", g: inp.g2 / 100, m: inp.m2 / 100, p: inp.p2, rev: base.revAvg * Math.pow(1 + inp.g2 / 100, 3) },
+    { k: "3안", sub: "M/S증가지속", g: inp.g3 / 100, m: inp.m3 / 100, p: inp.p3, rev: base.revLatest * Math.pow(1 + inp.g3 / 100, 3) },
+    // 4안 장기정상: 10년 CAGR 성장 · 10년 중간값 이익률·PER · 최근(연환산) 매출 기준 — 업황이 평소 수준으로 돌아온다는 가정
+    ...(lr4 ? [{ k: "4안", sub: "장기정상", g: lr4.cagr, m: lr4.mMed, p: lr4.perMed, rev: base.revLatest * Math.pow(1 + lr4.cagr, 3), long: true }] : []),
+  ].map((x) => ({ ...x, ni: x.rev * x.m * 0.8 }));
+  const pers = sc.map((x) => x.p);
+  const grid = sc.map((x) => pers.map((p) => { const ratio = Math.max(0, (p * x.ni) / curCap); return { price: ratio * curPrice, up: ratio - 1 }; })); // 적자면 0원(−100%)으로 본다
+  const flat = grid.flat();
+  const prices = flat.map((c) => c.price), ups = flat.map((c) => c.up);
+  const minP = Math.min(...prices), maxP = Math.max(...prices), avgP = prices.reduce((a, b) => a + b, 0) / prices.length;
+  const okRate = ups.filter((u) => u >= 2).length / ups.length;
+  return { annual, base, def, inp, g1, lr4, sc, pers, grid, flat, prices, ups, minP, maxP, avgP, okRate };
+};
+const FutureValuePanel = ({ name, ef, closes, curCap, curPrice, saved, onSave, loading }) => {
+  const { annual, base, def, inp, g1, lr4, sc, pers, grid, prices, ups, minP, maxP, avgP, okRate } = useMemo(() => computeFuture(ef, closes, curCap, curPrice, saved), [ef, closes, curCap, curPrice, saved]);
   const [draft, setDraft] = useState({});
   useEffect(() => { setDraft({}); }, [name]);
   const val = (k) => (draft[k] !== undefined ? draft[k] : inp ? String(inp[k]) : "");
@@ -1226,21 +1247,6 @@ const FutureValuePanel = ({ name, ef, closes, curCap, curPrice, saved, onSave, l
   if (!base) return <div style={{ marginTop: 6, fontSize: 11, color: "#5a6274" }}>{!curCap ? "시가총액이 아직 없어요(시세를 한 번 갱신해 주세요)." : "연간 재무자료가 2년 이상 있어야 추정할 수 있어요."}</div>;
   if (base.mAvg === null || base.perAvg === null) return <div style={{ marginTop: 6, fontSize: 11, color: "#5a6274" }}>영업이익이 적자이거나 자료가 부족해 PER을 계산할 수 없어 추정하지 못했어요.</div>;
 
-  const g1 = base.gAvg !== null ? base.gAvg : 0;
-  const lr4 = base.lr && base.lr.mMed !== null && base.lr.perMed && base.lr.cagr !== null && base.lr.years >= 4 ? base.lr : null;
-  const sc = [
-    { k: "1안", sub: "평균", g: g1, m: base.mAvg, p: base.perAvg, rev: base.revAvg * Math.pow(1 + g1, 3) },
-    { k: "2안", sub: "평균+α", g: inp.g2 / 100, m: inp.m2 / 100, p: inp.p2, rev: base.revAvg * Math.pow(1 + inp.g2 / 100, 3) },
-    { k: "3안", sub: "M/S증가지속", g: inp.g3 / 100, m: inp.m3 / 100, p: inp.p3, rev: base.revLatest * Math.pow(1 + inp.g3 / 100, 3) },
-    // 4안 장기정상: 10년 CAGR 성장 · 10년 중간값 이익률·PER · 최근(연환산) 매출 기준 — 업황이 평소 수준으로 돌아온다는 가정
-    ...(lr4 ? [{ k: "4안", sub: "장기정상", g: lr4.cagr, m: lr4.mMed, p: lr4.perMed, rev: base.revLatest * Math.pow(1 + lr4.cagr, 3), long: true }] : []),
-  ].map((x) => ({ ...x, ni: x.rev * x.m * 0.8 }));
-  const pers = sc.map((x) => x.p);
-  const grid = sc.map((x) => pers.map((p) => { const ratio = Math.max(0, (p * x.ni) / curCap); return { price: ratio * curPrice, up: ratio - 1 }; })); // 적자면 0원(−100%)으로 본다
-  const flat = grid.flat();
-  const prices = flat.map((c) => c.price), ups = flat.map((c) => c.up);
-  const minP = Math.min(...prices), maxP = Math.max(...prices), avgP = prices.reduce((a, b) => a + b, 0) / prices.length;
-  const okRate = ups.filter((u) => u >= 2).length / ups.length;
   const upColor = (u) => (u >= 2 ? "#e8544b" : u >= 1 ? "#e0b93c" : u >= 0 ? "#8993a6" : "#4c8dff");
   const fmtW = (v) => Math.round(v).toLocaleString("ko-KR");
   const fmtE = (v) => (Math.abs(v) >= 10000 ? (v / 10000).toFixed(1) + "조" : Math.round(v).toLocaleString("ko-KR") + "억");
@@ -1332,9 +1338,10 @@ const singleQuarters = (ef) => {
     return { p: k, rev: Number(cur.revenue) - Number(prev.revenue), op };
   }).filter(Boolean);
 };
-const ShortValuePanel = ({ name, ef, closes, curCap, curPrice, saved, onSave }) => {
-  const qs = useMemo(() => singleQuarters(ef), [ef]);
-  const base = useMemo(() => {
+// 단기가치(1년 후) 계산 — 패널과 보유종목 카드의 "1년 단기추정가"가 같이 쓴다
+const computeShort = (ef, closes, curCap, curPrice, saved) => {
+  const qs = singleQuarters(ef);
+  const base = (() => {
     if (qs.length < 4 || !curCap || !curPrice) return null;
     const last4 = qs.slice(-4);
     // 4개 분기가 연속인지 확인(누락 분기가 있으면 합계가 틀어짐)
@@ -1352,7 +1359,7 @@ const ShortValuePanel = ({ name, ef, closes, curCap, curPrice, saved, onSave }) 
     const per = lr && lr.perMed ? lr.perMed : perCur;
     const label = (p) => `${p.slice(2, 4)}.${Math.round(Number(p.slice(4, 6)) / 3)}Q`;
     return { rev, op, margin: op !== null ? op / rev : null, yoy, lqMargin, lr, per, perCur, from: label(last4[0].p), to: label(lq.p), lqLabel: label(lq.p) };
-  }, [qs, closes, curCap, curPrice]);
+  })();
   const def = base ? {
     g2: base.yoy !== null ? +(Math.max(-50, Math.min(100, base.yoy * 100))).toFixed(1) : 0,
     m2: base.lqMargin !== null ? +(base.lqMargin * 100).toFixed(1) : base.margin !== null ? +(base.margin * 100).toFixed(1) : 5,
@@ -1362,6 +1369,21 @@ const ShortValuePanel = ({ name, ef, closes, curCap, curPrice, saved, onSave }) 
     p3: base.per ? +(base.per * 1.2).toFixed(1) : 18,
   } : null;
   const inp = def ? { ...def, ...(saved || {}) } : null;
+  if (!base || base.margin === null || !base.per) return { base, def, inp };
+  const sc = [
+    { k: "1안", sub: "현상유지", g: 0, m: base.margin, p: base.per },
+    { k: "2안", sub: "최근추세", g: inp.g2 / 100, m: inp.m2 / 100, p: inp.p2 },
+    { k: "3안", sub: "개선", g: inp.g3 / 100, m: inp.m3 / 100, p: inp.p3 },
+  ].map((x) => { const rev = base.rev * (1 + x.g); return { ...x, rev, ni: rev * x.m * 0.8 }; });
+  const pers = sc.map((x) => x.p);
+  const grid = sc.map((x) => pers.map((p) => { const ratio = Math.max(0, (p * x.ni) / curCap); return { price: ratio * curPrice, up: ratio - 1 }; }));
+  const flat = grid.flat();
+  const prices = flat.map((c) => c.price), ups = flat.map((c) => c.up);
+  const minP = Math.min(...prices), maxP = Math.max(...prices), avgP = prices.reduce((a, b) => a + b, 0) / prices.length;
+  return { base, def, inp, sc, pers, grid, flat, prices, ups, minP, maxP, avgP };
+};
+const ShortValuePanel = ({ name, ef, closes, curCap, curPrice, saved, onSave }) => {
+  const { base, def, inp, sc, pers, grid, prices, ups, minP, maxP, avgP } = useMemo(() => computeShort(ef, closes, curCap, curPrice, saved), [ef, closes, curCap, curPrice, saved]);
   const [draft, setDraft] = useState({});
   useEffect(() => { setDraft({}); }, [name]);
   const val = (k) => (draft[k] !== undefined ? draft[k] : inp ? String(inp[k]) : "");
@@ -1386,16 +1408,6 @@ const ShortValuePanel = ({ name, ef, closes, curCap, curPrice, saved, onSave }) 
       <span style={{ fontSize: 9, color: "#5a6274" }}>{suffix}</span>
     </span>
   );
-  const sc = [
-    { k: "1안", sub: "현상유지", g: 0, m: base.margin, p: base.per },
-    { k: "2안", sub: "최근추세", g: inp.g2 / 100, m: inp.m2 / 100, p: inp.p2 },
-    { k: "3안", sub: "개선", g: inp.g3 / 100, m: inp.m3 / 100, p: inp.p3 },
-  ].map((x) => { const rev = base.rev * (1 + x.g); return { ...x, rev, ni: rev * x.m * 0.8 }; });
-  const pers = sc.map((x) => x.p);
-  const grid = sc.map((x) => pers.map((p) => { const ratio = Math.max(0, (p * x.ni) / curCap); return { price: ratio * curPrice, up: ratio - 1 }; }));
-  const flat = grid.flat();
-  const prices = flat.map((c) => c.price), ups = flat.map((c) => c.up);
-  const minP = Math.min(...prices), maxP = Math.max(...prices), avgP = prices.reduce((a, b) => a + b, 0) / prices.length;
   const upColor = (u) => (u >= 0.3 ? "#e8544b" : u >= 0.1 ? "#e0b93c" : u >= -0.1 ? "#8993a6" : "#4c8dff");
   const okRate = ups.filter((u) => u >= 0.3).length / ups.length;
   const avgUp = avgP / curPrice - 1;
@@ -6549,20 +6561,34 @@ function PortfolioApp() {
                   <input className="field" type="text" inputMode="numeric" placeholder="자동입력" value={toDisplay(r.cur)} onChange={(e) => updateStock(r.id, "curPrice", fromDisplay(e.target.value))} style={{ textAlign: "center", width: "100%" }} />
                 </div>
               </div>
+              {r.code && (() => {
+                // 현재가 바로 아래: 왼쪽 "3년후 장기추정가"(미래가치 평균) · 오른쪽 "1년 단기추정가"(단기가치 평균)
+                const cap = r.marketCap ? num(r.marketCap) : 0, cur = num(r.cur);
+                const ef = extraFundamentalsData[r.code], cl = futureCloses[toCommonCode(r.code) || r.code];
+                const L = computeFuture(ef, cl, cap, cur, futureInputs[r.code]);
+                const S = computeShort(ef, cl, cap, cur, shortInputs[r.code]);
+                const box = (k, title, v, up, color) => {
+                  const open = sigInfo && sigInfo.id === r.id && sigInfo.k === k;
+                  return (
+                    <span className="tnum" onClick={() => setSigInfo(open ? null : { id: r.id, k })} style={{ display: "inline-flex", flexDirection: "column", alignItems: "flex-end", padding: "3px 8px", borderRadius: 6, color, background: `${color}22`, border: `1px solid ${color}`, whiteSpace: "nowrap", cursor: "pointer", outline: open ? "1px solid #c9974a" : "none" }}>
+                      <span style={{ fontSize: 10, fontWeight: 400, opacity: 0.85 }}>{title}</span>
+                      <span style={{ fontSize: 13, fontWeight: 700 }}>{v === null ? "-" : `${Math.round(v).toLocaleString("ko-KR")} ${up >= 0 ? "▲" : "▼"}${Math.abs(up * 100).toFixed(0)}%`}</span>
+                    </span>
+                  );
+                };
+                const lUp = L.avgP !== undefined && cur ? L.avgP / cur - 1 : null;
+                const sUp = S.avgP !== undefined && cur ? S.avgP / cur - 1 : null;
+                const lCol = lUp === null ? "#5a6274" : lUp >= 2 ? "#e8544b" : lUp >= 1 ? "#e0b93c" : lUp >= 0 ? "#8993a6" : "#4c8dff";
+                const sCol = sUp === null ? "#5a6274" : sUp >= 0.3 ? "#e8544b" : sUp >= 0.1 ? "#e0b93c" : sUp >= -0.1 ? "#8993a6" : "#4c8dff";
+                return (
+                  <div style={{ display: "flex", justifyContent: "flex-end", gap: 6, marginTop: -2, marginBottom: 4 }}>
+                    {box("long", "3년후 장기추정가", lUp === null ? null : L.avgP, lUp, lCol)}
+                    {box("short", "1년 단기추정가", sUp === null ? null : S.avgP, sUp, sCol)}
+                  </div>
+                );
+              })()}
               {r.code && (
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, marginTop: -2, marginBottom: 6 }}>
-                  {(() => {
-                    // 현재 적정주가 칩 — 매입가 칸 바로 아래. 탭하면 아래쪽 신호 설명 칸에 계산 근거가 나온다.
-                    const fv = calcFairNow(extraFundamentalsData[r.code], futureCloses[toCommonCode(r.code) || r.code], r.marketCap ? num(r.marketCap) : 0, num(r.cur));
-                    const fUp = fv && fv.fair ? fv.fair / num(r.cur) - 1 : null;
-                    const c = fUp === null ? "#5a6274" : fUp >= 0.3 ? "#e8544b" : fUp >= 0 ? "#e0b93c" : fUp >= -0.2 ? "#8993a6" : "#4c8dff";
-                    const open = sigInfo && sigInfo.id === r.id && sigInfo.k === "fair";
-                    return (
-                      <span className="tnum" onClick={() => setSigInfo(open ? null : { id: r.id, k: "fair" })} style={{ display: "inline-flex", alignItems: "center", padding: "3px 8px", borderRadius: 6, fontSize: 13, fontWeight: 700, color: c, background: `${c}22`, border: `1px solid ${c}`, whiteSpace: "nowrap", cursor: "pointer", outline: open ? "1px solid #c9974a" : "none" }}>
-                        {fv && fv.fair ? `적정 ${Math.round(fv.fair).toLocaleString("ko-KR")} ${fUp >= 0 ? "▲" : "▼"}${Math.abs(fUp * 100).toFixed(0)}%` : fv && fv.lossy ? "적정 - (적자구간)" : "적정 -"}
-                      </span>
-                    );
-                  })()}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6, marginTop: 0, marginBottom: 6 }}>
                   {r.hasPrevClose ? (
                     <span className="tnum" style={{ fontSize: 13, fontWeight: 700, color: r.prevChangeAmt > 0 ? "#e8544b" : r.prevChangeAmt < 0 ? "#4c8dff" : "#e7eaf0" }}>
                       전일대비 {r.prevChangeAmt > 0 ? "▲ " : r.prevChangeAmt < 0 ? "▼ " : ""}{fmt(r.prevChangeAmt)}원 ({r.prevChangeRate >= 0 ? "+" : ""}{(r.prevChangeRate * 100).toFixed(2)}%)
@@ -6601,6 +6627,20 @@ function PortfolioApp() {
                       const mkt = tm.ms === null ? "시장평가 점수 없음(시장평가 화면을 한 번 열어주세요)" : `시장평가 평균 ${tm.ms}점`;
                       const head = adv === "buy" ? "매수시점 — 추세·가치·시장이 모두 매수 쪽이에요." : adv === "sell" ? "매도시점 — 추세가 꺾였거나(하락 단계), 비싼데 시장도 거품이에요." : tm.suppressed ? "중도시점 — ⇄전환으로 이번 주 신호를 끈 상태예요(다음 주봉에 다시 판정)." : "중도시점 — 매수·매도 조건이 다 갖춰지지 않아 기존 비중을 유지하는 구간이에요.";
                       return `${head} ${mk(tm.checks.trend)} 추세: ${stg} · ${mk(tm.checks.value)} 가치: ${val} (20%↑ 싸면 ✔, 20%↑ 비싸면 ✘) · ${mk(tm.checks.market)} 시장: ${mkt} (100 미만 ✔). 매수 = 상승 단계 + 적정가보다 20%↑ 쌈 + 시장 100 미만. 매도 = 하락 단계(단, 적정가보다 30%↑ 싸면 보유) 또는 20%↑ 비싸면서 시장 100 이상. 매수 여력: 현금 ${cashPct}%${cashRatio >= 0.3 ? " (넉넉)" : cashRatio <= 0.1 ? " (부족)" : ""}.`;
+                    })()
+                  : openK === "long" || openK === "short"
+                  ? (() => {
+                      const cap = r.marketCap ? num(r.marketCap) : 0, cur = num(r.cur);
+                      const ef = extraFundamentalsData[r.code], cl = futureCloses[toCommonCode(r.code) || r.code];
+                      const fw = (v) => Math.round(v).toLocaleString("ko-KR");
+                      if (openK === "long") {
+                        const L = computeFuture(ef, cl, cap, cur, futureInputs[r.code]);
+                        if (L.avgP === undefined) return "3년후 장기추정가 — 연간 재무자료(DART)가 아직 없거나 적자로 PER을 구할 수 없어 계산하지 못했어요.";
+                        return `3년후 장기추정가 — 미래가치 탭(3년 후)의 ${L.sc.length}개 시나리오 × ${L.pers.length}개 PER = ${L.prices.length}가지 추정주가의 평균이에요. 최저 ${fw(L.minP)} · 평균 ${fw(L.avgP)} · 최고 ${fw(L.maxP)}원. 시나리오 값은 미래가치 탭의 금색 칸을 고치면 여기도 같이 바뀌어요. 색: 200%↑(3배) 빨강 · 100%↑ 금색 · 0%↑ 회색 · 하락 파랑.`;
+                      }
+                      const S = computeShort(ef, cl, cap, cur, shortInputs[r.code]);
+                      if (S.avgP === undefined) return "1년 단기추정가 — 최근 4개 분기 실적이 모두 있어야 계산할 수 있어요(재무자료를 받는 중이거나 분기 자료가 빠졌어요).";
+                      return `1년 단기추정가 — 미래가치 탭 안 "단기가치"(최근 4분기 기준 1년 후)의 9가지 추정주가 평균이에요. 최저 ${fw(S.minP)} · 평균 ${fw(S.avgP)} · 최고 ${fw(S.maxP)}원. 시나리오 값은 단기가치의 금색 칸을 고치면 같이 바뀌어요. 색: 30%↑ 빨강 · 10%↑ 금색 · ±10% 회색 · −10%↓ 파랑.`;
                     })()
                   : openK === "fair"
                   ? (() => {
@@ -6688,7 +6728,8 @@ function PortfolioApp() {
                   onClick={() => {
                     const opening = metricsStock !== r.id;
                     setMetricsStock(opening ? r.id : null);
-                    if (opening) { setManualCodeFor(null); setExpandedStock(null); setCandleStock(null); setQuarterStock(null); setFutureStock(null); }
+                    setQuarterStock(null); // 재무데이터는 연간 표로 열고, 안쪽 "최근 4분기 ▸"로 분기 표 전환
+                    if (opening) { setManualCodeFor(null); setExpandedStock(null); setCandleStock(null); setFutureStock(null); }
                   }}
                   style={{ fontSize: 11, padding: "4px 4px", whiteSpace: "nowrap", letterSpacing: "-0.5px", borderRadius: 8, border: metricsStock === r.id ? "1px solid #c9974a" : "1px solid transparent", background: metricsStock === r.id ? "rgba(201,151,74,0.15)" : "none", color: metricsStock === r.id ? "#c9974a" : "#8993a6", fontWeight: metricsStock === r.id ? 700 : 400 }}
                 >
@@ -6697,15 +6738,49 @@ function PortfolioApp() {
                 <button
                   className="iconbtn"
                   onClick={() => {
-                    const opening = quarterStock !== r.id;
-                    setQuarterStock(opening ? r.id : null);
-                    if (opening) { setManualCodeFor(null); setExpandedStock(null); setCandleStock(null); setMetricsStock(null); setFutureStock(null); }
+                    const opening = futureStock !== r.id;
+                    setFutureStock(opening ? r.id : null);
+                    setShortStock(null); // 미래가치는 3년 표로 열고, 안쪽 "단기가치 ▸"로 1년 표 전환
+                    if (opening) { setManualCodeFor(null); setExpandedStock(null); setCandleStock(null); setMetricsStock(null); setQuarterStock(null); }
                   }}
-                  style={{ fontSize: 11, padding: "4px 4px", whiteSpace: "nowrap", letterSpacing: "-0.5px", borderRadius: 8, border: quarterStock === r.id ? "1px solid #c9974a" : "1px solid transparent", background: quarterStock === r.id ? "rgba(201,151,74,0.15)" : "none", color: quarterStock === r.id ? "#c9974a" : "#8993a6", fontWeight: quarterStock === r.id ? 700 : 400 }}
+                  style={{ fontSize: 11, padding: "4px 4px", whiteSpace: "nowrap", letterSpacing: "-0.5px", borderRadius: 8, border: futureStock === r.id ? "1px solid #c9974a" : "1px solid transparent", background: futureStock === r.id ? "rgba(201,151,74,0.15)" : "none", color: futureStock === r.id ? "#c9974a" : "#8993a6", fontWeight: futureStock === r.id ? 700 : 400 }}
                 >
-                  최근4분기 {quarterStock === r.id ? "▴" : "▾"}
+                  미래가치 {futureStock === r.id ? "▴" : "▾"}
                 </button>
               </div>
+              {futureStock === r.id && (
+                <div style={{ marginTop: 4 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, fontSize: 11 }}>
+                    <span style={{ color: "#c9974a", fontWeight: 700 }}>{shortStock === r.id ? "미래가치 · 단기가치(1년)" : "미래가치 · 3년 후"}</span>
+                    <button className="iconbtn" onClick={() => setShortStock(shortStock === r.id ? null : r.id)}
+                      style={{ fontSize: 11, padding: "3px 8px", borderRadius: 8, whiteSpace: "nowrap", border: shortStock === r.id ? "1px solid #c9974a" : "1px solid #3a4150", background: shortStock === r.id ? "rgba(201,151,74,0.15)" : "none", color: shortStock === r.id ? "#c9974a" : "#8993a6", fontWeight: shortStock === r.id ? 700 : 400 }}>
+                      {shortStock === r.id ? "◀ 3년 후" : "단기가치 ▸"}
+                    </button>
+                  </div>
+                  {shortStock === r.id ? (
+                    <ShortValuePanel
+                      name={r.code}
+                      ef={r.code ? extraFundamentalsData[r.code] : null}
+                      closes={r.code ? futureCloses[toCommonCode(r.code) || r.code] : null}
+                      curCap={r.marketCap ? num(r.marketCap) : 0}
+                      curPrice={num(r.cur)}
+                      saved={r.code ? shortInputs[r.code] : null}
+                      onSave={(v) => setShortInputs((p) => { const n = { ...p, [r.code]: v }; try { localStorage.setItem(SHORT_INPUTS_KEY, JSON.stringify(n)); } catch (e) {} return n; })}
+                    />
+                  ) : (
+                    <FutureValuePanel
+                      name={r.code}
+                      ef={r.code ? extraFundamentalsData[r.code] : null}
+                      loading={!!(r.code && extraFundamentalsLoading[r.code])}
+                      closes={r.code ? futureCloses[toCommonCode(r.code) || r.code] : null}
+                      curCap={r.marketCap ? num(r.marketCap) : 0}
+                      curPrice={num(r.cur)}
+                      saved={r.code ? futureInputs[r.code] : null}
+                      onSave={(v) => setFutureInputs((p) => { const n = { ...p, [r.code]: v }; try { localStorage.setItem(FUTURE_INPUTS_KEY, JSON.stringify(n)); } catch (e) {} return n; })}
+                    />
+                  )}
+                </div>
+              )}
               {manualCodeFor === r.id && (
                 <div style={{ marginTop: 8 }}>
                   <div className="lbl">종목명이 사전에 없어서 자동완성이 안 뜰 때, 종목코드를 직접 입력하세요 (예: 코스모신소재 005070)</div>
@@ -6971,42 +7046,13 @@ function PortfolioApp() {
                 return (
                   <div style={{ marginTop: 4, fontSize: 11, color: "#5a6274" }}>
                     <div style={{ marginBottom: 2, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
-                      <span style={{ color: "#c9974a", fontWeight: 700 }}>{quarterMode ? (shortStock === r.id ? "최근 4분기 · 단기가치" : "최근 4분기 · ") : futureStock === r.id ? "재무데이터 · 미래가치" : ""}{(quarterMode && shortStock === r.id) || (!quarterMode && futureStock === r.id) ? "" : `기준선: ${profileLabel}`}</span>
-                      {!quarterMode && (
-                        <button className="iconbtn" onClick={() => setFutureStock(futureStock === r.id ? null : r.id)}
-                          style={{ fontSize: 11, padding: "3px 8px", borderRadius: 8, whiteSpace: "nowrap", border: futureStock === r.id ? "1px solid #c9974a" : "1px solid #3a4150", background: futureStock === r.id ? "rgba(201,151,74,0.15)" : "none", color: futureStock === r.id ? "#c9974a" : "#8993a6", fontWeight: futureStock === r.id ? 700 : 400 }}>
-                          {futureStock === r.id ? "◀ 재무표" : "미래가치 ▸"}
-                        </button>
-                      )}
-                      {quarterMode && (
-                        <button className="iconbtn" onClick={() => setShortStock(shortStock === r.id ? null : r.id)}
-                          style={{ fontSize: 11, padding: "3px 8px", borderRadius: 8, whiteSpace: "nowrap", border: shortStock === r.id ? "1px solid #c9974a" : "1px solid #3a4150", background: shortStock === r.id ? "rgba(201,151,74,0.15)" : "none", color: shortStock === r.id ? "#c9974a" : "#8993a6", fontWeight: shortStock === r.id ? 700 : 400 }}>
-                          {shortStock === r.id ? "◀ 분기표" : "단기가치 ▸"}
-                        </button>
-                      )}
+                      <span style={{ color: "#c9974a", fontWeight: 700 }}>{quarterMode ? "최근 4분기 · " : ""}기준선: {profileLabel}</span>
+                      <button className="iconbtn" onClick={() => setQuarterStock(quarterMode ? null : r.id)}
+                        style={{ fontSize: 11, padding: "3px 8px", borderRadius: 8, whiteSpace: "nowrap", border: quarterMode ? "1px solid #c9974a" : "1px solid #3a4150", background: quarterMode ? "rgba(201,151,74,0.15)" : "none", color: quarterMode ? "#c9974a" : "#8993a6", fontWeight: quarterMode ? 700 : 400 }}>
+                        {quarterMode ? "◀ 연간" : "최근 4분기 ▸"}
+                      </button>
                     </div>
-                    {quarterMode && shortStock === r.id ? (
-                      <ShortValuePanel
-                        name={r.code}
-                        ef={ef0}
-                        closes={futureCloses[toCommonCode(r.code) || r.code]}
-                        curCap={r.marketCap ? num(r.marketCap) : 0}
-                        curPrice={num(r.cur)}
-                        saved={shortInputs[r.code]}
-                        onSave={(v) => setShortInputs((p) => { const n = { ...p, [r.code]: v }; try { localStorage.setItem(SHORT_INPUTS_KEY, JSON.stringify(n)); } catch (e) {} return n; })}
-                      />
-                    ) : !quarterMode && futureStock === r.id ? (
-                      <FutureValuePanel
-                        name={r.code}
-                        ef={ef0}
-                        loading={!!(r.code && extraFundamentalsLoading[r.code])}
-                        closes={futureCloses[toCommonCode(r.code) || r.code]}
-                        curCap={r.marketCap ? num(r.marketCap) : 0}
-                        curPrice={num(r.cur)}
-                        saved={futureInputs[r.code]}
-                        onSave={(v) => setFutureInputs((p) => { const n = { ...p, [r.code]: v }; try { localStorage.setItem(FUTURE_INPUTS_KEY, JSON.stringify(n)); } catch (e) {} return n; })}
-                      />
-                    ) : allYears.length === 0 ? (
+                    {allYears.length === 0 ? (
                       <div>표시할 데이터가 없어요.</div>
                     ) : (
                       <>
