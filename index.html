@@ -1189,7 +1189,7 @@ const FutureValuePanel = ({ name, ef, closes, curCap, curPrice, saved, onSave, l
   const fmtW = (v) => Math.round(v).toLocaleString("ko-KR");
   const fmtE = (v) => (Math.abs(v) >= 10000 ? (v / 10000).toFixed(1) + "조" : Math.round(v).toLocaleString("ko-KR") + "억");
   const pct = (u) => `${u >= 0 ? "+" : ""}${(u * 100).toFixed(0)}%`;
-  const cell = { textAlign: "right", padding: "2px 3px", whiteSpace: "nowrap" };
+  const cell = { whiteSpace: "nowrap" };
   const inBox = (k, suffix) => (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 1 }}>
       <input value={val(k)} inputMode="decimal" onChange={(e) => setDraft((d) => ({ ...d, [k]: e.target.value }))} onBlur={() => commit(k)}
@@ -1204,42 +1204,42 @@ const FutureValuePanel = ({ name, ef, closes, curCap, curPrice, saved, onSave, l
       <div style={{ fontSize: 10, color: "#8993a6", marginBottom: 5 }}>
         평균매출 {fmtE(base.revAvg)} · 매출성장률 {base.gAvg !== null ? pct(base.gAvg) : "-"} · 영업이익률 {(base.mAvg * 100).toFixed(1)}% · PER(계산치) {base.perAvg.toFixed(1)}배
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "auto 1fr 1fr 1fr", gap: 2, alignItems: "center", fontSize: 11 }}>
-        <div></div>
-        {sc.map((x) => <div key={x.k} style={{ textAlign: "right", color: "#e7eaf0", fontWeight: 700 }}>{x.k}<div style={{ fontSize: 9, color: "#5a6274", fontWeight: 400 }}>{x.sub}</div></div>)}
-        <div style={{ color: "#8993a6" }}>매출성장률</div>
-        <div style={cell}>{pct(g1)}</div><div style={cell}>{inBox("g2", "%")}</div><div style={cell}>{inBox("g3", "%")}</div>
-        <div style={{ color: "#8993a6" }}>영업이익률</div>
-        <div style={cell}>{(base.mAvg * 100).toFixed(1)}%</div><div style={cell}>{inBox("m2", "%")}</div><div style={cell}>{inBox("m3", "%")}</div>
-        <div style={{ color: "#8993a6" }}>PER</div>
-        <div style={cell}>{base.perAvg.toFixed(1)}배</div><div style={cell}>{inBox("p2", "배")}</div><div style={cell}>{inBox("p3", "배")}</div>
-        <div style={{ color: "#8993a6" }}>3년후 매출</div>
-        {sc.map((x) => <div key={x.k} className="tnum" style={cell}>{fmtE(x.rev)}</div>)}
-        <div style={{ color: "#8993a6" }}>추정순이익</div>
-        {sc.map((x) => <div key={x.k} className="tnum" style={cell}>{fmtE(x.ni)}</div>)}
+      <div className="gtbl" style={{ gridTemplateColumns: "auto 1fr 1fr 1fr", fontSize: 11 }}>
+        <div className="gth gl" style={{ fontSize: 10 }}>항목</div>
+        {sc.map((x) => <div key={x.k} className="gth gr" style={{ color: "#e7eaf0", flexDirection: "column", alignItems: "flex-end" }}>{x.k}<span style={{ fontSize: 9, color: "#5a6274", fontWeight: 400 }}>{x.sub}</span></div>)}
+        <div className="gl" style={{ color: "#8993a6" }}>매출성장률</div>
+        <div className="gr" style={cell}>{pct(g1)}</div><div className="gr" style={cell}>{inBox("g2", "%")}</div><div className="gr" style={cell}>{inBox("g3", "%")}</div>
+        <div className="gl" style={{ color: "#8993a6" }}>영업이익률</div>
+        <div className="gr" style={cell}>{(base.mAvg * 100).toFixed(1)}%</div><div className="gr" style={cell}>{inBox("m2", "%")}</div><div className="gr" style={cell}>{inBox("m3", "%")}</div>
+        <div className="gl" style={{ color: "#8993a6" }}>PER</div>
+        <div className="gr" style={cell}>{base.perAvg.toFixed(1)}배</div><div className="gr" style={cell}>{inBox("p2", "배")}</div><div className="gr" style={cell}>{inBox("p3", "배")}</div>
+        <div className="gl" style={{ color: "#8993a6" }}>3년후 매출</div>
+        {sc.map((x) => <div key={x.k} className="tnum gr" style={cell}>{fmtE(x.rev)}</div>)}
+        <div className="gl" style={{ color: "#8993a6" }}>추정순이익</div>
+        {sc.map((x) => <div key={x.k} className="tnum gr" style={cell}>{fmtE(x.ni)}</div>)}
       </div>
       <div style={{ marginTop: 6, fontSize: 10, color: "#8993a6" }}>상승여력 (행: 순이익 시나리오 × 열: PER)</div>
-      <div style={{ display: "grid", gridTemplateColumns: "auto 1fr 1fr 1fr", gap: 2, fontSize: 11 }}>
-        <div></div>
-        {pers.map((p, j) => <div key={j} style={{ ...cell, color: "#5a6274", fontSize: 10 }}>PER {p.toFixed(1)}</div>)}
+      <div className="gtbl" style={{ gridTemplateColumns: "auto 1fr 1fr 1fr", fontSize: 11 }}>
+        <div className="gth gl" style={{ fontSize: 10 }}>순이익＼PER</div>
+        {pers.map((p, j) => <div key={j} className="gth gr" style={{ ...cell, fontSize: 10 }}>PER {p.toFixed(1)}</div>)}
         {grid.map((row, i) => (
           <React.Fragment key={i}>
-            <div style={{ color: "#8993a6" }}>{sc[i].k}</div>
-            {row.map((c, j) => <div key={j} className="tnum" style={{ ...cell, fontWeight: 700, color: upColor(c.up) }}>{pct(c.up)}</div>)}
+            <div className="gl" style={{ color: "#8993a6" }}>{sc[i].k}</div>
+            {row.map((c, j) => <div key={j} className="tnum gr" style={{ ...cell, fontWeight: 700, color: upColor(c.up) }}>{pct(c.up)}</div>)}
           </React.Fragment>
         ))}
       </div>
-      <div style={{ marginTop: 6, padding: "6px 8px", background: "#161a22", borderRadius: 6 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "auto 1fr 1fr 1fr", gap: 2, fontSize: 11 }}>
-          <div></div><div style={{ ...cell, color: "#5a6274" }}>최저</div><div style={{ ...cell, color: "#5a6274" }}>평균</div><div style={{ ...cell, color: "#5a6274" }}>최고</div>
-          <div style={{ color: "#8993a6" }}>추정주가</div>
-          {[minP, avgP, maxP].map((v, i) => <div key={i} className="tnum" style={{ ...cell, fontWeight: 700, color: "#e7eaf0" }}>{fmtW(v)}</div>)}
-          <div style={{ color: "#8993a6" }}>상승여력</div>
-          {[minP, avgP, maxP].map((v, i) => { const u = v / curPrice - 1; return <div key={i} className="tnum" style={{ ...cell, fontWeight: 700, color: upColor(u) }}>{pct(u)}</div>; })}
-          <div style={{ color: "#8993a6" }}>매수가능가</div>
-          {[minP, avgP, maxP].map((v, i) => <div key={i} className="tnum" style={{ ...cell, color: curPrice <= v / 3 ? "#e8544b" : "#8993a6" }}>{fmtW(v / 3)}</div>)}
+      <div style={{ marginTop: 6 }}>
+        <div className="gtbl" style={{ gridTemplateColumns: "auto 1fr 1fr 1fr", fontSize: 11 }}>
+          <div className="gth gl" style={{ fontSize: 10 }}>요약</div><div className="gth gr" style={cell}>최저</div><div className="gth gr" style={cell}>평균</div><div className="gth gr" style={cell}>최고</div>
+          <div className="gl" style={{ color: "#8993a6" }}>추정주가</div>
+          {[minP, avgP, maxP].map((v, i) => <div key={i} className="tnum gr" style={{ ...cell, fontWeight: 700, color: "#e7eaf0" }}>{fmtW(v)}</div>)}
+          <div className="gl" style={{ color: "#8993a6" }}>상승여력</div>
+          {[minP, avgP, maxP].map((v, i) => { const u = v / curPrice - 1; return <div key={i} className="tnum gr" style={{ ...cell, fontWeight: 700, color: upColor(u) }}>{pct(u)}</div>; })}
+          <div className="gl" style={{ color: "#8993a6" }}>매수가능가</div>
+          {[minP, avgP, maxP].map((v, i) => <div key={i} className="tnum gr" style={{ ...cell, color: curPrice <= v / 3 ? "#e8544b" : "#8993a6" }}>{fmtW(v / 3)}</div>)}
         </div>
-        <div style={{ marginTop: 5, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ marginTop: 5, padding: "5px 8px", border: "1px solid #2a303c", borderRadius: 6, background: "#151920", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <span>투자가능률(9개 중 200%↑) <b className="tnum" style={{ color: upColor(okRate >= 0.5 ? 2 : okRate > 0 ? 1 : 0) }}>{Math.round(okRate * 100)}%</b></span>
           <span style={{ fontWeight: 700, color: verdict[1] }}>{verdict[0]}</span>
         </div>
@@ -3586,6 +3586,12 @@ function PortfolioApp() {
         .field { background:#12151b; border:1px solid #2a303c; border-radius:8px; color:#e7eaf0; padding:6px 8px; font-size:13px; width:100%; }
         .field:focus { outline:none; border-color:#c9974a; }
         .lbl { color:#8993a6; font-size:11px; }
+        .gtbl { display:grid; gap:1px; background:#2a303c; border:1px solid #2a303c; border-radius:6px; overflow:hidden; }
+        .gtbl > * { background:#151920; padding:3px 4px; min-width:0; display:flex; align-items:center; }
+        .gtbl > .gth { background:#1d222c; color:#8993a6; font-weight:700; }
+        .gtbl > .gl { justify-content:flex-start; }
+        .gtbl > .gc { justify-content:center; }
+        .gtbl > .gr { justify-content:flex-end; }
         .iconbtn { background:none; border:none; cursor:pointer; }
         @keyframes spin { from { transform:rotate(0deg);} to { transform:rotate(360deg);} }
         .spinning { display:inline-block; animation: spin 1s linear infinite; }
@@ -6747,15 +6753,14 @@ function PortfolioApp() {
                       <div>표시할 데이터가 없어요.</div>
                     ) : (
                       <>
-                        <div style={{ display: "grid", gridTemplateColumns: `minmax(0, 1fr) repeat(${allYears.length}, 52px)`, gap: 2, marginBottom: 2, fontWeight: 700, color: "#8993a6" }}>
-                          <div></div>
-                          {allYears.map((y) => <div key={y} className="tnum" style={{ textAlign: quarterMode ? "right" : "center", fontSize: 12, paddingRight: quarterMode ? 2 : 0 }}>{colLabel(y)}</div>)}
-                        </div>
+                        <div className="gtbl" style={{ gridTemplateColumns: `minmax(0, 1fr) repeat(${allYears.length}, 54px)` }}>
+                          <div className="gth gl" style={{ fontSize: 10 }}>항목</div>
+                          {allYears.map((y) => <div key={y} className="tnum gth gc" style={{ fontSize: 11 }}>{colLabel(y)}</div>)}
                         {rows.map(([label, pts, formatter, colorFn, excellentRange]) => {
                           const yoy = yoyColorFor(pts, label === "부채비율");
                           return (
-                            <div key={label} style={{ display: "grid", gridTemplateColumns: `minmax(0, 1fr) repeat(${allYears.length}, 52px)`, gap: 2, padding: "1px 0", borderTop: "1px solid #1a1f28" }}>
-                              <div style={{ color: "#8993a6", fontSize: 10, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "clip", letterSpacing: "-0.3px" }}>
+                            <React.Fragment key={label}>
+                              <div className="gl" style={{ color: "#8993a6", fontSize: 10, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "clip", letterSpacing: "-0.3px" }}>
                                 {label}
                                 {excellentRange && <span style={{ fontSize: 8, color: "#5a6274" }}>({excellentRange})</span>}
                               </div>
@@ -6769,20 +6774,20 @@ function PortfolioApp() {
                                 return (
                                   <div
                                     key={y}
-                                    className="tnum"
+                                    className={quarterMode ? "tnum gr" : "tnum gc"}
                                     style={{
-                                      textAlign: quarterMode ? "right" : "center", fontWeight: 700, fontSize: 11, color, lineHeight: 1.1, whiteSpace: "nowrap", letterSpacing: "-0.4px",
-                                      border: isExcellent ? "1px solid #e8544b" : "1px solid transparent",
-                                      borderRadius: 4, padding: "0px 1px",
+                                      fontWeight: 700, fontSize: 11, color, lineHeight: 1.1, whiteSpace: "nowrap", letterSpacing: "-0.4px",
+                                      outline: isExcellent ? "1px solid #e8544b" : "none",
                                     }}
                                   >
                                     {p ? formatter(p.value) : "-"}{p && p.estimated ? <span style={{ color: "#c9974a" }}>*</span> : ""}
                                   </div>
                                 );
                               })}
-                            </div>
+                            </React.Fragment>
                           );
                         })}
+                        </div>
                         <div style={{ marginTop: 4, fontSize: 9 }}>
                           {quarterMode && <div style={{ marginBottom: 3, color: "#8993a6" }}>최근 4분기를 오래된 순서로 보여줘요(예: 25.3Q = 2025년 3분기). 매출액·영업이익·순이익·EPS는 그 분기 한 분기 값이에요(누적치에서 직전 분기를 뺀 값). PER·EVA는 그 분기 EPS·영업이익을 ×4로 연환산해 계산해요. 금액 지표의 색은 작년 같은 분기와 비교해요. 아직 발표 안 된 분기는 나오지 않아요.</div>}
                           <span style={{ color: "#c9974a" }}>*</span> 당해년 매출액·영업이익·순이익·EPS·PER·EVA는 아직 결산 전이라, 지금까지 발표된 누적치를 연환산(4÷지난 분기수)한 예상치예요. 당좌비율은 유동자산÷유동부채로 근사 계산했어요(재고자산 분리 불가). PER은 계산된 값 그대로 표시돼요(적자면 파란색). EVA는 세후영업이익-투하자본×WACC로 근사했어요(WACC는 업종별 고정 가정치). 우선주는 본주 재무데이터를 사용해요. 기준선이 있는 지표(성장률·이익률·PER·ROE·PSR·PBR·부채비율·당좌비율)는 아래 등급 색으로 표시하고, 기준선이 없는 금액 지표(매출액·영업이익·순이익·EVA·EPS·BPS)는 전년 대비 증가(붉은색)·감소(파란색)로 표시해요(적자는 파란색).
