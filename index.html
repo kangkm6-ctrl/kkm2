@@ -1104,8 +1104,26 @@ const buildAnnualForValue = (ef) => {
   return cur ? [...full.slice(-3), cur] : full.slice(-4);
 };
 const FUTURE_INPUTS_KEY = "future_inputs_v1";
-// 현재 적정주가: 최근 연간 매출 × 평균 영업이익률(최근 4년) × 0.8 × 평균 PER(계산치) = 적정시총 → ÷현시총 × 현주가
-// (미래가치 1안과 같은 재료로, 3년 성장 없이 "지금 실적" 기준으로 계산)
+// 현재 적정주가: 최근 4분기 합계(TTM) 영업이익 × 0.8 × 평균 PER(계산치) = 적정시총 → ÷현시총 × 현주가
+// 최근 4분기 = 올해 누적 + 작년 연간 − 작년 같은 기간 누적 (DART 분기 자료는 누적치)
+const ttmOf = (ef) => {
+  if (!ef || !Array.isArray(ef.periods)) return null;
+  const byP = {}; ef.periods.forEach((p) => { if (Number(p.revenue) > 0) byP[String(p.period)] = p; });
+  const keys = Object.keys(byP).sort();
+  if (!keys.length) return null;
+  const lp = keys[keys.length - 1], y = Number(lp.slice(0, 4)), m = lp.slice(4, 6);
+  const n = (v) => (v === null || v === undefined || v === "" ? null : Number(v));
+  const L = byP[lp];
+  if (m === "12") return { rev: Number(L.revenue), op: n(L.opProfit), label: `${y}년 연간(최근 4분기)` };
+  const full = byP[`${y - 1}12`], same = byP[`${y - 1}${m}`];
+  if (full && same) {
+    const op = n(L.opProfit) !== null && n(full.opProfit) !== null && n(same.opProfit) !== null ? n(L.opProfit) + n(full.opProfit) - n(same.opProfit) : null;
+    const q = Math.round(Number(m) / 3);
+    return { rev: Number(L.revenue) + Number(full.revenue) - Number(same.revenue), op, label: `${String(y - 1).slice(2)}.${q + 1 > 4 ? 1 : q + 1}Q~${String(y).slice(2)}.${q}Q 최근 4분기 합계` };
+  }
+  const k = 12 / Number(m); // 작년 자료가 없으면 올해 누적을 연환산
+  return { rev: Number(L.revenue) * k, op: n(L.opProfit) === null ? null : n(L.opProfit) * k, label: `${y}년 ${Number(m)}월까지 누적 연환산` };
+};
 const calcFairNow = (ef, closes, curCap, curPrice) => {
   if (!ef || !Array.isArray(ef.periods) || !curCap || !curPrice) return null;
   const annual = buildAnnualForValue(ef);
@@ -1122,9 +1140,10 @@ const calcFairNow = (ef, closes, curCap, curPrice) => {
   }).filter((v) => v !== null && v > 0 && v < 200);
   let perAvg = avg(pers);
   if (perAvg === null && latest.op > 0) perAvg = curCap / (latest.op * 0.8);
-  if (mAvg === null || mAvg <= 0 || !perAvg) return null;
-  const fairCap = latest.rev * mAvg * 0.8 * perAvg;
-  return { fair: (fairCap / curCap) * curPrice, perAvg, mAvg, rev: latest.rev, year: latest.est ? `${latest.year}(연환산)` : latest.year, years: annual.length };
+  const t = ttmOf(ef);
+  if (!t || t.op === null || t.op <= 0 || !perAvg) return null;
+  const fairCap = t.op * 0.8 * perAvg;
+  return { fair: (fairCap / curCap) * curPrice, perAvg, mAvg: t.op / t.rev, rev: t.rev, op: t.op, label: t.label, years: annual.length };
 };
 const FutureValuePanel = ({ name, ef, closes, curCap, curPrice, saved, onSave, loading }) => {
   const annual = useMemo(() => buildAnnualForValue(ef), [ef]);
@@ -6365,9 +6384,9 @@ function PortfolioApp() {
                   : openK === "fair"
                   ? (() => {
                       const fv = r.code ? calcFairNow(extraFundamentalsData[r.code], futureCloses[toCommonCode(r.code) || r.code], r.marketCap ? num(r.marketCap) : 0, num(r.cur)) : null;
-                      if (!fv) return `현재 적정주가 — 최근 연간 매출 × 평균 영업이익률 × 0.8(세후) × 평균 PER로 적정시총을 구해, 현시총 대비 비율을 현재가에 곱한 값이에요. ${!r.code ? "종목코드가 없어 계산할 수 없어요." : !r.marketCap ? "시가총액이 아직 없어요(시세 갱신 후 다시 확인)." : !extraFundamentalsData[r.code] ? "재무자료(DART)를 아직 받지 못했어요. 앱을 열고 잠시 뒤 다시 확인해 주세요(서버에 DART 키·배포 필요)." : "영업이익이 적자이거나 연간 자료가 2년 미만이라 계산하지 못했어요."}`;
+                      if (!fv) return `현재 적정주가 — 최근 4분기 합계 영업이익 × 0.8(세후) × 평균 PER로 적정시총을 구해, 현시총 대비 비율을 현재가에 곱한 값이에요. ${!r.code ? "종목코드가 없어 계산할 수 없어요." : !r.marketCap ? "시가총액이 아직 없어요(시세 갱신 후 다시 확인)." : !extraFundamentalsData[r.code] ? "재무자료(DART)를 아직 받지 못했어요. 앱을 열고 잠시 뒤 다시 확인해 주세요(서버에 DART 키·배포 필요)." : "최근 4분기 영업이익이 적자이거나 연간 자료가 2년 미만이라 계산하지 못했어요."}`;
                       const up = fv.fair / num(r.cur) - 1;
-                      return `현재 적정주가 — ${fv.year}년 매출 ${Math.round(fv.rev).toLocaleString("ko-KR")}억 × ${fv.years}개년(올해는 최근 분기 연환산 포함) 평균 영업이익률 ${(fv.mAvg * 100).toFixed(1)}% × 0.8(세후 순이익) × 평균 PER ${fv.perAvg.toFixed(1)}배 = 적정시총, 이를 현시총과 비교해 현재가에 곱했어요(미래가치 1안과 같은 재료, 성장 가정 없이 지금 실적 기준). 적정가 ${Math.round(fv.fair).toLocaleString("ko-KR")}원은 현재가보다 ${up >= 0 ? `${(up * 100).toFixed(0)}% 높아 저평가` : `${Math.abs(up * 100).toFixed(0)}% 낮아 고평가`} 쪽이에요. 색: 30%↑ 빨강(저평가) · 0~30% 금색 · 0~−20% 회색 · −20%↓ 파랑(고평가). PER은 과거 주가 수준을 그대로 이어받기 때문에, 시장 전체가 비쌀 때는 적정가도 함께 높게 나올 수 있어요.`;
+                      return `현재 적정주가 — 최근 4분기(${fv.label}) 매출 ${Math.round(fv.rev).toLocaleString("ko-KR")}억 · 영업이익 ${Math.round(fv.op).toLocaleString("ko-KR")}억(이익률 ${(fv.mAvg * 100).toFixed(1)}%) × 0.8(세후 순이익) × 평균 PER ${fv.perAvg.toFixed(1)}배(${fv.years}개년 계산치) = 적정시총, 이를 현시총과 비교해 현재가에 곱했어요(성장 가정 없이 최근 4분기 실적 기준). 적정가 ${Math.round(fv.fair).toLocaleString("ko-KR")}원은 현재가보다 ${up >= 0 ? `${(up * 100).toFixed(0)}% 높아 저평가` : `${Math.abs(up * 100).toFixed(0)}% 낮아 고평가`} 쪽이에요. 색: 30%↑ 빨강(저평가) · 0~30% 금색 · 0~−20% 회색 · −20%↓ 파랑(고평가). PER은 과거 주가 수준을 그대로 이어받기 때문에, 시장 전체가 비쌀 때는 적정가도 함께 높게 나올 수 있어요.`;
                     })()
                   : openK === "tech"
                   ? `기술적 분석(주봉 기준) — 이동평균(5·20주), RSI(14), MACD, 볼린저밴드 4가지를 각각 매수 +1 / 중립 0 / 매도 −1로 보고 합산해요. 합계 +2 이상 매수, −2 이하 매도, 그 사이는 관망이에요.` + (tc0 && tc0.votes ? ` 지금: ${tc0.votes.map((v) => `${v.name} ${v.v > 0 ? "+1" : v.v < 0 ? "−1" : "0"}`).join(" · ")} = 합계 ${tc0.total > 0 ? "+" : ""}${tc0.total}` : tc0 ? ` 지금 합계 ${tc0.total > 0 ? "+" : ""}${tc0.total}` : " (주봉 데이터가 35개 미만이라 아직 판정할 수 없어요.)")
