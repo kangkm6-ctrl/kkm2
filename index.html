@@ -6673,15 +6673,10 @@ function PortfolioApp() {
                 <div><div className="lbl">평가금액</div><div style={{ fontWeight: 700, fontSize: 13 }}>{fmt(r.valAmt)}원</div></div>
                 <div style={{ textAlign: "right" }}>
                   <div className="lbl">평가손익 · 수익률</div>
-                  <div style={{ fontWeight: 700, fontSize: 13, color: isUp ? "#e8544b" : isDown ? "#4c8dff" : "#e7eaf0" }}>
-                    {isUp ? "▲ " : isDown ? "▼ " : ""}{fmt(r.pnl)}원
+                  <div style={{ fontWeight: 700, fontSize: 13, color: isUp ? "#e8544b" : isDown ? "#4c8dff" : "#e7eaf0", whiteSpace: "nowrap" }}>
+                    {isUp ? "▲ " : isDown ? "▼ " : ""}{fmt(r.pnl)}원{r.returnRate !== null ? ` (${r.returnRate > 0 ? "+" : ""}${(r.returnRate * 100).toFixed(1)}%)` : ""}
                   </div>
                 </div>
-              </div>
-              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 6 }}>
-                <span className="tnum" style={{ fontWeight: 700, fontSize: 13, color: isUp ? "#e8544b" : isDown ? "#4c8dff" : "#e7eaf0" }}>
-                  {r.returnRate !== null ? (r.returnRate * 100).toFixed(1) + "%" : "-"}
-                </span>
               </div>
               <div style={{ display: "flex", gap: 2, marginTop: 8, flexWrap: "nowrap", justifyContent: "space-between" }}>
                 <button
