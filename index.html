@@ -6510,102 +6510,6 @@ function PortfolioApp() {
           const expanded = expandedStock === r.id;
           return (
             <div key={r.id} className="card tnum" style={{ padding: 12 }}>
-              {(() => {
-                const tm = stockTimingOf(r);
-                const adv = r.code ? tm.label : "neutral";
-                const color = adv === "buy" ? "#e8544b" : adv === "sell" ? "#4c8dff" : "#8993a6";
-                const badgeText = adv === "buy" ? "매수시점" : adv === "sell" ? "매도시점" : "중도시점";
-                const tc0 = r.code ? stockTech[r.code] : null;
-                                const openK = sigInfo && sigInfo.id === r.id ? sigInfo.k : null;
-                const tapSig = (k) => {
-                  setSigInfo(openK === k ? null : { id: r.id, k });
-                };
-                const cashPct = (cashRatio * 100).toFixed(0);
-                const infoText = openK === "adv"
-                  ? (() => {
-                      const mk = (c) => (c === true ? "✔" : c === false ? "✘" : "–");
-                      const stg = tm.trend === "up" ? "상승 단계(주가가 30주선 위, 30주선 상승)" : tm.trend === "down" ? "하락 단계(주가가 30주선 아래, 30주선 하락)" : tm.trend === "base" ? "다지기 단계(방향 전환 중)" : "주봉 자료 부족";
-                      const val = tm.fUp === null ? "적정가 계산 불가" : `적정가 대비 ${tm.fUp >= 0 ? "+" : ""}${(tm.fUp * 100).toFixed(0)}%`;
-                      const mkt = tm.ms === null ? "시장평가 점수 없음(시장평가 화면을 한 번 열어주세요)" : `시장평가 평균 ${tm.ms}점`;
-                      const head = adv === "buy" ? "매수시점 — 추세·가치·시장이 모두 매수 쪽이에요." : adv === "sell" ? "매도시점 — 추세가 꺾였거나(하락 단계), 비싼데 시장도 거품이에요." : tm.suppressed ? "중도시점 — ⇄전환으로 이번 주 신호를 끈 상태예요(다음 주봉에 다시 판정)." : "중도시점 — 매수·매도 조건이 다 갖춰지지 않아 기존 비중을 유지하는 구간이에요.";
-                      return `${head} ${mk(tm.checks.trend)} 추세: ${stg} · ${mk(tm.checks.value)} 가치: ${val} (20%↑ 싸면 ✔, 20%↑ 비싸면 ✘) · ${mk(tm.checks.market)} 시장: ${mkt} (100 미만 ✔). 매수 = 상승 단계 + 적정가보다 20%↑ 쌈 + 시장 100 미만. 매도 = 하락 단계(단, 적정가보다 30%↑ 싸면 보유) 또는 20%↑ 비싸면서 시장 100 이상. 매수 여력: 현금 ${cashPct}%${cashRatio >= 0.3 ? " (넉넉)" : cashRatio <= 0.1 ? " (부족)" : ""}.`;
-                    })()
-                  : openK === "long" || openK === "short"
-                  ? (() => {
-                      const cap = r.marketCap ? num(r.marketCap) : 0, cur = num(r.cur);
-                      const ef = extraFundamentalsData[r.code], cl = futureCloses[toCommonCode(r.code) || r.code];
-                      const fw = (v) => Math.round(v).toLocaleString("ko-KR");
-                      if (openK === "long") {
-                        const L = computeFuture(ef, cl, cap, cur, futureInputs[r.code]);
-                        if (L.avgP === undefined) return "3년후 장기추정가 — 연간 재무자료(DART)가 아직 없거나 적자로 PER을 구할 수 없어 계산하지 못했어요.";
-                        return `3년후 장기추정가 — 미래가치 탭(3년 후)의 ${L.sc.length}개 시나리오 × ${L.pers.length}개 PER = ${L.prices.length}가지 추정주가중 가장 높은 값(최고가)이에요. 최저 ${fw(L.minP)} · 평균 ${fw(L.avgP)} · 최고 ${fw(L.maxP)}원. 시나리오 값은 미래가치 탭의 금색 칸을 고치면 여기도 같이 바뀌어요. 색: 200%↑(3배) 빨강 · 100%↑ 금색 · 0%↑ 회색 · 하락 파랑.`;
-                      }
-                      const S = computeShort(ef, cl, cap, cur, shortInputs[r.code]);
-                      if (S.avgP === undefined) return "1년 단기추정가 — 최근 4개 분기 실적이 모두 있어야 계산할 수 있어요(재무자료를 받는 중이거나 분기 자료가 빠졌어요).";
-                      return `1년 단기추정가 — 미래가치 탭 안 "단기가치"(최근 4분기 기준 1년 후)의 9가지 추정주가 중 가장 높은 값(최고가)이에요. 최저 ${fw(S.minP)} · 평균 ${fw(S.avgP)} · 최고 ${fw(S.maxP)}원. 시나리오 값은 단기가치의 금색 칸을 고치면 같이 바뀌어요. 색: 30%↑ 빨강 · 10%↑ 금색 · ±10% 회색 · −10%↓ 파랑.`;
-                    })()
-                  : openK === "fair"
-                  ? (() => {
-                      const fv = r.code ? calcFairNow(extraFundamentalsData[r.code], futureCloses[toCommonCode(r.code) || r.code], r.marketCap ? num(r.marketCap) : 0, num(r.cur)) : null;
-                      if (fv && fv.lossy) return `현재 적정주가 — 받은 ${fv.years}개년 실적의 중간값 영업이익률이 ${(fv.mMed * 100).toFixed(1)}%로, 적자·저이익 해가 절반 이상이라 "정상 이익"을 정할 수 없어 적정가를 계산하지 않았어요. 이런 구간(업황 바닥·구조조정)에서는 이익 기반 적정가가 의미가 없으니, 미래가치 탭의 2·3안에 회복 후 이익률을 직접 넣어 판단해 보세요.`;
-                      if (!fv) return `현재 적정주가 — 최근 연간 매출 × 장기 중간값 영업이익률 × 0.8(세후) × 장기 중간값 PER로 적정시총을 구해, 현시총 대비 비율을 현재가에 곱한 값이에요. ${!r.code ? "종목코드가 없어 계산할 수 없어요." : !r.marketCap ? "시가총액이 아직 없어요(시세 갱신 후 다시 확인)." : !extraFundamentalsData[r.code] ? "재무자료(DART)를 아직 받지 못했어요. 앱을 열고 잠시 뒤 다시 확인해 주세요(서버에 DART 키·배포 필요)." : "4개년 평균 영업이익이 적자이거나 연간 자료가 2년 미만이라 계산하지 못했어요."}`;
-                      const up = fv.fair / num(r.cur) - 1;
-                      const fw = (v) => Math.round(v).toLocaleString("ko-KR");
-                      const ttmTxt = !fv.ttm ? "최근 4분기 자료가 없어 비교값은 계산하지 못했어요."
-                        : fv.ttm.fair === null ? `최근 4분기(${fv.ttm.label}) 영업이익이 적자(${fw(fv.ttm.op)}억)라 최근 실적 기준으로는 계산할 수 없어요 — 업황 바닥 신호일 수 있어요.`
-                        : `최근 실적 기준(${fv.ttm.label} 영업이익 ${fw(fv.ttm.op)}억, 이익률 ${(fv.ttm.margin * 100).toFixed(1)}%) 적정가는 ${fw(fv.ttm.fair)}원이에요${fv.ttm.fair < fv.fair * 0.8 ? " — 정상 이익 기준보다 많이 낮아 지금 업황이 평소보다 나쁜(바닥 쪽) 구간일 수 있어요." : fv.ttm.fair > fv.fair * 1.25 ? " — 정상 이익 기준보다 많이 높아 지금 업황이 평소보다 좋은(꼭대기 쪽) 구간일 수 있어요." : " — 정상 이익 기준과 비슷해요."}`;
-                      return `현재 적정주가(정상 이익 기준) — ${fv.year}년 매출 ${fw(fv.rev)}억 × 장기 정상 영업이익률 ${(fv.mAvg * 100).toFixed(1)}% × 0.8(세후 순이익) × 장기 정상 PER ${fv.perAvg.toFixed(1)}배 = 적정시총(정상치는 ${fv.span} ${fv.years}개년의 중간값 — 적자 한두 해에 끌려가지 않도록 평균 대신 중간값을 써요), 이를 현시총과 비교해 현재가에 곱했어요. 적정가 ${fw(fv.fair)}원은 현재가보다 ${up >= 0 ? `${(up * 100).toFixed(0)}% 높아 저평가` : `${Math.abs(up * 100).toFixed(0)}% 낮아 고평가`} 쪽이에요. 비교: ${ttmTxt} 색: 30%↑ 빨강(저평가) · 0~30% 금색 · 0~−20% 회색 · −20%↓ 파랑(고평가).`;
-                    })()
-                  : openK === "tech"
-                  ? `기술적 분석(주봉 기준) — 이동평균(5·20주), RSI(14), MACD, 볼린저밴드 4가지를 각각 매수 +1 / 중립 0 / 매도 −1로 보고 합산해요. 합계 +2 이상 매수, −2 이하 매도, 그 사이는 관망이에요.` + (tc0 && tc0.votes ? ` 지금: ${tc0.votes.map((v) => `${v.name} ${v.v > 0 ? "+1" : v.v < 0 ? "−1" : "0"}`).join(" · ")} = 합계 ${tc0.total > 0 ? "+" : ""}${tc0.total}` : tc0 ? ` 지금 합계 ${tc0.total > 0 ? "+" : ""}${tc0.total}` : " (주봉 데이터가 35개 미만이라 아직 판정할 수 없어요.)")
-                  : "";
-                return (
-                  <>
-                  <div style={{ marginBottom: 8, display: "flex", alignItems: "center" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 5, minWidth: 0, flexWrap: "wrap" }}>
-                    <div onClick={() => tapSig("adv")} style={{ cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6, padding: "3px 8px", borderRadius: 6, fontSize: 11, fontWeight: 700, color, background: `${color}22`, border: `1px solid ${color}`, outline: openK === "adv" ? "1px solid #c9974a" : "none" }}>
-                      {badgeText}
-                      {(adv === "buy" || adv === "sell") && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); manualNeutralizeAdvice("stocks", r.code, stockWeeklySignal[r.code]); }}
-                          title="중도관점으로 전환 (다음 주봉까지 유지)"
-                          style={{ border: "1px solid " + color, borderRadius: 5, background: "none", color, fontSize: 9, padding: "1px 4px", lineHeight: 1.4, cursor: "pointer" }}
-                        >
-                          ⇄전환
-                        </button>
-                      )}
-                    </div>
-                    {(() => {
-                      const tc = r.code ? stockTech[r.code] : null;
-                      const chip = (txt, c, k) => <span onClick={() => tapSig(k)} style={{ display: "inline-flex", alignItems: "center", padding: "3px 8px", borderRadius: 6, fontSize: 11, fontWeight: 700, color: c, background: `${c}22`, border: `1px solid ${c}`, whiteSpace: "nowrap", cursor: "pointer", outline: openK === k ? "1px solid #c9974a" : "none" }}>{txt}</span>;
-                      const tCol = !tc ? "#5a6274" : tc.label === "buy" ? "#e8544b" : tc.label === "sell" ? "#4c8dff" : "#8993a6";
-                      const tTxt = !tc ? "기술 -" : tc.label === "buy" ? "기술 매수" : tc.label === "sell" ? "기술 매도" : "기술 관망";
-                      return <>{chip(tTxt, tCol, "tech")}</>;
-                    })()}
-                    {r.code && (() => {
-                      // 3년후 장기추정가(미래가치 최고가) · 1년 단기추정가(단기가치 최고가)
-                      const cap = r.marketCap ? num(r.marketCap) : 0, cur = num(r.cur);
-                      const ef = extraFundamentalsData[r.code], cl = futureCloses[toCommonCode(r.code) || r.code];
-                      const L = computeFuture(ef, cl, cap, cur, futureInputs[r.code]);
-                      const S = computeShort(ef, cl, cap, cur, shortInputs[r.code]);
-                      const box = (k, title, v, up, c) => (
-                        <span className="tnum" onClick={() => tapSig(k)} style={{ display: "inline-flex", flexDirection: "column", alignItems: "flex-end", padding: "2px 7px", borderRadius: 6, color: c, background: `${c}22`, border: `1px solid ${c}`, whiteSpace: "nowrap", cursor: "pointer", lineHeight: 1.2, outline: openK === k ? "1px solid #c9974a" : "none" }}>
-                          <span style={{ fontSize: 9, fontWeight: 400, opacity: 0.85 }}>{title}</span>
-                          <span style={{ fontSize: 12, fontWeight: 700 }}>{v === null ? "-" : `${Math.round(v).toLocaleString("ko-KR")} ${up >= 0 ? "▲" : "▼"}${Math.abs(up * 100).toFixed(0)}%`}</span>
-                        </span>
-                      );
-                      const lUp = L.maxP !== undefined && cur ? L.maxP / cur - 1 : null;
-                      const sUp = S.maxP !== undefined && cur ? S.maxP / cur - 1 : null;
-                      const lCol = lUp === null ? "#5a6274" : lUp >= 2 ? "#e8544b" : lUp >= 1 ? "#e0b93c" : lUp >= 0 ? "#8993a6" : "#4c8dff";
-                      const sCol = sUp === null ? "#5a6274" : sUp >= 0.3 ? "#e8544b" : sUp >= 0.1 ? "#e0b93c" : sUp >= -0.1 ? "#8993a6" : "#4c8dff";
-                      return <>{box("long", "3년후 장기추정가", lUp === null ? null : L.maxP, lUp, lCol)}{box("short", "1년 단기추정가", sUp === null ? null : S.maxP, sUp, sCol)}</>;
-                    })()}
-                    </div>
-                  </div>
-                  {infoText && <div onClick={() => setSigInfo(null)} style={{ marginTop: -2, marginBottom: 8, padding: "6px 8px", borderRadius: 6, background: "#161a22", fontSize: 11, lineHeight: 1.5, color: "#aab2c3" }}>{infoText}</div>}
-                  </>
-                );
-              })()}
               <div style={{ display: "flex", gap: 8, marginBottom: 8, position: "relative" }}>
                 <div style={{ flex: 1.3, position: "relative", display: "flex", alignItems: "flex-end", gap: 6 }}>
                   <span style={{ flexShrink: 0, fontSize: 12, color: "#8993a6", fontWeight: 700, minWidth: 14, textAlign: "right", marginBottom: 9 }}>{idx + 1}</span>
@@ -6678,6 +6582,97 @@ function PortfolioApp() {
                   </div>
                 </div>
               </div>
+              {(() => {
+                const tm = stockTimingOf(r);
+                const adv = r.code ? tm.label : "neutral";
+                const color = adv === "buy" ? "#e8544b" : adv === "sell" ? "#4c8dff" : "#8993a6";
+                const badgeText = adv === "buy" ? "매수시점" : adv === "sell" ? "매도시점" : "중도시점";
+                const tc0 = r.code ? stockTech[r.code] : null;
+                                const openK = sigInfo && sigInfo.id === r.id ? sigInfo.k : null;
+                const tapSig = (k) => {
+                  setSigInfo(openK === k ? null : { id: r.id, k });
+                };
+                const cashPct = (cashRatio * 100).toFixed(0);
+                const infoText = openK === "adv"
+                  ? (() => {
+                      const mk = (c) => (c === true ? "✔" : c === false ? "✘" : "–");
+                      const stg = tm.trend === "up" ? "상승 단계(주가가 30주선 위, 30주선 상승)" : tm.trend === "down" ? "하락 단계(주가가 30주선 아래, 30주선 하락)" : tm.trend === "base" ? "다지기 단계(방향 전환 중)" : "주봉 자료 부족";
+                      const val = tm.fUp === null ? "적정가 계산 불가" : `적정가 대비 ${tm.fUp >= 0 ? "+" : ""}${(tm.fUp * 100).toFixed(0)}%`;
+                      const mkt = tm.ms === null ? "시장평가 점수 없음(시장평가 화면을 한 번 열어주세요)" : `시장평가 평균 ${tm.ms}점`;
+                      const head = adv === "buy" ? "매수시점 — 추세·가치·시장이 모두 매수 쪽이에요." : adv === "sell" ? "매도시점 — 추세가 꺾였거나(하락 단계), 비싼데 시장도 거품이에요." : tm.suppressed ? "중도시점 — ⇄전환으로 이번 주 신호를 끈 상태예요(다음 주봉에 다시 판정)." : "중도시점 — 매수·매도 조건이 다 갖춰지지 않아 기존 비중을 유지하는 구간이에요.";
+                      return `${head} ${mk(tm.checks.trend)} 추세: ${stg} · ${mk(tm.checks.value)} 가치: ${val} (20%↑ 싸면 ✔, 20%↑ 비싸면 ✘) · ${mk(tm.checks.market)} 시장: ${mkt} (100 미만 ✔). 매수 = 상승 단계 + 적정가보다 20%↑ 쌈 + 시장 100 미만. 매도 = 하락 단계(단, 적정가보다 30%↑ 싸면 보유) 또는 20%↑ 비싸면서 시장 100 이상. 매수 여력: 현금 ${cashPct}%${cashRatio >= 0.3 ? " (넉넉)" : cashRatio <= 0.1 ? " (부족)" : ""}.`;
+                    })()
+                  : openK === "long" || openK === "short"
+                  ? (() => {
+                      const cap = r.marketCap ? num(r.marketCap) : 0, cur = num(r.cur);
+                      const ef = extraFundamentalsData[r.code], cl = futureCloses[toCommonCode(r.code) || r.code];
+                      const fw = (v) => Math.round(v).toLocaleString("ko-KR");
+                      if (openK === "long") {
+                        const L = computeFuture(ef, cl, cap, cur, futureInputs[r.code]);
+                        if (L.avgP === undefined) return "3년후 장기추정가 — 연간 재무자료(DART)가 아직 없거나 적자로 PER을 구할 수 없어 계산하지 못했어요.";
+                        return `3년후 장기추정가 — 미래가치 탭(3년 후)의 ${L.sc.length}개 시나리오 × ${L.pers.length}개 PER = ${L.prices.length}가지 추정주가중 가장 높은 값(최고가)이에요. 최저 ${fw(L.minP)} · 평균 ${fw(L.avgP)} · 최고 ${fw(L.maxP)}원. 시나리오 값은 미래가치 탭의 금색 칸을 고치면 여기도 같이 바뀌어요. 색: 200%↑(3배) 빨강 · 100%↑ 금색 · 0%↑ 회색 · 하락 파랑.`;
+                      }
+                      const S = computeShort(ef, cl, cap, cur, shortInputs[r.code]);
+                      if (S.avgP === undefined) return "1년 단기추정가 — 최근 4개 분기 실적이 모두 있어야 계산할 수 있어요(재무자료를 받는 중이거나 분기 자료가 빠졌어요).";
+                      return `1년 단기추정가 — 미래가치 탭 안 "단기가치"(최근 4분기 기준 1년 후)의 9가지 추정주가 중 가장 높은 값(최고가)이에요. 최저 ${fw(S.minP)} · 평균 ${fw(S.avgP)} · 최고 ${fw(S.maxP)}원. 시나리오 값은 단기가치의 금색 칸을 고치면 같이 바뀌어요. 색: 30%↑ 빨강 · 10%↑ 금색 · ±10% 회색 · −10%↓ 파랑.`;
+                    })()
+                  : openK === "fair"
+                  ? (() => {
+                      const fv = r.code ? calcFairNow(extraFundamentalsData[r.code], futureCloses[toCommonCode(r.code) || r.code], r.marketCap ? num(r.marketCap) : 0, num(r.cur)) : null;
+                      if (fv && fv.lossy) return `현재 적정주가 — 받은 ${fv.years}개년 실적의 중간값 영업이익률이 ${(fv.mMed * 100).toFixed(1)}%로, 적자·저이익 해가 절반 이상이라 "정상 이익"을 정할 수 없어 적정가를 계산하지 않았어요. 이런 구간(업황 바닥·구조조정)에서는 이익 기반 적정가가 의미가 없으니, 미래가치 탭의 2·3안에 회복 후 이익률을 직접 넣어 판단해 보세요.`;
+                      if (!fv) return `현재 적정주가 — 최근 연간 매출 × 장기 중간값 영업이익률 × 0.8(세후) × 장기 중간값 PER로 적정시총을 구해, 현시총 대비 비율을 현재가에 곱한 값이에요. ${!r.code ? "종목코드가 없어 계산할 수 없어요." : !r.marketCap ? "시가총액이 아직 없어요(시세 갱신 후 다시 확인)." : !extraFundamentalsData[r.code] ? "재무자료(DART)를 아직 받지 못했어요. 앱을 열고 잠시 뒤 다시 확인해 주세요(서버에 DART 키·배포 필요)." : "4개년 평균 영업이익이 적자이거나 연간 자료가 2년 미만이라 계산하지 못했어요."}`;
+                      const up = fv.fair / num(r.cur) - 1;
+                      const fw = (v) => Math.round(v).toLocaleString("ko-KR");
+                      const ttmTxt = !fv.ttm ? "최근 4분기 자료가 없어 비교값은 계산하지 못했어요."
+                        : fv.ttm.fair === null ? `최근 4분기(${fv.ttm.label}) 영업이익이 적자(${fw(fv.ttm.op)}억)라 최근 실적 기준으로는 계산할 수 없어요 — 업황 바닥 신호일 수 있어요.`
+                        : `최근 실적 기준(${fv.ttm.label} 영업이익 ${fw(fv.ttm.op)}억, 이익률 ${(fv.ttm.margin * 100).toFixed(1)}%) 적정가는 ${fw(fv.ttm.fair)}원이에요${fv.ttm.fair < fv.fair * 0.8 ? " — 정상 이익 기준보다 많이 낮아 지금 업황이 평소보다 나쁜(바닥 쪽) 구간일 수 있어요." : fv.ttm.fair > fv.fair * 1.25 ? " — 정상 이익 기준보다 많이 높아 지금 업황이 평소보다 좋은(꼭대기 쪽) 구간일 수 있어요." : " — 정상 이익 기준과 비슷해요."}`;
+                      return `현재 적정주가(정상 이익 기준) — ${fv.year}년 매출 ${fw(fv.rev)}억 × 장기 정상 영업이익률 ${(fv.mAvg * 100).toFixed(1)}% × 0.8(세후 순이익) × 장기 정상 PER ${fv.perAvg.toFixed(1)}배 = 적정시총(정상치는 ${fv.span} ${fv.years}개년의 중간값 — 적자 한두 해에 끌려가지 않도록 평균 대신 중간값을 써요), 이를 현시총과 비교해 현재가에 곱했어요. 적정가 ${fw(fv.fair)}원은 현재가보다 ${up >= 0 ? `${(up * 100).toFixed(0)}% 높아 저평가` : `${Math.abs(up * 100).toFixed(0)}% 낮아 고평가`} 쪽이에요. 비교: ${ttmTxt} 색: 30%↑ 빨강(저평가) · 0~30% 금색 · 0~−20% 회색 · −20%↓ 파랑(고평가).`;
+                    })()
+                  : openK === "tech"
+                  ? `기술적 분석(주봉 기준) — 이동평균(5·20주), RSI(14), MACD, 볼린저밴드 4가지를 각각 매수 +1 / 중립 0 / 매도 −1로 보고 합산해요. 합계 +2 이상 매수, −2 이하 매도, 그 사이는 관망이에요.` + (tc0 && tc0.votes ? ` 지금: ${tc0.votes.map((v) => `${v.name} ${v.v > 0 ? "+1" : v.v < 0 ? "−1" : "0"}`).join(" · ")} = 합계 ${tc0.total > 0 ? "+" : ""}${tc0.total}` : tc0 ? ` 지금 합계 ${tc0.total > 0 ? "+" : ""}${tc0.total}` : " (주봉 데이터가 35개 미만이라 아직 판정할 수 없어요.)")
+                  : "";
+                return (
+                  <>
+                  <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "0.8fr 0.8fr 1.2fr 1.2fr", gap: 4, alignItems: "stretch" }}>
+                    {(() => {
+                      // 네 칸을 같은 모양(위: 작은 제목 / 아래: 값)으로 맞춘다
+                      const cell2 = (k, title, value, c, extra) => (
+                        <div onClick={() => tapSig(k)} className="tnum" style={{ cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "2px 4px", borderRadius: 6, color: c, background: `${c}22`, border: `1px solid ${c}`, lineHeight: 1.2, minWidth: 0, outline: openK === k ? "1px solid #c9974a" : "none" }}>
+                          <span style={{ fontSize: 9, fontWeight: 400, opacity: 0.85, whiteSpace: "nowrap" }}>{title}</span>
+                          <span style={{ fontSize: 12, fontWeight: 700, whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 3 }}>{value}{extra}</span>
+                        </div>
+                      );
+                      const tc = r.code ? stockTech[r.code] : null;
+                      const tCol = !tc ? "#5a6274" : tc.label === "buy" ? "#e8544b" : tc.label === "sell" ? "#4c8dff" : "#8993a6";
+                      const tTxt = !tc ? "-" : tc.label === "buy" ? "매수" : tc.label === "sell" ? "매도" : "관망";
+                      const advTxt = adv === "buy" ? "매수" : adv === "sell" ? "매도" : "중도";
+                      const conv = (adv === "buy" || adv === "sell") ? (
+                        <button onClick={(e) => { e.stopPropagation(); manualNeutralizeAdvice("stocks", r.code, stockWeeklySignal[r.code]); }} title="중도관점으로 전환 (다음 주봉까지 유지)"
+                          style={{ border: "1px solid " + color, borderRadius: 4, background: "none", color, fontSize: 8, padding: "0 3px", lineHeight: 1.4, cursor: "pointer" }}>⇄</button>
+                      ) : null;
+                      const cap = r.marketCap ? num(r.marketCap) : 0, cur = num(r.cur);
+                      const ef = r.code ? extraFundamentalsData[r.code] : null, cl = r.code ? futureCloses[toCommonCode(r.code) || r.code] : null;
+                      const L = r.code ? computeFuture(ef, cl, cap, cur, futureInputs[r.code]) : {};
+                      const S = r.code ? computeShort(ef, cl, cap, cur, shortInputs[r.code]) : {};
+                      const lUp = L.maxP !== undefined && cur ? L.maxP / cur - 1 : null;
+                      const sUp = S.maxP !== undefined && cur ? S.maxP / cur - 1 : null;
+                      const lCol = lUp === null ? "#5a6274" : lUp >= 2 ? "#e8544b" : lUp >= 1 ? "#e0b93c" : lUp >= 0 ? "#8993a6" : "#4c8dff";
+                      const sCol = sUp === null ? "#5a6274" : sUp >= 0.3 ? "#e8544b" : sUp >= 0.1 ? "#e0b93c" : sUp >= -0.1 ? "#8993a6" : "#4c8dff";
+                      const pv = (v, up) => (up === null ? "-" : `${Math.round(v).toLocaleString("ko-KR")} ${up >= 0 ? "▲" : "▼"}${Math.abs(up * 100).toFixed(0)}%`);
+                      return (
+                        <>
+                          {cell2("adv", "관점", `${advTxt}시점`, color, conv)}
+                          {cell2("tech", "기술적분석", tTxt, tCol)}
+                          {cell2("long", "3년후 장기추정가", pv(L.maxP, lUp), lCol)}
+                          {cell2("short", "1년 단기추정가", pv(S.maxP, sUp), sCol)}
+                        </>
+                      );
+                    })()}
+                  </div>
+                  {infoText && <div onClick={() => setSigInfo(null)} style={{ marginTop: 6, padding: "6px 8px", borderRadius: 6, background: "#161a22", fontSize: 11, lineHeight: 1.5, color: "#aab2c3" }}>{infoText}</div>}
+                  </>
+                );
+              })()}
               <div style={{ display: "flex", gap: 2, marginTop: 8, flexWrap: "nowrap", justifyContent: "space-between" }}>
                 <button
                   className="iconbtn"
