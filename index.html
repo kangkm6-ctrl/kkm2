@@ -6610,11 +6610,11 @@ function PortfolioApp() {
                       if (openK === "long") {
                         const L = computeFuture(ef, cl, cap, cur, futureInputs[r.code]);
                         if (L.avgP === undefined) return "3년후 장기추정가 — 연간 재무자료(DART)가 아직 없거나 적자로 PER을 구할 수 없어 계산하지 못했어요.";
-                        return `3년후 장기추정가 — 미래가치 탭(3년 후)의 ${L.sc.length}개 시나리오 × ${L.pers.length}개 PER = ${L.prices.length}가지 추정주가중 가장 높은 값(최고가)이에요. 최저 ${fw(L.minP)} · 평균 ${fw(L.avgP)} · 최고 ${fw(L.maxP)}원. 시나리오 값은 미래가치 탭의 금색 칸을 고치면 여기도 같이 바뀌어요. 색: 200%↑(3배) 빨강 · 100%↑ 금색 · 0%↑ 회색 · 하락 파랑.`;
+                        return `3년후 장기추정가 — 미래가치 탭(3년 후)의 ${L.sc.length}개 시나리오 × ${L.pers.length}개 PER = ${L.prices.length}가지 추정주가의 평균이에요. 최저 ${fw(L.minP)} · 평균 ${fw(L.avgP)} · 최고 ${fw(L.maxP)}원. 시나리오 값은 미래가치 탭의 금색 칸을 고치면 여기도 같이 바뀌어요. 색: 200%↑(3배) 빨강 · 100%↑ 금색 · 0%↑ 회색 · 하락 파랑.`;
                       }
                       const S = computeShort(ef, cl, cap, cur, shortInputs[r.code]);
                       if (S.avgP === undefined) return "1년 단기추정가 — 최근 4개 분기 실적이 모두 있어야 계산할 수 있어요(재무자료를 받는 중이거나 분기 자료가 빠졌어요).";
-                      return `1년 단기추정가 — 미래가치 탭 안 "단기가치"(최근 4분기 기준 1년 후)의 9가지 추정주가 중 가장 높은 값(최고가)이에요. 최저 ${fw(S.minP)} · 평균 ${fw(S.avgP)} · 최고 ${fw(S.maxP)}원. 시나리오 값은 단기가치의 금색 칸을 고치면 같이 바뀌어요. 색: 30%↑ 빨강 · 10%↑ 금색 · ±10% 회색 · −10%↓ 파랑.`;
+                      return `1년 단기추정가 — 미래가치 탭 안 "단기가치"(최근 4분기 기준 1년 후)의 9가지 추정주가의 평균이에요. 최저 ${fw(S.minP)} · 평균 ${fw(S.avgP)} · 최고 ${fw(S.maxP)}원. 시나리오 값은 단기가치의 금색 칸을 고치면 같이 바뀌어요. 색: 30%↑ 빨강 · 10%↑ 금색 · ±10% 회색 · −10%↓ 파랑.`;
                     })()
                   : openK === "fair"
                   ? (() => {
@@ -6654,8 +6654,9 @@ function PortfolioApp() {
                       const ef = r.code ? extraFundamentalsData[r.code] : null, cl = r.code ? futureCloses[toCommonCode(r.code) || r.code] : null;
                       const L = r.code ? computeFuture(ef, cl, cap, cur, futureInputs[r.code]) : {};
                       const S = r.code ? computeShort(ef, cl, cap, cur, shortInputs[r.code]) : {};
-                      const lUp = L.maxP !== undefined && cur ? L.maxP / cur - 1 : null;
-                      const sUp = S.maxP !== undefined && cur ? S.maxP / cur - 1 : null;
+                      // 표시값: 모든 시나리오 추정주가의 평균
+                      const lUp = L.avgP !== undefined && cur ? L.avgP / cur - 1 : null;
+                      const sUp = S.avgP !== undefined && cur ? S.avgP / cur - 1 : null;
                       const lCol = lUp === null ? "#5a6274" : lUp >= 2 ? "#e8544b" : lUp >= 1 ? "#e0b93c" : lUp >= 0 ? "#8993a6" : "#4c8dff";
                       const sCol = sUp === null ? "#5a6274" : sUp >= 0.3 ? "#e8544b" : sUp >= 0.1 ? "#e0b93c" : sUp >= -0.1 ? "#8993a6" : "#4c8dff";
                       const pv = (v, up) => (up === null ? "-" : `${Math.round(v).toLocaleString("ko-KR")} ${up >= 0 ? "▲" : "▼"}${Math.abs(up * 100).toFixed(0)}%`);
@@ -6663,8 +6664,8 @@ function PortfolioApp() {
                         <>
                           {cell2("adv", "관점", `${advTxt}시점`, color, conv)}
                           {cell2("tech", "기술적분석", tTxt, tCol)}
-                          {cell2("long", "3년후 장기추정가", pv(L.maxP, lUp), lCol)}
-                          {cell2("short", "1년 단기추정가", pv(S.maxP, sUp), sCol)}
+                          {cell2("long", "3년후 장기추정가", pv(L.avgP, lUp), lCol)}
+                          {cell2("short", "1년 단기추정가", pv(S.avgP, sUp), sCol)}
                         </>
                       );
                     })()}
