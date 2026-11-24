@@ -6834,17 +6834,17 @@ function PortfolioApp() {
               {futureStock === r.id && (
                 <div style={{ marginTop: 4 }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, fontSize: 11 }}>
+                    <span style={{ color: "#c9974a", fontWeight: 700 }}>{valueChartStock === r.id ? "가치 추이(분기)" : shortStock === r.id ? "미래가치 · 단기가치(1년)" : "미래가치 · 3년 후"}</span>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       <button className="iconbtn" onClick={() => setValueChartStock(valueChartStock === r.id ? null : r.id)}
-                        style={{ fontSize: 11, padding: "3px 8px", borderRadius: 8, whiteSpace: "nowrap", border: valueChartStock === r.id ? "1px solid #c9974a" : "1px solid #3a4150", background: valueChartStock === r.id ? "rgba(201,151,74,0.15)" : "none", color: valueChartStock === r.id ? "#c9974a" : "#8993a6", fontWeight: valueChartStock === r.id ? 700 : 400 }}>
-                        {valueChartStock === r.id ? "◀ 표" : "차트"}
+                          style={{ fontSize: 11, padding: "3px 8px", borderRadius: 8, whiteSpace: "nowrap", border: valueChartStock === r.id ? "1px solid #c9974a" : "1px solid #3a4150", background: valueChartStock === r.id ? "rgba(201,151,74,0.15)" : "none", color: valueChartStock === r.id ? "#c9974a" : "#8993a6", fontWeight: valueChartStock === r.id ? 700 : 400 }}>
+                          {valueChartStock === r.id ? "◀ 표" : "차트"}
+                        </button>
+                      <button className="iconbtn" onClick={() => setShortStock(shortStock === r.id ? null : r.id)}
+                        style={{ fontSize: 11, padding: "3px 8px", borderRadius: 8, whiteSpace: "nowrap", border: shortStock === r.id ? "1px solid #c9974a" : "1px solid #3a4150", background: shortStock === r.id ? "rgba(201,151,74,0.15)" : "none", color: shortStock === r.id ? "#c9974a" : "#8993a6", fontWeight: shortStock === r.id ? 700 : 400 }}>
+                        {shortStock === r.id ? "◀ 3년 후" : "단기가치 ▸"}
                       </button>
-                      <span style={{ color: "#c9974a", fontWeight: 700 }}>{valueChartStock === r.id ? "가치 추이(분기)" : shortStock === r.id ? "미래가치 · 단기가치(1년)" : "미래가치 · 3년 후"}</span>
                     </div>
-                    <button className="iconbtn" onClick={() => setShortStock(shortStock === r.id ? null : r.id)}
-                      style={{ fontSize: 11, padding: "3px 8px", borderRadius: 8, whiteSpace: "nowrap", border: shortStock === r.id ? "1px solid #c9974a" : "1px solid #3a4150", background: shortStock === r.id ? "rgba(201,151,74,0.15)" : "none", color: shortStock === r.id ? "#c9974a" : "#8993a6", fontWeight: shortStock === r.id ? 700 : 400 }}>
-                      {shortStock === r.id ? "◀ 3년 후" : "단기가치 ▸"}
-                    </button>
                   </div>
                   {valueChartStock === r.id ? (
                     <ValueTrendChart
