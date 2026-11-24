@@ -1468,6 +1468,103 @@ const ShortValuePanel = ({ name, ef, closes, curCap, curPrice, saved, onSave }) 
   );
 };
 
+// ───────── 가치 추이 차트: 분기마다 (적정가치 ÷ 그때 주가) × 100 ─────────
+// 100 = 적정, 위 = 가치 반영 전(저평가), 아래 = 거품(고평가). 최대 10년(40분기).
+// 정상이익 기준: 그 분기의 최근 4분기 매출 × 10년 중간값 영업이익률 × 0.8 × 10년 중간값 PER
+// 실적 기준: 그 분기의 최근 4분기 영업이익 × 0.8 × 10년 중간값 PER (적자면 표시 안 함)
+const valueHistory = (ef, closes, curCap) => {
+  if (!ef || !Array.isArray(ef.periods) || !closes || !closes.months || !closes.last || !curCap) return null;
+  const lr = longRunNorm(ef, closes, curCap);
+  if (!lr || lr.mMed === null || !lr.perMed) return null;
+  const byP = {}; ef.periods.forEach((p) => { if (Number(p.revenue) > 0) byP[String(p.period)] = p; });
+  const n = (v) => (v === null || v === undefined || v === "" ? null : Number(v));
+  const out = [];
+  Object.keys(byP).sort().forEach((k) => {
+    const y = Number(k.slice(0, 4)), m = k.slice(4, 6), P = byP[k];
+    let rev = null, op = null;
+    if (m === "12") { rev = Number(P.revenue); op = n(P.opProfit); }
+    else {
+      const full = byP[`${y - 1}12`], same = byP[`${y - 1}${m}`];
+      if (!full || !same) return;
+      rev = Number(P.revenue) + Number(full.revenue) - Number(same.revenue);
+      op = n(P.opProfit) !== null && n(full.opProfit) !== null && n(same.opProfit) !== null ? n(P.opProfit) + n(full.opProfit) - n(same.opProfit) : null;
+    }
+    const close = closes.months[k];
+    if (!close || !(rev > 0)) return;
+    const capT = curCap * (close / closes.last); // 그 분기말 시총(추정)
+    const norm = ((rev * lr.mMed * 0.8 * lr.perMed) / capT) * 100;
+    const act = op !== null && op > 0 ? ((op * 0.8 * lr.perMed) / capT) * 100 : null;
+    out.push({ d: k, norm, act, close });
+  });
+  return out.length ? { pts: out.slice(-40), lr } : null;
+};
+const ValueTrendChart = ({ ef, closes, curCap }) => {
+  const vh = useMemo(() => valueHistory(ef, closes, curCap), [ef, closes, curCap]);
+  const [ti, setTi] = useState(null);
+  const [hid, setHid] = useState({});
+  const svgRef = useRef(null);
+  if (!closes || !closes.months) return <div style={{ marginTop: 6, fontSize: 11, color: "#8993a6" }}>월별 주가를 불러오는 중이에요...</div>;
+  if (!vh || vh.pts.length < 2) return <div style={{ marginTop: 6, fontSize: 11, color: "#5a6274" }}>분기 실적·장기 이익률이 부족해 추이를 그릴 수 없어요(서버 재배포 후 분기 10년치가 들어와야 해요).</div>;
+  const pts = vh.pts;
+  const W = 300, H = 150, padX = 24, padY = 10;
+  const vals = pts.flatMap((p) => [hid.norm ? null : p.norm, hid.act ? null : p.act]).filter((v) => v !== null && isFinite(v)).map((v) => Math.min(v, 600));
+  let vMin = Math.min(100, ...vals), vMax = Math.max(100, ...vals);
+  vMin = Math.max(0, Math.floor((vMin - 10) / 50) * 50); vMax = Math.ceil((vMax + 10) / 50) * 50;
+  const step = vMax - vMin > 400 ? 200 : vMax - vMin > 200 ? 100 : 50;
+  const ticks = []; for (let t = Math.ceil(vMin / step) * step; t <= vMax; t += step) ticks.push(t);
+  const xi = (i) => padX + (i / (pts.length - 1)) * (W - padX - 6);
+  const yOf = (v) => padY + ((vMax - Math.min(v, vMax)) / (vMax - vMin)) * (H - padY * 2);
+  const poly = (key) => {
+    const segs = []; let cur = [];
+    pts.forEach((p, i) => { const v = p[key]; if (v === null || !isFinite(v)) { if (cur.length) segs.push(cur); cur = []; } else cur.push(`${xi(i)},${yOf(v)}`); });
+    if (cur.length) segs.push(cur);
+    return segs.map((sg) => sg.join(" "));
+  };
+  const lab = (d) => `${d.slice(2, 4)}.${Math.round(Number(d.slice(4, 6)) / 3)}Q`;
+  const idxAt = (e) => { const el = svgRef.current; if (!el) return null; const r = el.getBoundingClientRect(); const fx = ((e.clientX - r.left) / r.width) * W; return Math.max(0, Math.min(pts.length - 1, Math.round(((fx - padX) / (W - padX - 6)) * (pts.length - 1)))); };
+  const last = pts[pts.length - 1];
+  const cNorm = "#c9974a", cAct = "#7fb0ff";
+  const t = ti !== null ? pts[ti] : null;
+  const fmtv = (v) => (v === null || !isFinite(v) ? "-" : Math.round(v));
+  const xTicks = [0, Math.round((pts.length - 1) / 2), pts.length - 1];
+  return (
+    <div style={{ marginTop: 6, fontSize: 11, color: "#aab2c3" }}>
+      <div className="tnum" style={{ fontSize: 11, fontWeight: 700, color: "#c9974a", height: 16, textAlign: "center" }}>
+        {t ? `${lab(t.d)} · 정상이익 ${fmtv(t.norm)} · 실적 ${fmtv(t.act)} · 주가 ${Math.round(t.close).toLocaleString("ko-KR")}` : `최근(${lab(last.d)}) 정상이익 ${fmtv(last.norm)} · 실적 ${fmtv(last.act)}`}
+      </div>
+      <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", display: "block", touchAction: "none", userSelect: "none" }}
+        onPointerDown={(e) => { setTi(idxAt(e)); try { e.currentTarget.setPointerCapture(e.pointerId); } catch (er) {} }}
+        onPointerMove={(e) => { if (ti !== null) setTi(idxAt(e)); }} onPointerUp={() => setTi(null)} onPointerCancel={() => setTi(null)} onPointerLeave={() => setTi(null)}>
+        <rect x={padX} y={yOf(vMax)} width={W - padX - 6} height={Math.max(0, yOf(100) - yOf(vMax))} fill="#e8544b" opacity="0.06" />
+        <rect x={padX} y={yOf(100)} width={W - padX - 6} height={Math.max(0, yOf(vMin) - yOf(100))} fill="#4c8dff" opacity="0.06" />
+        {ticks.map((v) => (
+          <g key={v}>
+            <line x1={padX} y1={yOf(v)} x2={W - 6} y2={yOf(v)} stroke="#262c37" strokeWidth="0.6" />
+            <text x={padX - 3} y={yOf(v) + 3} fill="#5a6274" fontSize="8" textAnchor="end">{v}</text>
+          </g>
+        ))}
+        <line x1={padX} y1={yOf(100)} x2={W - 6} y2={yOf(100)} stroke="#8993a6" strokeWidth="1" strokeDasharray="4 3" />
+        {!hid.act && poly("act").map((p, i) => <polyline key={`a${i}`} fill="none" stroke={cAct} strokeWidth="1.2" points={p} />)}
+        {!hid.norm && poly("norm").map((p, i) => <polyline key={`n${i}`} fill="none" stroke={cNorm} strokeWidth="2" points={p} />)}
+        {t && <line x1={xi(ti)} y1={0} x2={xi(ti)} y2={H} stroke="#c9974a" strokeWidth="1" strokeDasharray="3 2" />}
+        {t && !hid.norm && isFinite(t.norm) && <circle cx={xi(ti)} cy={yOf(t.norm)} r="3" fill={cNorm} />}
+        {t && !hid.act && t.act !== null && <circle cx={xi(ti)} cy={yOf(t.act)} r="3" fill={cAct} />}
+      </svg>
+      <div className="tnum" style={{ position: "relative", height: 12, fontSize: 9, color: "#5a6274" }}>
+        {xTicks.map((i, k) => <span key={k} style={{ position: "absolute", left: `${(xi(i) / W) * 100}%`, transform: k === 0 ? "none" : k === 2 ? "translateX(-100%)" : "translateX(-50%)" }}>{lab(pts[i].d)}</span>)}
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
+        {[["norm", "정상이익 기준", cNorm], ["act", "최근4분기 실적 기준", cAct]].map(([k, nm, c]) => (
+          <span key={k} onClick={() => setHid((h) => ({ ...h, [k]: !h[k] }))} style={{ fontSize: 10, padding: "2px 7px", borderRadius: 10, border: `1px solid ${c}`, color: c, opacity: hid[k] ? 0.35 : 1, textDecoration: hid[k] ? "line-through" : "none", cursor: "pointer" }}>{nm}</span>
+        ))}
+      </div>
+      <div style={{ marginTop: 4, fontSize: 9, color: "#5a6274", lineHeight: 1.45 }}>
+        분기마다 (적정가치 ÷ 그 분기말 주가)×100이에요. 100 위(옅은 빨강)는 가치가 아직 주가에 반영되기 전(저평가), 아래(옅은 파랑)는 거품(고평가). 정상이익 기준 = 그 분기 최근 4분기 매출 × 장기 영업이익률 {(vh.lr.mMed * 100).toFixed(1)}% × 0.8 × 장기 PER {vh.lr.perMed.toFixed(1)}배, 실적 기준 = 그 분기 최근 4분기 영업이익 × 0.8 × 같은 PER(적자 분기는 끊김). 장기 이익률·PER은 지금까지 {vh.lr.years}개년 전체의 중간값이라 과거 구간엔 "그때는 몰랐던" 정보가 섞여 있어요. 과거 시총은 지금 시총에 주가 변화율을 곱해 추정해요(증자·감자 반영 안 됨).
+      </div>
+    </div>
+  );
+};
+
 function PortfolioApp() {
   const [stocks, setStocks] = useState(seedStocks);
   const [cashAccounts, setCashAccounts] = useState(seedCash);
@@ -1526,6 +1623,7 @@ function PortfolioApp() {
   const [metricsStock, setMetricsStock] = useState(null); // "종목지표" 펼친 종목 id
   const [quarterStock, setQuarterStock] = useState(null); // "최근4분기" 펼친 종목 id
   const [futureStock, setFutureStock] = useState(null); // "미래가치" 펼친 종목 id
+  const [valueChartStock, setValueChartStock] = useState(null); // 미래가치 안 "차트" 탭을 켠 종목 id
   const [shortStock, setShortStock] = useState(null); // 최근4분기 안 "단기가치" 탭을 켠 종목 id
   const [shortInputs, setShortInputs] = useState(() => { try { return JSON.parse(localStorage.getItem(SHORT_INPUTS_KEY) || "{}") || {}; } catch (e) { return {}; } });
   const [futureCloses, setFutureCloses] = useState({}); // { [본주코드]: { years: {YYYY: 연말종가}, last: 최근종가 } }
@@ -2918,7 +3016,7 @@ function PortfolioApp() {
   useEffect(() => {
     if (!loaded || !proxyUrl) return;
     let cancelled = false;
-    const CK = "fair_raw_cache_v2"; // v2: 재무 10개년·월봉 10년치
+    const CK = "fair_raw_cache_v3"; // v3: 분기 10년치·월별 종가 // v2: 재무 10개년·월봉 10년치
     let cache = {};
     try { cache = JSON.parse(localStorage.getItem(CK) || "{}") || {}; } catch (e) {}
     const fresh = (c) => c && Date.now() - c.t < 24 * 3600 * 1000;
@@ -2945,8 +3043,8 @@ function PortfolioApp() {
         let clv = null;
         if (h && Array.isArray(h.candles) && h.candles.length) {
           const cs = h.candles.slice().sort((a, b) => (String(a.date) < String(b.date) ? -1 : 1));
-          const years = {}; cs.forEach((c) => { years[String(c.date).slice(0, 4)] = Number(c.close); });
-          clv = { years, last: Number(cs[cs.length - 1].close) };
+          const years = {}, months = {}; cs.forEach((c) => { years[String(c.date).slice(0, 4)] = Number(c.close); months[String(c.date).slice(0, 6)] = Number(c.close); });
+          clv = { years, months, last: Number(cs[cs.length - 1].close) };
         }
         if (efv) setExtraFundamentalsData((p) => (p[code] ? p : { ...p, [code]: efv }));
         if (clv) setFutureCloses((p) => (p[cc] ? p : { ...p, [cc]: clv }));
@@ -2970,7 +3068,7 @@ function PortfolioApp() {
     // 미래가치: 연도별 PER(계산치)을 구하려고 본주의 월봉으로 각 해 연말 종가를 받아둔다.
     if (futureStock && proxyUrl) {
       const cc = toCommonCode(stock.code) || stock.code;
-      if (!futureCloses[cc]) {
+      if (!futureCloses[cc] || !futureCloses[cc].months) {
         const base = proxyUrl.replace(/\/$/, "");
         const headers = appSecret ? { "x-app-secret": appSecret } : {};
         fetch(`${base}/stock-history/${cc}?period=M&days=3900`, { headers, signal: AbortSignal.timeout(30000) })
@@ -2978,9 +3076,9 @@ function PortfolioApp() {
           .then((d) => {
             if (!d || !Array.isArray(d.candles) || d.candles.length === 0) return;
             const cs = d.candles.slice().sort((a, b) => (String(a.date) < String(b.date) ? -1 : 1));
-            const years = {};
-            cs.forEach((c) => { years[String(c.date).slice(0, 4)] = Number(c.close); }); // 정렬돼 있어 그 해 마지막 월봉 종가가 남는다
-            setFutureCloses((p) => ({ ...p, [cc]: { years, last: Number(cs[cs.length - 1].close) } }));
+            const years = {}, months = {};
+            cs.forEach((c) => { years[String(c.date).slice(0, 4)] = Number(c.close); months[String(c.date).slice(0, 6)] = Number(c.close); }); // 정렬돼 있어 그 해 마지막 월봉 종가가 남는다
+            setFutureCloses((p) => ({ ...p, [cc]: { years, months, last: Number(cs[cs.length - 1].close) } }));
           })
           .catch(() => {});
       }
@@ -6736,13 +6834,25 @@ function PortfolioApp() {
               {futureStock === r.id && (
                 <div style={{ marginTop: 4 }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, fontSize: 11 }}>
-                    <span style={{ color: "#c9974a", fontWeight: 700 }}>{shortStock === r.id ? "미래가치 · 단기가치(1년)" : "미래가치 · 3년 후"}</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <button className="iconbtn" onClick={() => setValueChartStock(valueChartStock === r.id ? null : r.id)}
+                        style={{ fontSize: 11, padding: "3px 8px", borderRadius: 8, whiteSpace: "nowrap", border: valueChartStock === r.id ? "1px solid #c9974a" : "1px solid #3a4150", background: valueChartStock === r.id ? "rgba(201,151,74,0.15)" : "none", color: valueChartStock === r.id ? "#c9974a" : "#8993a6", fontWeight: valueChartStock === r.id ? 700 : 400 }}>
+                        {valueChartStock === r.id ? "◀ 표" : "차트"}
+                      </button>
+                      <span style={{ color: "#c9974a", fontWeight: 700 }}>{valueChartStock === r.id ? "가치 추이(분기)" : shortStock === r.id ? "미래가치 · 단기가치(1년)" : "미래가치 · 3년 후"}</span>
+                    </div>
                     <button className="iconbtn" onClick={() => setShortStock(shortStock === r.id ? null : r.id)}
                       style={{ fontSize: 11, padding: "3px 8px", borderRadius: 8, whiteSpace: "nowrap", border: shortStock === r.id ? "1px solid #c9974a" : "1px solid #3a4150", background: shortStock === r.id ? "rgba(201,151,74,0.15)" : "none", color: shortStock === r.id ? "#c9974a" : "#8993a6", fontWeight: shortStock === r.id ? 700 : 400 }}>
                       {shortStock === r.id ? "◀ 3년 후" : "단기가치 ▸"}
                     </button>
                   </div>
-                  {shortStock === r.id ? (
+                  {valueChartStock === r.id ? (
+                    <ValueTrendChart
+                      ef={r.code ? extraFundamentalsData[r.code] : null}
+                      closes={r.code ? futureCloses[toCommonCode(r.code) || r.code] : null}
+                      curCap={r.marketCap ? num(r.marketCap) : 0}
+                    />
+                  ) : shortStock === r.id ? (
                     <ShortValuePanel
                       name={r.code}
                       ef={r.code ? extraFundamentalsData[r.code] : null}
